@@ -349,6 +349,7 @@ func runServe() int {
 	apiHandler := api.NewHandler(store, projectID).WithHealthChecker(db)
 
 	var rootHandler http.Handler = apiHandler
+	rootHandler = api.RateLimitMiddleware(10, rootHandler) // 10 req/sec per IP
 	if cfg.APIKey != "" {
 		rootHandler = api.AuthMiddleware(cfg.APIKey, rootHandler)
 		log.Println("easycron: API key authentication enabled")
