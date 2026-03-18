@@ -259,6 +259,25 @@ func TestLoad_DispatchModeDB(t *testing.T) {
 	}
 }
 
+func TestMaskedJSON_RedisAddrMasked(t *testing.T) {
+	os.Setenv("REDIS_ADDR", "redis://user:password@redis.internal:6379")
+	defer os.Unsetenv("REDIS_ADDR")
+
+	cfg := Load()
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatalf("MaskedJSON failed: %v", err)
+	}
+
+	json := string(data)
+	if containsString(json, "password") {
+		t.Error("MaskedJSON should mask REDIS_ADDR credentials")
+	}
+	if !containsString(json, `"redis_addr"`) {
+		t.Error("MaskedJSON should include redis_addr field")
+	}
+}
+
 func containsString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

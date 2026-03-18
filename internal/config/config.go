@@ -303,7 +303,7 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		LeaderHeartbeatInterval  string `json:"leader_heartbeat_interval"`
 	}{
 		DatabaseURL:            maskSecret(c.DatabaseURL),
-		RedisAddr:              c.RedisAddr,
+		RedisAddr:              maskSecret(c.RedisAddr),
 		HTTPAddr:               c.HTTPAddr,
 		TickInterval:           c.TickIntervalStr,
 		DBOpTimeout:            c.DBOpTimeoutStr,
@@ -337,7 +337,7 @@ func maskSecret(s string) string {
 	if s == "" {
 		return ""
 	}
-	for _, scheme := range []string{"postgres://", "postgresql://"} {
+	for _, scheme := range []string{"postgres://", "postgresql://", "redis://", "rediss://"} {
 		if len(s) >= len(scheme) && s[:len(scheme)] == scheme {
 			return scheme + "***"
 		}
