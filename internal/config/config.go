@@ -13,6 +13,7 @@ type Config struct {
 	DatabaseURL string `json:"database_url"`
 	RedisAddr   string `json:"redis_addr,omitempty"`
 	HTTPAddr    string `json:"http_addr"`
+	APIKey  string `json:"-"` // never serialized, not even masked
 
 	TickInterval    time.Duration `json:"-"`
 	TickIntervalStr string        `json:"tick_interval"`
@@ -76,6 +77,7 @@ func Load() Config {
 		DatabaseURL:               os.Getenv("DATABASE_URL"),
 		RedisAddr:                 os.Getenv("REDIS_ADDR"),
 		HTTPAddr:                  os.Getenv("HTTP_ADDR"),
+		APIKey:                    os.Getenv("API_KEY"),
 		TickIntervalStr:           os.Getenv("TICK_INTERVAL"),
 		DBOpTimeoutStr:            os.Getenv("DB_OP_TIMEOUT"),
 		DBConnMaxLifetimeStr:      os.Getenv("DB_CONN_MAX_LIFETIME"),

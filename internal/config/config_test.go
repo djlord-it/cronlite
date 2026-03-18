@@ -278,6 +278,45 @@ func TestMaskedJSON_RedisAddrMasked(t *testing.T) {
 	}
 }
 
+func TestLoad_APIKey(t *testing.T) {
+	os.Setenv("API_KEY", "test-secret-key")
+	defer os.Unsetenv("API_KEY")
+
+	cfg := Load()
+
+	if cfg.APIKey != "test-secret-key" {
+		t.Errorf("APIKey: expected 'test-secret-key', got %q", cfg.APIKey)
+	}
+}
+
+func TestLoad_APIKeyEmpty(t *testing.T) {
+	os.Unsetenv("API_KEY")
+
+	cfg := Load()
+
+	if cfg.APIKey != "" {
+		t.Errorf("APIKey: expected empty, got %q", cfg.APIKey)
+	}
+}
+
+func TestMaskedJSON_ExcludesAPIKey(t *testing.T) {
+	os.Setenv("API_KEY", "super-secret")
+	defer os.Unsetenv("API_KEY")
+
+	cfg := Load()
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatalf("MaskedJSON failed: %v", err)
+	}
+
+	if containsString(string(data), "super-secret") {
+		t.Error("MaskedJSON should NOT include API_KEY value")
+	}
+	if containsString(string(data), "api_key") {
+		t.Error("MaskedJSON should NOT include api_key field at all")
+	}
+}
+
 func containsString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {

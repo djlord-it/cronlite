@@ -111,6 +111,7 @@ Environment Variables:
   DATABASE_URL              PostgreSQL connection string (required)
   REDIS_ADDR                Redis address for analytics (optional)
   HTTP_ADDR                 HTTP server address (default: ":8080")
+  API_KEY                   API key for Bearer authentication (optional, recommended)
   TICK_INTERVAL             Scheduler tick interval (default: "30s")
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
@@ -347,11 +348,23 @@ func runServe() int {
 	projectID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 	apiHandler := api.NewHandler(store, projectID).WithHealthChecker(db)
 
+	var rootHandler http.Handler = apiHandler
+	if cfg.APIKey != "" {
+		rootHandler = api.AuthMiddleware(cfg.APIKey, rootHandler)
+		log.Println("easycron: API key authentication enabled")
+	} else {
+		log.Println("WARNING [P0]: API_KEY not set — API endpoints are unauthenticated. Set API_KEY for production.")
+	}
+
 	httpMux := http.NewServeMux()
 	if cfg.MetricsEnabled {
-		httpMux.Handle(cfg.MetricsPath, promhttp.Handler())
+		metricsHandler := http.Handler(promhttp.Handler())
+		if cfg.APIKey != "" {
+			metricsHandler = api.AuthMiddleware(cfg.APIKey, metricsHandler)
+		}
+		httpMux.Handle(cfg.MetricsPath, metricsHandler)
 	}
-	httpMux.Handle("/", apiHandler)
+	httpMux.Handle("/", rootHandler)
 
 	// HTTP server runs on all instances regardless of dispatch mode.
 	httpServer := &http.Server{
