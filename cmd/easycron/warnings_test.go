@@ -166,6 +166,36 @@ func TestLogConfigWarnings_DBWorkersFour(t *testing.T) {
 	}
 }
 
+func TestLogConfigWarnings_SSLModeDisable(t *testing.T) {
+	cfg := &config.Config{
+		DatabaseURL:       "postgres://user:pass@host:5432/db?sslmode=disable",
+		DispatchMode:      "db",
+		ReconcileEnabled:  true,
+		MetricsEnabled:    true,
+		DispatcherWorkers: 4,
+	}
+	output := captureLogOutput(cfg)
+
+	if !strings.Contains(output, "WARNING") || !strings.Contains(output, "sslmode=disable") {
+		t.Error("expected sslmode=disable warning, got:", output)
+	}
+}
+
+func TestLogConfigWarnings_SSLModeNotDisable(t *testing.T) {
+	cfg := &config.Config{
+		DatabaseURL:       "postgres://user:pass@host:5432/db?sslmode=require",
+		DispatchMode:      "db",
+		ReconcileEnabled:  true,
+		MetricsEnabled:    true,
+		DispatcherWorkers: 4,
+	}
+	output := captureLogOutput(cfg)
+
+	if strings.Contains(output, "sslmode") {
+		t.Error("did not expect sslmode warning, got:", output)
+	}
+}
+
 func TestLogConfigWarnings_AllWarnings(t *testing.T) {
 	// Worst case: channel mode, no reconciler, no metrics
 	cfg := &config.Config{

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -570,5 +571,9 @@ func logConfigWarnings(cfg *config.Config) {
 
 	if cfg.DispatchMode == "db" && cfg.DispatcherWorkers == 1 {
 		log.Printf("INFO: DISPATCH_MODE=db with DISPATCHER_WORKERS=1 — consider increasing to 2-4 for production workloads.")
+	}
+
+	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
+		log.Printf("WARNING [P1]: DATABASE_URL contains sslmode=disable — database connections are NOT encrypted. Use sslmode=require or sslmode=verify-full for production.")
 	}
 }
