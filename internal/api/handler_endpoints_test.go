@@ -503,6 +503,12 @@ func TestHandler_Health_Verbose_Unhealthy(t *testing.T) {
 	if resp.Status != "degraded" {
 		t.Errorf("Status = %q, want degraded", resp.Status)
 	}
+	if strings.Contains(resp.Components["database"], "connection refused") {
+		t.Error("database component should not leak error details")
+	}
+	if resp.Components["database"] != "unhealthy" {
+		t.Errorf("database = %q, want 'unhealthy'", resp.Components["database"])
+	}
 }
 
 // --- Routing Tests ---

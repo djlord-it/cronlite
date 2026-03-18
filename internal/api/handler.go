@@ -106,7 +106,8 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.db.PingContext(ctx); err != nil {
 		resp.Status = "degraded"
-		resp.Components["database"] = "unhealthy: " + err.Error()
+		log.Printf("api: health check database unhealthy: %v", err)
+		resp.Components["database"] = "unhealthy"
 	} else {
 		resp.Components["database"] = "healthy"
 	}
