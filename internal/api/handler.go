@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -23,8 +22,9 @@ const (
 
 type Store interface {
 	CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	ListJobs(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error)
-	ListExecutions(ctx context.Context, jobID uuid.UUID, limit, offset int) ([]domain.Execution, error)
+	ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
+	ListExecutions(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
 	DeleteJob(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
 }
 
@@ -200,7 +200,8 @@ func (h *LegacyHandler) listJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs, err := h.store.ListJobs(r.Context(), h.namespace, limit, offset)
+	// Use the legacy GetEnabledJobs path that returns JobWithSchedule
+	jobs, err := h.store.GetEnabledJobs(r.Context(), limit, offset)
 	if err != nil {
 		log.Printf("api: list jobs error: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list jobs")
@@ -245,7 +246,10 @@ func (h *LegacyHandler) listExecutions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	executions, err := h.store.ListExecutions(r.Context(), jobID, limit, offset)
+	executions, err := h.store.ListExecutions(r.Context(), domain.ExecutionFilter{
+		JobID:      jobID,
+		ListParams: domain.ListParams{Limit: limit, Offset: offset},
+	})
 	if err != nil {
 		log.Printf("api: list executions error: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list executions")
@@ -284,7 +288,7 @@ func (h *LegacyHandler) deleteJob(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.DeleteJob(r.Context(), jobID, h.namespace); err != nil {
 		log.Printf("api: delete job error: %v", err)
-		if err == sql.ErrNoRows {
+		if err == domain.ErrJobNotFound {
 			writeError(w, http.StatusNotFound, "job not found")
 			return
 		}

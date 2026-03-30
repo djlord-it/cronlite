@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -21,10 +20,11 @@ import (
 type mockHandlerStore struct {
 	mu sync.Mutex
 
-	createJobFn      func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	listJobsFn       func(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error)
-	listExecutionsFn func(ctx context.Context, jobID uuid.UUID, limit, offset int) ([]domain.Execution, error)
-	deleteJobFn      func(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
+	createJobFn        func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
+	getEnabledJobsFn   func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
+	listJobsFn         func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listExecutionsFn   func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
+	deleteJobFn        func(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
 }
 
 func (s *mockHandlerStore) CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -36,20 +36,29 @@ func (s *mockHandlerStore) CreateJob(ctx context.Context, job domain.Job, schedu
 	return nil
 }
 
-func (s *mockHandlerStore) ListJobs(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
+func (s *mockHandlerStore) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.listJobsFn != nil {
-		return s.listJobsFn(ctx, ns, limit, offset)
+	if s.getEnabledJobsFn != nil {
+		return s.getEnabledJobsFn(ctx, limit, offset)
 	}
 	return nil, nil
 }
 
-func (s *mockHandlerStore) ListExecutions(ctx context.Context, jobID uuid.UUID, limit, offset int) ([]domain.Execution, error) {
+func (s *mockHandlerStore) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.listJobsFn != nil {
+		return s.listJobsFn(ctx, filter)
+	}
+	return nil, nil
+}
+
+func (s *mockHandlerStore) ListExecutions(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.listExecutionsFn != nil {
-		return s.listExecutionsFn(ctx, jobID, limit, offset)
+		return s.listExecutionsFn(ctx, filter)
 	}
 	return nil, nil
 }
@@ -214,12 +223,12 @@ func TestHandler_CreateJob_BodyTooLarge(t *testing.T) {
 func TestHandler_ListJobs_Success(t *testing.T) {
 	now := time.Now().UTC()
 	store := &mockHandlerStore{
-		listJobsFn: func(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
+		getEnabledJobsFn: func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
 			return []domain.JobWithSchedule{
 				{
 					Job: domain.Job{
 						ID:        uuid.MustParse("11111111-1111-1111-1111-111111111111"),
-						Namespace: ns,
+						Namespace: "default",
 						Name:      "job-1",
 						Enabled:   true,
 						Delivery:  domain.DeliveryConfig{WebhookURL: "https://example.com/1"},
@@ -259,7 +268,7 @@ func TestHandler_ListJobs_Success(t *testing.T) {
 
 func TestHandler_ListJobs_Empty(t *testing.T) {
 	store := &mockHandlerStore{
-		listJobsFn: func(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
+		getEnabledJobsFn: func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
 			return []domain.JobWithSchedule{}, nil
 		},
 	}
@@ -287,7 +296,7 @@ func TestHandler_ListJobs_Empty(t *testing.T) {
 
 func TestHandler_ListJobs_StoreError(t *testing.T) {
 	store := &mockHandlerStore{
-		listJobsFn: func(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
+		getEnabledJobsFn: func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
 			return nil, errors.New("db error")
 		},
 	}
@@ -310,9 +319,9 @@ func TestHandler_ListExecutions_Success(t *testing.T) {
 	jobID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
 
 	store := &mockHandlerStore{
-		listExecutionsFn: func(ctx context.Context, jID uuid.UUID, limit, offset int) ([]domain.Execution, error) {
-			if jID != jobID {
-				t.Errorf("jobID = %v, want %v", jID, jobID)
+		listExecutionsFn: func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error) {
+			if filter.JobID != jobID {
+				t.Errorf("jobID = %v, want %v", filter.JobID, jobID)
 			}
 			return []domain.Execution{
 				{
@@ -385,7 +394,7 @@ func TestHandler_DeleteJob_Success(t *testing.T) {
 func TestHandler_DeleteJob_NotFound(t *testing.T) {
 	store := &mockHandlerStore{
 		deleteJobFn: func(ctx context.Context, jID uuid.UUID, ns domain.Namespace) error {
-			return sql.ErrNoRows
+			return domain.ErrJobNotFound
 		},
 	}
 	handler := newTestHandler(store)
