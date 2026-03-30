@@ -9,9 +9,12 @@ set -uo pipefail
 COMPOSE="docker compose -f docker-compose.ha-test.yml -p easycron-ha-test"
 INSTANCES=("easycron_1" "easycron_2" "easycron_3")
 PORTS=("8081" "8082" "8083")
+API_BASES=("http://localhost:8081" "http://localhost:8082" "http://localhost:8083")
 WEBHOOK_URL="http://localhost:9090"
-API_BASE="http://localhost:8081"  # any instance can accept API calls
 AUTH_HEADER="Authorization: Bearer ha-test-key"
+API_BASE=""
+API_CALL_STATUS=""
+API_CALL_BODY=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -26,6 +29,10 @@ fail() { echo -e "${RED}  ✗ $1${NC}"; FAILED=$((FAILED + 1)); }
 info() { echo -e "${YELLOW}  → $1${NC}"; }
 
 cleanup() {
+    if [[ "${HA_TEST_SKIP_CLEANUP:-false}" == "true" ]]; then
+        info "Skipping cleanup (HA_TEST_SKIP_CLEANUP=true)"
+        return
+    fi
     echo ""
     info "Cleaning up containers..."
     $COMPOSE down -v --remove-orphans 2>/dev/null || true
@@ -121,6 +128,61 @@ wait_for_healthy() {
     return 1
 }
 
+api_call() {
+    local method="$1"
+    local url="$2"
+    local payload="${3:-}"
+    local body_file
+    local curl_exit
+
+    body_file=$(mktemp)
+    if [[ -n "$payload" ]]; then
+        API_CALL_STATUS=$(curl -sS -o "$body_file" -w "%{http_code}" \
+            -X "$method" "$url" \
+            -H "Content-Type: application/json" \
+            -H "${AUTH_HEADER}" \
+            -d "$payload")
+        curl_exit=$?
+    else
+        API_CALL_STATUS=$(curl -sS -o "$body_file" -w "%{http_code}" \
+            -X "$method" "$url" \
+            -H "${AUTH_HEADER}")
+        curl_exit=$?
+    fi
+
+    API_CALL_BODY=$(cat "$body_file" 2>/dev/null || true)
+    rm -f "$body_file"
+
+    if (( curl_exit != 0 )); then
+        API_CALL_STATUS="000"
+        if [[ -z "$API_CALL_BODY" ]]; then
+            API_CALL_BODY="curl exited with status ${curl_exit}"
+        fi
+        return 1
+    fi
+
+    return 0
+}
+
+wait_for_api_ready() {
+    local timeout=${1:-30}
+    local elapsed=0
+
+    while (( elapsed < timeout )); do
+        for base in "${API_BASES[@]}"; do
+            api_call GET "${base}/jobs?limit=1" || true
+            if [[ "${API_CALL_STATUS}" == "200" ]]; then
+                API_BASE="$base"
+                return 0
+            fi
+        done
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+
+    return 1
+}
+
 # ── Step 0: Build and start ─────────────────────────────────────────────
 
 echo "═══════════════════════════════════════════════════════════════"
@@ -158,26 +220,46 @@ fi
 echo ""
 echo "Step 2: Creating test job (*/1 * * * *, fires every minute)..."
 
-JOB_RESPONSE=$(curl -sf -X POST "${API_BASE}/jobs" \
-    -H "Content-Type: application/json" \
-    -H "${AUTH_HEADER}" \
-    -d '{
-        "name": "ha-test-webhook",
-        "cron_expression": "*/1 * * * *",
-        "timezone": "UTC",
-        "webhook_url": "http://webhook-receiver:8080/hook",
-        "webhook_secret": "test-secret"
-    }') || JOB_RESPONSE=""
+if wait_for_api_ready 30; then
+    pass "Authenticated API ready on ${API_BASE}"
+else
+    fail "API did not become ready for authenticated calls (last status=${API_CALL_STATUS}, response=${API_CALL_BODY})"
+    exit 1
+fi
+
+JOB_PAYLOAD='{
+    "name": "ha-test-webhook",
+    "cron_expression": "*/1 * * * *",
+    "timezone": "UTC",
+    "webhook_url": "http://webhook-receiver:8080/hook",
+    "webhook_secret": "test-secret"
+}'
+
+JOB_RESPONSE=""
+JOB_STATUS=""
+JOB_BASE=""
+for attempt in {1..15}; do
+    for base in "${API_BASES[@]}"; do
+        api_call POST "${base}/jobs" "${JOB_PAYLOAD}" || true
+        JOB_STATUS="${API_CALL_STATUS}"
+        JOB_RESPONSE="${API_CALL_BODY}"
+        JOB_BASE="$base"
+        if [[ "$JOB_STATUS" == "201" ]]; then
+            break 2
+        fi
+    done
+    sleep 2
+done
 
 JOB_ID=""
-if [[ -n "$JOB_RESPONSE" ]]; then
+if [[ "$JOB_STATUS" == "201" && -n "$JOB_RESPONSE" ]]; then
     JOB_ID=$(echo "$JOB_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null) || JOB_ID=""
 fi
 
 if [[ -n "$JOB_ID" ]]; then
-    pass "Job created: ${JOB_ID}"
+    pass "Job created on ${JOB_BASE}: ${JOB_ID}"
 else
-    fail "Failed to create job. Response: ${JOB_RESPONSE}"
+    fail "Failed to create job (status=${JOB_STATUS}, instance=${JOB_BASE}). Response: ${JOB_RESPONSE}"
     exit 1
 fi
 

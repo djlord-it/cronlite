@@ -60,7 +60,7 @@ func MultiKeyAuthMiddleware(
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Exempt paths
-		if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/mcp") {
+		if r.URL.Path == "/health" || r.URL.Path == "/metrics" || strings.HasPrefix(r.URL.Path, "/mcp") {
 			next.ServeHTTP(w, r)
 			return
 		}
