@@ -10,6 +10,8 @@ Operational contract: what EasyCron guarantees, how it fails, and how to run it.
 
 > **DO NOT** run `DISPATCH_MODE=db` without applying `schema/003_add_claimed_at.sql`. The stale execution recovery mechanism depends on the `claimed_at` column. Without it, crashed worker claims are never recovered.
 
+> **DO NOT** skip `schema/004_agent_platform.sql` in current releases. API keys, namespaces, tags, and execution acknowledgment fields are defined there. Missing migration 004 breaks auth and newer API paths.
+
 > **DO NOT** assume instant failover. Leader election depends on Postgres detecting a dead TCP connection. Without tuned TCP keepalive settings, failover can take **minutes, not seconds**. See [Failover Timing](#failover-timing).
 
 ## Deployment Decision Tree
@@ -26,14 +28,14 @@ Operational contract: what EasyCron guarantees, how it fails, and how to run it.
              │
              ├─ NO → 1 instance, DISPATCH_MODE=db
              │        Required: DATABASE_URL, RECONCILE_ENABLED=true, METRICS_ENABLED=true
-             │        Run migration 003_add_claimed_at.sql
+             │        Run migrations 003_add_claimed_at.sql and 004_agent_platform.sql
              │        Benefit: crash recovery via claimed_at; ready to scale later
              │
              └─ YES → 2+ instances, DISPATCH_MODE=db
                        Required: DATABASE_URL (same on all), DISPATCH_MODE=db,
                                  LEADER_LOCK_KEY=728379 (same on all),
                                  RECONCILE_ENABLED=true, METRICS_ENABLED=true
-                       Run ALL migrations (001, 002, 003)
+                       Run ALL migrations (001, 002, 003, 004)
                        Tune: TCP keepalive on Postgres (see Failover Timing)
                        Tune: DISPATCHER_WORKERS=2-4
 
@@ -61,7 +63,7 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 
 Copy this checklist before deploying EasyCron to production:
 
-- [ ] 1. All migrations applied in order: `001_initial.sql`, `002_add_indexes.sql`, `003_add_claimed_at.sql`
+- [ ] 1. All migrations applied in order: `001_initial.sql`, `002_add_indexes.sql`, `003_add_claimed_at.sql`, `004_agent_platform.sql`
 - [ ] 2. `RECONCILE_ENABLED=true` on all instances
 - [ ] 3. `METRICS_ENABLED=true` on all instances
 - [ ] 4. `DISPATCH_MODE=db` if running more than one instance
@@ -76,12 +78,14 @@ Copy this checklist before deploying EasyCron to production:
 - [ ] 13. Graceful shutdown timeout in orchestrator ≥ 45s (covers 40s EasyCron drain)
 - [ ] 14. `DATABASE_URL` uses `sslmode=require` or stricter
 - [ ] 15. Circuit breaker enabled (`CIRCUIT_BREAKER_THRESHOLD=5`) with monitoring for `circuit_open` outcomes
+- [ ] 16. At least one API key provisioned (`easycron create-key <namespace> <label>`) before exposing API traffic
 
 ## Configuration Reference
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | *required* | PostgreSQL connection string |
+| `API_KEY` | *(empty)* | Legacy static Bearer token fallback (also used to protect `/metrics` when set) |
 | `HTTP_ADDR` | `:8080` | Listen address |
 | `TICK_INTERVAL` | `30s` | Scheduler polling interval |
 | `DISPATCH_MODE` | `channel` | `channel` (in-memory) or `db` (Postgres polling) |
@@ -104,6 +108,7 @@ Copy this checklist before deploying EasyCron to production:
 | `LEADER_LOCK_KEY` | `728379` | Postgres advisory lock key (DB mode) |
 | `LEADER_RETRY_INTERVAL` | `5s` | Follower lock acquisition retry (DB mode) |
 | `LEADER_HEARTBEAT_INTERVAL` | `2s` | Leader connection health check (DB mode) |
+| `RATE_LIMIT` | `10` | Per-IP request rate limit (requests/sec) |
 
 ### Required in Production
 
@@ -146,6 +151,31 @@ Copy this checklist before deploying EasyCron to production:
 | **DB load** | Lower | Higher (polling every `DB_POLL_INTERVAL`) |
 
 DB mode requires migration: `psql easycron < schema/003_add_claimed_at.sql`
+Current API/auth model also requires: `psql easycron < schema/004_agent_platform.sql`
+
+## Auth Model
+
+EasyCron uses namespace-scoped API keys with SHA-256 hashed storage.
+
+**Key concepts:**
+- Each API key belongs to a **namespace** — all operations via that key are isolated to its namespace
+- Keys are created with `easycron create-key <namespace> <label>` — the plaintext token (`ec_<64-hex>`) is shown once
+- Token format: `ec_` prefix + 64 hex characters (256-bit random)
+
+**Authentication flow:**
+1. Extract `Bearer <token>` from `Authorization` header
+2. SHA-256 hash the token → look up in `api_keys` table
+3. If found and enabled → inject key's namespace into request context, track `last_used_at`
+4. If not found → fall back to legacy `API_KEY` env var (maps to namespace `default`)
+5. If neither matches → 401
+
+**Exempt paths:** `/health`, `/metrics`, `/mcp` (MCP has its own auth via `HTTPContextFunc`)
+
+**Rate limiting:** Per-IP token bucket (10 req/sec default) on all endpoints except `/health`. Returns `429 Too Many Requests` when exceeded.
+
+**`last_used_at` tracking:** Debounced in-memory with background flush every 60 seconds to minimize DB writes under high traffic.
+
+**Legacy compatibility:** The `API_KEY` env var still works as a fallback and maps to the `default` namespace. Recommended for bootstrap and ops tooling.
 
 ## Execution Lifecycle
 
@@ -218,6 +248,32 @@ On SIGINT/SIGTERM: scheduler stops → reconciler stops → dispatcher drains (`
 **Max shutdown time:** `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default 40s).
 
 Events in the in-memory buffer and incomplete retry sequences may be lost.
+
+## Security Hardening
+
+**SSRF protection:** Webhook URLs targeting private/reserved IP ranges are rejected at job creation time. Blocked ranges: RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback (`127.0.0.0/8`), link-local (`169.254.0.0/16`), and IPv6 equivalents.
+
+**Credential masking:** `easycron config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
+
+**SSL mode warning:** Startup emits a warning when `DATABASE_URL` uses `sslmode=disable`. Production deployments should use `sslmode=require` or stricter.
+
+**Error sanitization:** Database error details (constraint names, query fragments) are never leaked in API responses. Internal errors return generic `500 Internal Server Error`.
+
+**API key storage:** Tokens are SHA-256 hashed before storage. The plaintext token is returned exactly once at creation time and never persisted.
+
+## MCP Transport
+
+EasyCron exposes an MCP (Model Context Protocol) interface for AI agent integration. Two deployment modes:
+
+**Embedded (Streamable HTTP):** Mounted at `/mcp` on every instance. Uses the same auth flow as REST — Bearer token resolves to namespace. No additional configuration needed.
+
+**Standalone (stdio):** The `easycron-mcp` binary proxies MCP tool calls to the REST API over HTTP. Requires `EASYCRON_URL` and `EASYCRON_API_KEY` env vars.
+
+**Operational notes:**
+- MCP tools are namespace-scoped (same isolation as REST)
+- The embedded server uses SSE for streaming — ensure your reverse proxy supports long-lived connections
+- 10 Phase 1 tools available: `create-job`, `list-jobs`, `get-job`, `update-job`, `delete-job`, `pause-job`, `resume-job`, `trigger-job`, `next-run`, `resolve-schedule`
+- `delete-job` is marked as destructive in the MCP tool metadata
 
 ## Horizontal Scaling (Multi-Instance HA)
 
@@ -308,7 +364,7 @@ The `LEADER_HEARTBEAT_INTERVAL` (default 2s) detects local connection failures q
 ./scripts/ha_test.sh
 ```
 
-Starts 3 instances, verifies single leader, kills leader, asserts failover, checks no double-scheduling. See [`docs/ha-test.md`](docs/ha-test.md).
+Starts 3 instances, verifies single leader, kills leader, asserts failover, checks no double-scheduling. The harness sets `API_KEY=ha-test-key` and sends `Authorization: Bearer ha-test-key` on API calls. See [`docs/ha-test.md`](docs/ha-test.md).
 
 ## Monitoring
 
