@@ -29,6 +29,7 @@ import (
 	"github.com/djlord-it/easy-cron/internal/metrics"
 	"github.com/djlord-it/easy-cron/internal/reconciler"
 	"github.com/djlord-it/easy-cron/internal/scheduler"
+	"github.com/djlord-it/easy-cron/internal/service"
 	"github.com/djlord-it/easy-cron/internal/store/postgres"
 	"github.com/djlord-it/easy-cron/internal/transport/channel"
 
@@ -343,15 +344,22 @@ func runServe() int {
 		log.Println("easycron: circuit breaker disabled (threshold=0)")
 	}
 
-	// Fixed namespace for single-tenant mode.
-	ns := domain.Namespace("default")
-	apiHandler := api.NewHandler(store, ns).WithHealthChecker(db)
+	// ── Service layer ─────────────────────────────────────────────────────────
+	svcParser := cron.NewParser()
+	jobService := service.NewJobService(store, store, store, store, store, store, svcParser)
 
-	var rootHandler http.Handler = apiHandler
+	// ── REST transport (oapi-codegen strict handler) ──────────────────────────
+	serverImpl := api.NewServerImpl(jobService).WithHealthChecker(db)
+	strictHandler := api.NewStrictHandler(serverImpl, nil)
+	apiRouter := api.Handler(strictHandler)
+
+	var rootHandler http.Handler = apiRouter
 	rootHandler = api.RateLimitMiddleware(10, rootHandler) // 10 req/sec per IP
+
+	// Multi-key auth with legacy fallback.
+	rootHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, rootHandler)
 	if cfg.APIKey != "" {
-		rootHandler = api.AuthMiddleware(cfg.APIKey, rootHandler)
-		log.Println("easycron: API key authentication enabled")
+		log.Println("easycron: API key authentication enabled (multi-key + legacy fallback)")
 	} else {
 		log.Println("WARNING [P0]: API_KEY not set — API endpoints are unauthenticated. Set API_KEY for production.")
 	}
