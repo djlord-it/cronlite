@@ -20,6 +20,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
     -o /easycron ./cmd/easycron
 
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+    -o /easycron-mcp ./cmd/easycron-mcp
+
 # Runtime stage
 FROM alpine:3.19
 
@@ -34,6 +38,7 @@ WORKDIR /app
 
 # Copy binary from builder
 COPY --from=builder /easycron /usr/local/bin/easycron
+COPY --from=builder /easycron-mcp /usr/local/bin/easycron-mcp
 
 # Copy schema for reference (optional, useful for migrations)
 COPY schema/ /app/schema/

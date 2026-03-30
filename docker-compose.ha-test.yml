@@ -22,6 +22,7 @@ services:
       - ./schema/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
       - ./schema/002_add_indexes.sql:/docker-entrypoint-initdb.d/002_add_indexes.sql
       - ./schema/003_add_claimed_at.sql:/docker-entrypoint-initdb.d/003_add_claimed_at.sql
+      - ./schema/004_agent_platform.sql:/docker-entrypoint-initdb.d/004_agent_platform.sql
     ports:
       - "5433:5432"
     healthcheck:
