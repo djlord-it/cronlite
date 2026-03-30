@@ -1,0 +1,716 @@
+openapi: "3.0.3"
+info:
+  title: EasyCron Agent Platform API
+  version: "1.0.0"
+  description: |
+    Cron-as-a-service with first-class AI agent interfaces.
+    Namespace-scoped, multi-key auth, webhook delivery.
+
+servers:
+  - url: http://localhost:8080
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API key token. Maps to a namespace.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+    Tag:
+      type: object
+      additionalProperties:
+        type: string
+      description: Key-value tag pairs
+      example:
+        agent: claude-code
+        project: my-app
+
+    Job:
+      type: object
+      required: [id, namespace, name, enabled, cron_expression, timezone, webhook_url, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        namespace:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        cron_expression:
+          type: string
+        timezone:
+          type: string
+        webhook_url:
+          type: string
+        tags:
+          $ref: "#/components/schemas/Tag"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    JobDetail:
+      allOf:
+        - $ref: "#/components/schemas/Job"
+        - type: object
+          properties:
+            recent_executions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Execution"
+              maxItems: 5
+
+    Execution:
+      type: object
+      required: [id, job_id, scheduled_at, fired_at, status, trigger_type, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        job_id:
+          type: string
+          format: uuid
+        scheduled_at:
+          type: string
+          format: date-time
+        fired_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [emitted, in_progress, delivered, failed]
+        trigger_type:
+          type: string
+          enum: [scheduled, manual]
+        created_at:
+          type: string
+          format: date-time
+        acknowledged_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateJobRequest:
+      type: object
+      required: [name, cron_expression, timezone, webhook_url]
+      properties:
+        name:
+          type: string
+        cron_expression:
+          type: string
+        timezone:
+          type: string
+        webhook_url:
+          type: string
+        webhook_secret:
+          type: string
+        webhook_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 30
+        tags:
+          $ref: "#/components/schemas/Tag"
+        analytics:
+          type: object
+          properties:
+            retention_seconds:
+              type: integer
+              minimum: 0
+              maximum: 604800
+
+    UpdateJobRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        cron_expression:
+          type: string
+        timezone:
+          type: string
+        webhook_url:
+          type: string
+        webhook_secret:
+          type: string
+        webhook_timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 60
+        enabled:
+          type: boolean
+        tags:
+          $ref: "#/components/schemas/Tag"
+
+    ResolveScheduleRequest:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+          description: Natural language schedule or cron expression
+        timezone:
+          type: string
+          default: UTC
+
+    ResolveScheduleResponse:
+      type: object
+      required: [cron_expression, description, timezone, next_runs]
+      properties:
+        cron_expression:
+          type: string
+        description:
+          type: string
+        timezone:
+          type: string
+        next_runs:
+          type: array
+          items:
+            type: string
+            format: date-time
+          minItems: 5
+          maxItems: 5
+
+    NextRunResponse:
+      type: object
+      required: [next_run_at, cron_expression, timezone, next_runs]
+      properties:
+        next_run_at:
+          type: string
+          format: date-time
+        cron_expression:
+          type: string
+        timezone:
+          type: string
+        next_runs:
+          type: array
+          items:
+            type: string
+            format: date-time
+          minItems: 5
+          maxItems: 5
+
+    CreateAPIKeyRequest:
+      type: object
+      required: [namespace, label]
+      properties:
+        namespace:
+          type: string
+        label:
+          type: string
+
+    CreateAPIKeyResponse:
+      type: object
+      required: [id, namespace, label, token, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        namespace:
+          type: string
+        label:
+          type: string
+        token:
+          type: string
+          description: Plaintext token. Only returned on creation.
+        created_at:
+          type: string
+          format: date-time
+
+    APIKeyInfo:
+      type: object
+      required: [id, namespace, label, enabled, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        namespace:
+          type: string
+        label:
+          type: string
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+        database:
+          type: string
+
+  parameters:
+    LimitParam:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 100
+        maximum: 1000
+    OffsetParam:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+    JobId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ExecutionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    APIKeyId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      security: []
+      parameters:
+        - name: verbose
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /jobs:
+    post:
+      operationId: createJob
+      summary: Create a new cron job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetail"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      operationId: listJobs
+      summary: List jobs in caller's namespace
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+        - name: tag
+          in: query
+          description: "Filter by tag (key:value format, repeatable, AND semantics)"
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: enabled
+          in: query
+          schema:
+            type: boolean
+        - name: name
+          in: query
+          description: Substring match on job name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Jobs list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Job"
+
+  /jobs/{id}:
+    get:
+      operationId: getJob
+      summary: Get job detail with recent executions
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      operationId: updateJob
+      summary: Partial update a job
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateJobRequest"
+      responses:
+        "200":
+          description: Updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteJob
+      summary: Delete a job and its data
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /jobs/{id}/pause:
+    post:
+      operationId: pauseJob
+      summary: Pause a job (set enabled=false)
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /jobs/{id}/resume:
+    post:
+      operationId: resumeJob
+      summary: Resume a paused job (set enabled=true)
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job resumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /jobs/{id}/trigger:
+    post:
+      operationId: triggerJob
+      summary: Trigger immediate execution
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "201":
+          description: Execution created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Execution"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Job is disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /jobs/{id}/next-run:
+    get:
+      operationId: getNextRun
+      summary: Get next scheduled run time
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Next run info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NextRunResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /jobs/{id}/executions:
+    get:
+      operationId: listExecutions
+      summary: List executions for a job
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [emitted, in_progress, delivered, failed]
+        - name: trigger_type
+          in: query
+          schema:
+            type: string
+            enum: [scheduled, manual]
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Executions list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [executions]
+                properties:
+                  executions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Execution"
+
+  /executions/{id}:
+    get:
+      operationId: getExecution
+      summary: Get execution detail with delivery attempts
+      parameters:
+        - $ref: "#/components/parameters/ExecutionId"
+      responses:
+        "200":
+          description: Execution detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Execution"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /executions/pending-ack:
+    get:
+      operationId: listPendingAck
+      summary: List unacknowledged completed/failed executions
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - name: job_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Pending ack list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [executions]
+                properties:
+                  executions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Execution"
+
+  /executions/{id}/ack:
+    post:
+      operationId: ackExecution
+      summary: Acknowledge an execution result
+      parameters:
+        - $ref: "#/components/parameters/ExecutionId"
+      responses:
+        "204":
+          description: Acknowledged
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /schedules/resolve:
+    post:
+      operationId: resolveSchedule
+      summary: Resolve natural language to cron expression
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveScheduleRequest"
+      responses:
+        "200":
+          description: Resolved schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveScheduleResponse"
+        "422":
+          description: Could not parse
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api-keys:
+    post:
+      operationId: createAPIKey
+      summary: Create a new API key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAPIKeyRequest"
+      responses:
+        "201":
+          description: Key created (token returned once)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAPIKeyResponse"
+    get:
+      operationId: listAPIKeys
+      summary: List API keys in caller's namespace
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
+      responses:
+        "200":
+          description: API keys list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/APIKeyInfo"
+
+  /api-keys/{id}:
+    delete:
+      operationId: deleteAPIKey
+      summary: Revoke an API key
+      parameters:
+        - $ref: "#/components/parameters/APIKeyId"
+      responses:
+        "204":
+          description: Key revoked
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"

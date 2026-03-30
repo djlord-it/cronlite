@@ -33,23 +33,23 @@ type HealthChecker interface {
 	PingContext(ctx context.Context) error
 }
 
-type Handler struct {
+type LegacyHandler struct {
 	store     Store
 	namespace domain.Namespace // single-tenant for now
 	db        HealthChecker
 }
 
-func NewHandler(store Store, ns domain.Namespace) *Handler {
-	return &Handler{store: store, namespace: ns}
+func NewHandler(store Store, ns domain.Namespace) *LegacyHandler {
+	return &LegacyHandler{store: store, namespace: ns}
 }
 
 // WithHealthChecker sets the database health checker for verbose /health responses.
-func (h *Handler) WithHealthChecker(db HealthChecker) *Handler {
+func (h *LegacyHandler) WithHealthChecker(db HealthChecker) *LegacyHandler {
 	h.db = db
 	return h
 }
 
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	switch {
@@ -73,24 +73,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HealthResponse represents the /health endpoint response.
-type HealthResponse struct {
+// LegacyHealthResponse represents the /health endpoint response.
+type LegacyHealthResponse struct {
 	Status     string            `json:"status"`
 	Components map[string]string `json:"components,omitempty"`
 }
 
-func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) health(w http.ResponseWriter, r *http.Request) {
 	// Check if verbose mode requested via ?verbose=true
 	verbose := r.URL.Query().Get("verbose") == "true"
 
 	if !verbose || h.db == nil {
 		// Simple health check - just return ok
-		writeJSON(w, http.StatusOK, HealthResponse{Status: "ok"})
+		writeJSON(w, http.StatusOK, LegacyHealthResponse{Status: "ok"})
 		return
 	}
 
 	// Verbose health check - check all components
-	resp := HealthResponse{
+	resp := LegacyHealthResponse{
 		Status:     "ok",
 		Components: make(map[string]string),
 	}
@@ -119,11 +119,11 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 // maxRequestBodySize is the maximum allowed request body size (1MB).
 const maxRequestBodySize = 1 << 20
 
-func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	// Limit request body size to prevent DoS via large payloads
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 
-	var req CreateJobRequest
+	var req LegacyCreateJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Check if error is due to body size limit
 		if err.Error() == "http: request body too large" {
@@ -193,7 +193,7 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
-func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) listJobs(w http.ResponseWriter, r *http.Request) {
 	limit, offset, err := parsePagination(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -224,7 +224,7 @@ func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (h *Handler) listExecutions(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) listExecutions(w http.ResponseWriter, r *http.Request) {
 	// Extract job ID from path: /jobs/{id}/executions
 	path := r.URL.Path
 	parts := strings.Split(strings.Trim(path, "/"), "/")
@@ -267,7 +267,7 @@ func (h *Handler) listExecutions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (h *Handler) deleteJob(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) deleteJob(w http.ResponseWriter, r *http.Request) {
 	// Extract job ID from path: /jobs/{id}
 	path := r.URL.Path
 	parts := strings.Split(strings.Trim(path, "/"), "/")

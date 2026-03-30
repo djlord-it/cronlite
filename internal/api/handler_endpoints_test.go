@@ -78,7 +78,7 @@ func (m *mockHealthChecker) PingContext(ctx context.Context) error {
 	return nil
 }
 
-func newTestHandler(store *mockHandlerStore) *Handler {
+func newTestHandler(store *mockHandlerStore) *LegacyHandler {
 	return NewHandler(store, domain.Namespace("default"))
 }
 
@@ -449,7 +449,7 @@ func TestHandler_Health_Simple(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 
-	var resp HealthResponse
+	var resp LegacyHealthResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Status != "ok" {
 		t.Errorf("Status = %q, want ok", resp.Status)
@@ -470,7 +470,7 @@ func TestHandler_Health_Verbose_Healthy(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 
-	var resp HealthResponse
+	var resp LegacyHealthResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Status != "ok" {
 		t.Errorf("Status = %q, want ok", resp.Status)
@@ -498,7 +498,7 @@ func TestHandler_Health_Verbose_Unhealthy(t *testing.T) {
 		t.Errorf("expected 503, got %d", w.Code)
 	}
 
-	var resp HealthResponse
+	var resp LegacyHealthResponse
 	json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Status != "degraded" {
 		t.Errorf("Status = %q, want degraded", resp.Status)

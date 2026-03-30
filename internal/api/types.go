@@ -2,7 +2,7 @@ package api
 
 import "time"
 
-type CreateJobRequest struct {
+type LegacyCreateJobRequest struct {
 	Name           string `json:"name"`
 	CronExpression string `json:"cron_expression"`
 	Timezone       string `json:"timezone"`
