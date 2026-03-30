@@ -53,7 +53,7 @@ detect_leader_by_metrics() {
     local leaders=()
     for i in 0 1 2; do
         local raw val
-        raw=$(curl -sf "http://localhost:${PORTS[$i]}/metrics" 2>/dev/null) || continue
+        raw=$(curl -sf -H "${AUTH_HEADER}" "http://localhost:${PORTS[$i]}/metrics" 2>/dev/null) || continue
         val=$(echo "$raw" | grep '^easycron_leader_is_leader ' | awk '{print $2}') || continue
         if [[ "$val" == "1" ]]; then
             leaders+=("${INSTANCES[$i]}")
@@ -83,7 +83,7 @@ detect_leader() {
     local leaders
     leaders=$(detect_leader_by_metrics)
     if [[ -z "$leaders" ]]; then
-        info "Metrics unavailable, falling back to log detection"
+        info "Metrics unavailable, falling back to log detection" >&2
         leaders=$(detect_leader_by_logs)
     fi
     echo "$leaders"
@@ -315,6 +315,11 @@ RATE_BEFORE_TIME=$SECONDS
 
 echo ""
 echo "Step 5: Killing leader container (${LEADER})..."
+
+if [[ -z "${LEADER}" ]]; then
+    fail "No leader detected, cannot run failover kill step"
+    exit 1
+fi
 
 docker kill "$LEADER" || info "Warning: docker kill returned non-zero"
 info "Leader ${LEADER} killed"
