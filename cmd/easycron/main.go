@@ -86,6 +86,8 @@ func main() {
 		os.Exit(runConfig())
 	case "version":
 		os.Exit(runVersion())
+	case "create-key":
+		os.Exit(runCreateKey())
 	case "--help", "-h", "help":
 		printUsage()
 		os.Exit(exitSuccess)
@@ -103,10 +105,11 @@ Usage:
   easycron <command>
 
 Commands:
-  serve      Start the scheduler and dispatcher
-  validate   Validate configuration (no connections made)
-  config     Print effective configuration as JSON (secrets masked)
-  version    Print version information
+  serve        Start the scheduler and dispatcher
+  validate     Validate configuration (no connections made)
+  config       Print effective configuration as JSON (secrets masked)
+  version      Print version information
+  create-key   Create a new API key  (usage: easycron create-key <namespace> <label>)
 
 Environment Variables:
   DATABASE_URL              PostgreSQL connection string (required)
@@ -561,6 +564,52 @@ func runConfig() int {
 
 func runVersion() int {
 	fmt.Printf("easycron version %s (commit: %s)\n", version, commit)
+	return exitSuccess
+}
+
+func runCreateKey() int {
+	args := os.Args[2:]
+	if len(args) != 2 {
+		fmt.Fprintf(os.Stderr, "usage: easycron create-key <namespace> <label>\n")
+		return exitRuntimeError
+	}
+	namespace := args[0]
+	label := args[1]
+
+	cfg := config.Load()
+
+	db, err := sql.Open("postgres", cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
+		return exitRuntimeError
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
+		return exitRuntimeError
+	}
+
+	store := postgres.New(db, cfg.DBOpTimeout)
+	svcParser := cron.NewParser()
+	svc := service.NewJobService(store, store, store, store, store, store, svcParser)
+
+	ctx := domain.NamespaceToContext(context.Background(), domain.Namespace(namespace))
+	result, err := svc.CreateAPIKey(ctx, service.CreateAPIKeyInput{
+		Label: label,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create API key: %v\n", err)
+		return exitRuntimeError
+	}
+
+	fmt.Printf("API Key created:\n")
+	fmt.Printf("  ID:        %s\n", result.Key.ID)
+	fmt.Printf("  Namespace: %s\n", result.Key.Namespace)
+	fmt.Printf("  Label:     %s\n", result.Key.Label)
+	fmt.Printf("  Token:     %s\n", result.PlaintextToken)
+	fmt.Printf("\nSave this token — it cannot be retrieved again.\n")
+
 	return exitSuccess
 }
 
