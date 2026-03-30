@@ -10,6 +10,7 @@ x-easycron-env: &easycron-env
   METRICS_ENABLED: "true"
   RECONCILE_ENABLED: "true"
   RECONCILE_INTERVAL: 30s
+  API_KEY: ha-test-key
 
 services:
   postgres:

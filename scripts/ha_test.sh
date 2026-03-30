@@ -11,6 +11,7 @@ INSTANCES=("easycron_1" "easycron_2" "easycron_3")
 PORTS=("8081" "8082" "8083")
 WEBHOOK_URL="http://localhost:9090"
 API_BASE="http://localhost:8081"  # any instance can accept API calls
+AUTH_HEADER="Authorization: Bearer ha-test-key"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -159,6 +160,7 @@ echo "Step 2: Creating test job (*/1 * * * *, fires every minute)..."
 
 JOB_RESPONSE=$(curl -sf -X POST "${API_BASE}/jobs" \
     -H "Content-Type: application/json" \
+    -H "${AUTH_HEADER}" \
     -d '{
         "name": "ha-test-webhook",
         "cron_expression": "*/1 * * * *",
