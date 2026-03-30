@@ -26,6 +26,7 @@ import (
 	"github.com/djlord-it/easy-cron/internal/dispatcher"
 	"github.com/djlord-it/easy-cron/internal/domain"
 	"github.com/djlord-it/easy-cron/internal/leaderelection"
+	mcpsrv "github.com/djlord-it/easy-cron/internal/mcp"
 	"github.com/djlord-it/easy-cron/internal/metrics"
 	"github.com/djlord-it/easy-cron/internal/reconciler"
 	"github.com/djlord-it/easy-cron/internal/scheduler"
@@ -364,6 +365,11 @@ func runServe() int {
 		log.Println("WARNING [P0]: API_KEY not set — API endpoints are unauthenticated. Set API_KEY for production.")
 	}
 
+	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
+	mcpServer := mcpsrv.NewServer(jobService)
+	mcpHandler := mcpsrv.MountHTTP(mcpServer, store, cfg.APIKey)
+	log.Printf("mcp: SSE transport mounted at /mcp")
+
 	httpMux := http.NewServeMux()
 	if cfg.MetricsEnabled {
 		metricsHandler := http.Handler(promhttp.Handler())
@@ -372,6 +378,7 @@ func runServe() int {
 		}
 		httpMux.Handle(cfg.MetricsPath, metricsHandler)
 	}
+	httpMux.Handle("/mcp", mcpHandler)
 	httpMux.Handle("/", rootHandler)
 
 	// HTTP server runs on all instances regardless of dispatch mode.
