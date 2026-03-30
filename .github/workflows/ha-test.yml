@@ -23,6 +23,8 @@ jobs:
         run: chmod +x scripts/ha_test.sh
 
       - name: Run HA test harness
+        env:
+          HA_TEST_SKIP_CLEANUP: "true"
         run: ./scripts/ha_test.sh
 
       - name: Collect diagnostics

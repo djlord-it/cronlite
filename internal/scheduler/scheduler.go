@@ -20,7 +20,7 @@ const (
 )
 
 type Store interface {
-	GetEnabledJobs(ctx context.Context, limit, offset int) ([]JobWithSchedule, error)
+	GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
 	InsertExecution(ctx context.Context, exec domain.Execution) error
 }
 
@@ -42,11 +42,6 @@ type MetricsSink interface {
 	TickStarted()
 	TickCompleted(duration time.Duration, jobsTriggered int, err error)
 	TickDrift(drift time.Duration)
-}
-
-type JobWithSchedule struct {
-	Job      domain.Job
-	Schedule domain.Schedule
 }
 
 type Config struct {
@@ -131,7 +126,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 			triggered, jobErr := s.processJob(ctx, jws, s.lastTick, now)
 			jobsTriggered += triggered
 			if jobErr != nil {
-				log.Printf("scheduler: job=%s project=%s error: %v", jws.Job.ID, jws.Job.ProjectID, jobErr)
+				log.Printf("scheduler: job=%s namespace=%s error: %v", jws.Job.ID, jws.Job.Namespace, jobErr)
 			}
 		}
 
@@ -151,7 +146,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 	return nil
 }
 
-func (s *Scheduler) processJob(ctx context.Context, jws JobWithSchedule, lastTick, now time.Time) (int, error) {
+func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) (int, error) {
 	job := jws.Job
 	schedule := jws.Schedule
 
@@ -182,7 +177,7 @@ func (s *Scheduler) processJob(ctx context.Context, jws JobWithSchedule, lastTic
 		scheduledAtUTC := t.UTC().Truncate(time.Minute)
 
 		if err := s.emitExecution(ctx, job, scheduledAtUTC, now); err != nil {
-			log.Printf("scheduler: job=%s project=%s at %s error: %v", job.ID, job.ProjectID, scheduledAtUTC.Format(time.RFC3339), err)
+			log.Printf("scheduler: job=%s namespace=%s at %s error: %v", job.ID, job.Namespace, scheduledAtUTC.Format(time.RFC3339), err)
 		} else {
 			triggered++
 		}
@@ -199,7 +194,7 @@ func (s *Scheduler) emitExecution(ctx context.Context, job domain.Job, scheduled
 	execution := domain.Execution{
 		ID:          executionID,
 		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
+		Namespace:   job.Namespace,
 		ScheduledAt: scheduledAt,
 		FiredAt:     now,
 		Status:      domain.ExecutionStatusEmitted,
@@ -218,7 +213,7 @@ func (s *Scheduler) emitExecution(ctx context.Context, job domain.Job, scheduled
 	event := domain.TriggerEvent{
 		ExecutionID: executionID,
 		JobID:       job.ID,
-		ProjectID:   job.ProjectID,
+		Namespace:   job.Namespace,
 		ScheduledAt: scheduledAt,
 		FiredAt:     now,
 		CreatedAt:   now,

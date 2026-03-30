@@ -12,7 +12,7 @@ import (
 // Maximum retention: 7 days (604800 seconds)
 const maxRetentionSeconds = 7 * 24 * 60 * 60
 
-func validateCreateJob(req CreateJobRequest) error {
+func validateCreateJob(req LegacyCreateJobRequest) error {
 	if req.Name == "" {
 		return fmt.Errorf("name is required")
 	}

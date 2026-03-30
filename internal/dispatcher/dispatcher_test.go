@@ -158,7 +158,7 @@ func TestDispatcher_TerminalState_DeliveredCannotRegress(t *testing.T) {
 
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -176,7 +176,7 @@ func TestDispatcher_TerminalState_DeliveredCannotRegress(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: executionID,
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -215,7 +215,7 @@ func TestDispatcher_TerminalState_FailedCannotRegress(t *testing.T) {
 
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -233,7 +233,7 @@ func TestDispatcher_TerminalState_FailedCannotRegress(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: executionID,
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -271,7 +271,7 @@ func TestDispatcher_RetryBounded(t *testing.T) {
 
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -288,7 +288,7 @@ func TestDispatcher_RetryBounded(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: executionID,
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -328,7 +328,7 @@ func TestDispatcher_NonRetryableStopsImmediately(t *testing.T) {
 
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -344,7 +344,7 @@ func TestDispatcher_NonRetryableStopsImmediately(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: executionID,
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -377,7 +377,7 @@ func TestDispatcher_429IsRetryable(t *testing.T) {
 
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -393,7 +393,7 @@ func TestDispatcher_429IsRetryable(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: executionID,
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -467,7 +467,7 @@ func TestDispatch_CircuitOpen_SkipsRetryLoop(t *testing.T) {
 	webhookURL := "http://failing.example.com/hook"
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -518,7 +518,7 @@ func TestDispatch_CircuitClosed_RecordsSuccess(t *testing.T) {
 	webhookURL := "http://ok.example.com/hook"
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -564,7 +564,7 @@ func TestDispatch_CircuitClosed_RecordsFailure(t *testing.T) {
 	webhookURL := "http://fail.example.com/hook"
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -606,7 +606,7 @@ func TestDispatch_NilBreaker_Works(t *testing.T) {
 	execID := uuid.New()
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -641,7 +641,7 @@ func TestRunDBPoll_ProcessesExecution(t *testing.T) {
 	execID := uuid.New()
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -655,7 +655,7 @@ func TestRunDBPoll_ProcessesExecution(t *testing.T) {
 	store.dequeueResults = []*domain.Execution{{
 		ID:          execID,
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now(),
 		FiredAt:     time.Now(),
 		Status:      domain.ExecutionStatusInProgress,
@@ -711,7 +711,7 @@ func TestRunDBPoll_MultipleWorkers(t *testing.T) {
 	jobID := uuid.New()
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -722,12 +722,12 @@ func TestRunDBPoll_MultipleWorkers(t *testing.T) {
 	})
 
 	exec1 := &domain.Execution{
-		ID: uuid.New(), JobID: jobID, ProjectID: uuid.New(),
+		ID: uuid.New(), JobID: jobID, Namespace: domain.Namespace("test-ns"),
 		ScheduledAt: time.Now(), FiredAt: time.Now(),
 		Status: domain.ExecutionStatusInProgress, CreatedAt: time.Now(),
 	}
 	exec2 := &domain.Execution{
-		ID: uuid.New(), JobID: jobID, ProjectID: uuid.New(),
+		ID: uuid.New(), JobID: jobID, Namespace: domain.Namespace("test-ns"),
 		ScheduledAt: time.Now(), FiredAt: time.Now(),
 		Status: domain.ExecutionStatusInProgress, CreatedAt: time.Now(),
 	}

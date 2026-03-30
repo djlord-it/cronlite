@@ -8,7 +8,7 @@ import (
 
 type Job struct {
 	ID        uuid.UUID
-	ProjectID uuid.UUID
+	Namespace Namespace
 
 	Name    string
 	Enabled bool

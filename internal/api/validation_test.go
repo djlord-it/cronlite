@@ -6,7 +6,7 @@ import (
 )
 
 func TestValidateCreateJob_ValidRequest(t *testing.T) {
-	req := CreateJobRequest{
+	req := LegacyCreateJobRequest{
 		Name:           "test-job",
 		CronExpression: "0 * * * *",
 		Timezone:       "UTC",
@@ -20,7 +20,7 @@ func TestValidateCreateJob_ValidRequest(t *testing.T) {
 }
 
 func TestValidateCreateJob_RequiredFields(t *testing.T) {
-	base := CreateJobRequest{
+	base := LegacyCreateJobRequest{
 		Name:           "test-job",
 		CronExpression: "0 * * * *",
 		Timezone:       "UTC",
@@ -29,27 +29,27 @@ func TestValidateCreateJob_RequiredFields(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		modify  func(r *CreateJobRequest)
+		modify  func(r *LegacyCreateJobRequest)
 		wantErr string
 	}{
 		{
 			name:    "missing name",
-			modify:  func(r *CreateJobRequest) { r.Name = "" },
+			modify:  func(r *LegacyCreateJobRequest) { r.Name = "" },
 			wantErr: "name is required",
 		},
 		{
 			name:    "missing cron_expression",
-			modify:  func(r *CreateJobRequest) { r.CronExpression = "" },
+			modify:  func(r *LegacyCreateJobRequest) { r.CronExpression = "" },
 			wantErr: "cron_expression is required",
 		},
 		{
 			name:    "missing timezone",
-			modify:  func(r *CreateJobRequest) { r.Timezone = "" },
+			modify:  func(r *LegacyCreateJobRequest) { r.Timezone = "" },
 			wantErr: "timezone is required",
 		},
 		{
 			name:    "missing webhook_url",
-			modify:  func(r *CreateJobRequest) { r.WebhookURL = "" },
+			modify:  func(r *LegacyCreateJobRequest) { r.WebhookURL = "" },
 			wantErr: "webhook_url is required",
 		},
 	}
@@ -81,7 +81,7 @@ func TestValidateCreateJob_InvalidCron(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := CreateJobRequest{
+			req := LegacyCreateJobRequest{
 				Name:           "test-job",
 				CronExpression: tt.expr,
 				Timezone:       "UTC",
@@ -195,7 +195,7 @@ func TestValidateWebhookTimeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := CreateJobRequest{
+			req := LegacyCreateJobRequest{
 				Name:           "test-job",
 				CronExpression: "0 * * * *",
 				Timezone:       "UTC",
@@ -240,7 +240,7 @@ func TestValidateAnalytics_RetentionBounds(t *testing.T) {
 }
 
 func TestValidateAnalytics_Nil(t *testing.T) {
-	req := CreateJobRequest{
+	req := LegacyCreateJobRequest{
 		Name:           "test-job",
 		CronExpression: "0 * * * *",
 		Timezone:       "UTC",

@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
@@ -27,9 +26,11 @@ import (
 	"github.com/djlord-it/easy-cron/internal/dispatcher"
 	"github.com/djlord-it/easy-cron/internal/domain"
 	"github.com/djlord-it/easy-cron/internal/leaderelection"
+	mcpsrv "github.com/djlord-it/easy-cron/internal/mcp"
 	"github.com/djlord-it/easy-cron/internal/metrics"
 	"github.com/djlord-it/easy-cron/internal/reconciler"
 	"github.com/djlord-it/easy-cron/internal/scheduler"
+	"github.com/djlord-it/easy-cron/internal/service"
 	"github.com/djlord-it/easy-cron/internal/store/postgres"
 	"github.com/djlord-it/easy-cron/internal/transport/channel"
 
@@ -85,6 +86,8 @@ func main() {
 		os.Exit(runConfig())
 	case "version":
 		os.Exit(runVersion())
+	case "create-key":
+		os.Exit(runCreateKey())
 	case "--help", "-h", "help":
 		printUsage()
 		os.Exit(exitSuccess)
@@ -102,10 +105,11 @@ Usage:
   easycron <command>
 
 Commands:
-  serve      Start the scheduler and dispatcher
-  validate   Validate configuration (no connections made)
-  config     Print effective configuration as JSON (secrets masked)
-  version    Print version information
+  serve        Start the scheduler and dispatcher
+  validate     Validate configuration (no connections made)
+  config       Print effective configuration as JSON (secrets masked)
+  version      Print version information
+  create-key   Create a new API key  (usage: easycron create-key <namespace> <label>)
 
 Environment Variables:
   DATABASE_URL              PostgreSQL connection string (required)
@@ -344,18 +348,30 @@ func runServe() int {
 		log.Println("easycron: circuit breaker disabled (threshold=0)")
 	}
 
-	// Fixed project ID for single-tenant mode.
-	projectID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
-	apiHandler := api.NewHandler(store, projectID).WithHealthChecker(db)
+	// ── Service layer ─────────────────────────────────────────────────────────
+	svcParser := cron.NewParser()
+	jobService := service.NewJobService(store, store, store, store, store, store, svcParser)
 
-	var rootHandler http.Handler = apiHandler
+	// ── REST transport (oapi-codegen strict handler) ──────────────────────────
+	serverImpl := api.NewServerImpl(jobService).WithHealthChecker(db)
+	strictHandler := api.NewStrictHandler(serverImpl, nil)
+	apiRouter := api.Handler(strictHandler)
+
+	var rootHandler http.Handler = apiRouter
 	rootHandler = api.RateLimitMiddleware(10, rootHandler) // 10 req/sec per IP
+
+	// Multi-key auth with legacy fallback.
+	rootHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, rootHandler)
 	if cfg.APIKey != "" {
-		rootHandler = api.AuthMiddleware(cfg.APIKey, rootHandler)
-		log.Println("easycron: API key authentication enabled")
+		log.Println("easycron: API key authentication enabled (multi-key + legacy fallback)")
 	} else {
 		log.Println("WARNING [P0]: API_KEY not set — API endpoints are unauthenticated. Set API_KEY for production.")
 	}
+
+	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
+	mcpServer := mcpsrv.NewServer(jobService)
+	mcpHandler := mcpsrv.MountHTTP(mcpServer, store, cfg.APIKey)
+	log.Printf("mcp: SSE transport mounted at /mcp")
 
 	httpMux := http.NewServeMux()
 	if cfg.MetricsEnabled {
@@ -365,6 +381,7 @@ func runServe() int {
 		}
 		httpMux.Handle(cfg.MetricsPath, metricsHandler)
 	}
+	httpMux.Handle("/mcp", mcpHandler)
 	httpMux.Handle("/", rootHandler)
 
 	// HTTP server runs on all instances regardless of dispatch mode.
@@ -547,6 +564,52 @@ func runConfig() int {
 
 func runVersion() int {
 	fmt.Printf("easycron version %s (commit: %s)\n", version, commit)
+	return exitSuccess
+}
+
+func runCreateKey() int {
+	args := os.Args[2:]
+	if len(args) != 2 {
+		fmt.Fprintf(os.Stderr, "usage: easycron create-key <namespace> <label>\n")
+		return exitRuntimeError
+	}
+	namespace := args[0]
+	label := args[1]
+
+	cfg := config.Load()
+
+	db, err := sql.Open("postgres", cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
+		return exitRuntimeError
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
+		return exitRuntimeError
+	}
+
+	store := postgres.New(db, cfg.DBOpTimeout)
+	svcParser := cron.NewParser()
+	svc := service.NewJobService(store, store, store, store, store, store, svcParser)
+
+	ctx := domain.NamespaceToContext(context.Background(), domain.Namespace(namespace))
+	result, err := svc.CreateAPIKey(ctx, service.CreateAPIKeyInput{
+		Label: label,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to create API key: %v\n", err)
+		return exitRuntimeError
+	}
+
+	fmt.Printf("API Key created:\n")
+	fmt.Printf("  ID:        %s\n", result.Key.ID)
+	fmt.Printf("  Namespace: %s\n", result.Key.Namespace)
+	fmt.Printf("  Label:     %s\n", result.Key.Label)
+	fmt.Printf("  Token:     %s\n", result.PlaintextToken)
+	fmt.Printf("\nSave this token — it cannot be retrieved again.\n")
+
 	return exitSuccess
 }
 

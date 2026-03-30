@@ -10,7 +10,7 @@ import (
 type TriggerEvent struct {
 	ExecutionID uuid.UUID
 	JobID       uuid.UUID
-	ProjectID   uuid.UUID
+	Namespace   Namespace
 
 	ScheduledAt time.Time // intended fire time (UTC)
 	FiredAt     time.Time // actual emission time

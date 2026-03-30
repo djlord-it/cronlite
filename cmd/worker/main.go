@@ -113,7 +113,7 @@ func main() {
 
 type stubStore struct{}
 
-func (s *stubStore) GetEnabledJobs(ctx context.Context, limit, offset int) ([]scheduler.JobWithSchedule, error) {
+func (s *stubStore) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
 	return nil, nil
 }
 

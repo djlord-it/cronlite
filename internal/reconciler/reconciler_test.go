@@ -101,7 +101,7 @@ func TestReconciler_DetectsOrphanedExecutions(t *testing.T) {
 	orphanedExec := domain.Execution{
 		ID:          uuid.New(),
 		JobID:       uuid.New(),
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: now.Add(-15 * time.Minute),
 		FiredAt:     now.Add(-15 * time.Minute),
 		Status:      domain.ExecutionStatusEmitted,
@@ -155,7 +155,7 @@ func TestReconciler_ReEmitsSameExecutionID(t *testing.T) {
 	orphan := domain.Execution{
 		ID:          originalExecID,
 		JobID:       uuid.New(),
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: now.Add(-20 * time.Minute),
 		FiredAt:     now.Add(-20 * time.Minute),
 		Status:      domain.ExecutionStatusEmitted,
@@ -207,7 +207,7 @@ func TestReconciler_DoesNotTouchTerminalExecutions(t *testing.T) {
 	emittedOrphan := domain.Execution{
 		ID:        uuid.New(),
 		JobID:     uuid.New(),
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Status:    domain.ExecutionStatusEmitted,
 		CreatedAt: now.Add(-20 * time.Minute),
 	}
@@ -252,7 +252,7 @@ func TestReconciler_BatchSizeRespected(t *testing.T) {
 		orphans = append(orphans, domain.Execution{
 			ID:        uuid.New(),
 			JobID:     uuid.New(),
-			ProjectID: uuid.New(),
+			Namespace: domain.Namespace("test-ns"),
 			Status:    domain.ExecutionStatusEmitted,
 			CreatedAt: now.Add(-20 * time.Minute),
 		})
@@ -292,7 +292,7 @@ func TestReconciler_DoesNotEmitRecentExecutions(t *testing.T) {
 	recentExec := domain.Execution{
 		ID:        uuid.New(),
 		JobID:     uuid.New(),
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Status:    domain.ExecutionStatusEmitted,
 		CreatedAt: now.Add(-5 * time.Minute), // Only 5 min ago
 	}
@@ -365,7 +365,7 @@ func TestReconciler_EmitErrorContinues(t *testing.T) {
 		orphans = append(orphans, domain.Execution{
 			ID:        uuid.New(),
 			JobID:     uuid.New(),
-			ProjectID: uuid.New(),
+			Namespace: domain.Namespace("test-ns"),
 			Status:    domain.ExecutionStatusEmitted,
 			CreatedAt: now.Add(-20 * time.Minute),
 		})
@@ -412,7 +412,7 @@ func TestReconciler_ContextCancellation(t *testing.T) {
 		orphans = append(orphans, domain.Execution{
 			ID:        uuid.New(),
 			JobID:     uuid.New(),
-			ProjectID: uuid.New(),
+			Namespace: domain.Namespace("test-ns"),
 			Status:    domain.ExecutionStatusEmitted,
 			CreatedAt: now.Add(-20 * time.Minute),
 		})

@@ -15,7 +15,7 @@ import (
 type mockStore struct {
 	mu           sync.Mutex
 	executions   map[string]domain.Execution // key: job_id + scheduled_at
-	jobs         []JobWithSchedule
+	jobs         []domain.JobWithSchedule
 	getJobsCalls []getJobsCall // tracks pagination calls
 }
 
@@ -30,7 +30,7 @@ func newMockStore() *mockStore {
 	}
 }
 
-func (s *mockStore) GetEnabledJobs(ctx context.Context, limit, offset int) ([]JobWithSchedule, error) {
+func (s *mockStore) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -61,7 +61,7 @@ func (s *mockStore) InsertExecution(ctx context.Context, exec domain.Execution) 
 func (s *mockStore) addJob(job domain.Job, schedule domain.Schedule) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.jobs = append(s.jobs, JobWithSchedule{Job: job, Schedule: schedule})
+	s.jobs = append(s.jobs, domain.JobWithSchedule{Job: job, Schedule: schedule})
 }
 
 func (s *mockStore) executionCount() int {
@@ -120,7 +120,6 @@ func TestScheduler_Idempotency_SameJobSameTime(t *testing.T) {
 	emitter := &mockEmitter{}
 
 	jobID := uuid.New()
-	projectID := uuid.New()
 	scheduleID := uuid.New()
 
 	// Fire time that will be within our tick window
@@ -129,7 +128,7 @@ func TestScheduler_Idempotency_SameJobSameTime(t *testing.T) {
 	store.addJob(
 		domain.Job{
 			ID:         jobID,
-			ProjectID:  projectID,
+			Namespace:  domain.Namespace("test-ns"),
 			Name:       "test-job",
 			Enabled:    true,
 			ScheduleID: scheduleID,
@@ -197,7 +196,6 @@ func TestScheduler_Idempotency_AcrossTicks(t *testing.T) {
 	emitter := &mockEmitter{}
 
 	jobID := uuid.New()
-	projectID := uuid.New()
 	scheduleID := uuid.New()
 
 	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
@@ -205,7 +203,7 @@ func TestScheduler_Idempotency_AcrossTicks(t *testing.T) {
 	store.addJob(
 		domain.Job{
 			ID:         jobID,
-			ProjectID:  projectID,
+			Namespace:  domain.Namespace("test-ns"),
 			Name:       "test-job",
 			Enabled:    true,
 			ScheduleID: scheduleID,
@@ -256,7 +254,6 @@ func TestScheduler_DifferentJobsSameTime(t *testing.T) {
 	store := newMockStore()
 	emitter := &mockEmitter{}
 
-	projectID := uuid.New()
 	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 
 	// Add two jobs
@@ -266,7 +263,7 @@ func TestScheduler_DifferentJobsSameTime(t *testing.T) {
 		store.addJob(
 			domain.Job{
 				ID:         jobID,
-				ProjectID:  projectID,
+				Namespace:  domain.Namespace("test-ns"),
 				Name:       "test-job",
 				Enabled:    true,
 				ScheduleID: scheduleID,
@@ -307,7 +304,6 @@ func TestScheduler_SameJobDifferentTimes(t *testing.T) {
 	emitter := &mockEmitter{}
 
 	jobID := uuid.New()
-	projectID := uuid.New()
 	scheduleID := uuid.New()
 
 	fireTime1 := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
@@ -316,7 +312,7 @@ func TestScheduler_SameJobDifferentTimes(t *testing.T) {
 	store.addJob(
 		domain.Job{
 			ID:         jobID,
-			ProjectID:  projectID,
+			Namespace:  domain.Namespace("test-ns"),
 			Name:       "test-job",
 			Enabled:    true,
 			ScheduleID: scheduleID,
@@ -355,7 +351,6 @@ func TestScheduler_Pagination(t *testing.T) {
 	store := newMockStore()
 	emitter := &mockEmitter{}
 
-	projectID := uuid.New()
 	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 
 	// Add 250 jobs (more than DefaultJobPageSize of 100)
@@ -367,7 +362,7 @@ func TestScheduler_Pagination(t *testing.T) {
 		store.addJob(
 			domain.Job{
 				ID:         jobID,
-				ProjectID:  projectID,
+				Namespace:  domain.Namespace("test-ns"),
 				Name:       "test-job",
 				Enabled:    true,
 				ScheduleID: scheduleID,

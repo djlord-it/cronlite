@@ -40,6 +40,7 @@ INSTANCES=("easycron_1" "easycron_2" "easycron_3")
 PORTS=("8081" "8082" "8083")
 WEBHOOK_URL="http://localhost:9090"
 API_BASE="http://localhost:8081"
+AUTH_HEADER="Authorization: Bearer ha-test-key"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -235,6 +236,7 @@ echo "Phase 2: Creating job and verifying baseline..."
 
 JOB_RESPONSE=$(curl -sf -X POST "${API_BASE}/jobs" \
     -H "Content-Type: application/json" \
+    -H "${AUTH_HEADER}" \
     -d '{
         "name": "soak-test-webhook",
         "cron_expression": "*/1 * * * *",

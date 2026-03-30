@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -23,9 +22,10 @@ const (
 
 type Store interface {
 	CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	ListJobs(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]JobWithSchedule, error)
-	ListExecutions(ctx context.Context, jobID uuid.UUID, limit, offset int) ([]domain.Execution, error)
-	DeleteJob(ctx context.Context, jobID, projectID uuid.UUID) error
+	ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
+	ListExecutions(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
+	DeleteJob(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
 }
 
 // HealthChecker provides database health status for the /health endpoint.
@@ -33,28 +33,23 @@ type HealthChecker interface {
 	PingContext(ctx context.Context) error
 }
 
-type JobWithSchedule struct {
-	Job      domain.Job
-	Schedule domain.Schedule
-}
-
-type Handler struct {
+type LegacyHandler struct {
 	store     Store
-	projectID uuid.UUID // single-tenant for now
+	namespace domain.Namespace // single-tenant for now
 	db        HealthChecker
 }
 
-func NewHandler(store Store, projectID uuid.UUID) *Handler {
-	return &Handler{store: store, projectID: projectID}
+func NewHandler(store Store, ns domain.Namespace) *LegacyHandler {
+	return &LegacyHandler{store: store, namespace: ns}
 }
 
 // WithHealthChecker sets the database health checker for verbose /health responses.
-func (h *Handler) WithHealthChecker(db HealthChecker) *Handler {
+func (h *LegacyHandler) WithHealthChecker(db HealthChecker) *LegacyHandler {
 	h.db = db
 	return h
 }
 
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	switch {
@@ -78,24 +73,24 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HealthResponse represents the /health endpoint response.
-type HealthResponse struct {
+// LegacyHealthResponse represents the /health endpoint response.
+type LegacyHealthResponse struct {
 	Status     string            `json:"status"`
 	Components map[string]string `json:"components,omitempty"`
 }
 
-func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) health(w http.ResponseWriter, r *http.Request) {
 	// Check if verbose mode requested via ?verbose=true
 	verbose := r.URL.Query().Get("verbose") == "true"
 
 	if !verbose || h.db == nil {
 		// Simple health check - just return ok
-		writeJSON(w, http.StatusOK, HealthResponse{Status: "ok"})
+		writeJSON(w, http.StatusOK, LegacyHealthResponse{Status: "ok"})
 		return
 	}
 
 	// Verbose health check - check all components
-	resp := HealthResponse{
+	resp := LegacyHealthResponse{
 		Status:     "ok",
 		Components: make(map[string]string),
 	}
@@ -124,11 +119,11 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 // maxRequestBodySize is the maximum allowed request body size (1MB).
 const maxRequestBodySize = 1 << 20
 
-func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	// Limit request body size to prevent DoS via large payloads
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 
-	var req CreateJobRequest
+	var req LegacyCreateJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		// Check if error is due to body size limit
 		if err.Error() == "http: request body too large" {
@@ -154,10 +149,10 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 	scheduleID := uuid.New()
 
 	job := domain.Job{
-		ID:         jobID,
-		ProjectID:  h.projectID,
-		Name:       req.Name,
-		Enabled:    true,
+		ID:        jobID,
+		Namespace: h.namespace,
+		Name:      req.Name,
+		Enabled:   true,
 		ScheduleID: scheduleID,
 		Delivery: domain.DeliveryConfig{
 			Type:       domain.DeliveryTypeWebhook,
@@ -186,7 +181,7 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 
 	resp := JobResponse{
 		ID:             job.ID.String(),
-		ProjectID:      job.ProjectID.String(),
+		Namespace:      job.Namespace.String(),
 		Name:           job.Name,
 		Enabled:        job.Enabled,
 		CronExpression: schedule.CronExpression,
@@ -198,14 +193,15 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
-func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) listJobs(w http.ResponseWriter, r *http.Request) {
 	limit, offset, err := parsePagination(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	jobs, err := h.store.ListJobs(r.Context(), h.projectID, limit, offset)
+	// Use the legacy GetEnabledJobs path that returns JobWithSchedule
+	jobs, err := h.store.GetEnabledJobs(r.Context(), limit, offset)
 	if err != nil {
 		log.Printf("api: list jobs error: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list jobs")
@@ -216,7 +212,7 @@ func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
 	for i, jws := range jobs {
 		resp.Jobs[i] = JobResponse{
 			ID:             jws.Job.ID.String(),
-			ProjectID:      jws.Job.ProjectID.String(),
+			Namespace:      jws.Job.Namespace.String(),
 			Name:           jws.Job.Name,
 			Enabled:        jws.Job.Enabled,
 			CronExpression: jws.Schedule.CronExpression,
@@ -229,7 +225,7 @@ func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (h *Handler) listExecutions(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) listExecutions(w http.ResponseWriter, r *http.Request) {
 	// Extract job ID from path: /jobs/{id}/executions
 	path := r.URL.Path
 	parts := strings.Split(strings.Trim(path, "/"), "/")
@@ -250,7 +246,10 @@ func (h *Handler) listExecutions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	executions, err := h.store.ListExecutions(r.Context(), jobID, limit, offset)
+	executions, err := h.store.ListExecutions(r.Context(), domain.ExecutionFilter{
+		JobID:      jobID,
+		ListParams: domain.ListParams{Limit: limit, Offset: offset},
+	})
 	if err != nil {
 		log.Printf("api: list executions error: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list executions")
@@ -272,7 +271,7 @@ func (h *Handler) listExecutions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (h *Handler) deleteJob(w http.ResponseWriter, r *http.Request) {
+func (h *LegacyHandler) deleteJob(w http.ResponseWriter, r *http.Request) {
 	// Extract job ID from path: /jobs/{id}
 	path := r.URL.Path
 	parts := strings.Split(strings.Trim(path, "/"), "/")
@@ -287,9 +286,9 @@ func (h *Handler) deleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.DeleteJob(r.Context(), jobID, h.projectID); err != nil {
+	if err := h.store.DeleteJob(r.Context(), jobID, h.namespace); err != nil {
 		log.Printf("api: delete job error: %v", err)
-		if err == sql.ErrNoRows {
+		if err == domain.ErrJobNotFound {
 			writeError(w, http.StatusNotFound, "job not found")
 			return
 		}

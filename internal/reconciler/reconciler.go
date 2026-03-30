@@ -159,7 +159,7 @@ func (r *Reconciler) runCycle(ctx context.Context) {
 		event := domain.TriggerEvent{
 			ExecutionID: exec.ID,
 			JobID:       exec.JobID,
-			ProjectID:   exec.ProjectID,
+			Namespace:   exec.Namespace,
 			ScheduledAt: exec.ScheduledAt,
 			FiredAt:     exec.FiredAt,
 			CreatedAt:   now,

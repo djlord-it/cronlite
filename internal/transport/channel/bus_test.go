@@ -16,7 +16,7 @@ func newTestEvent() domain.TriggerEvent {
 	return domain.TriggerEvent{
 		ExecutionID: uuid.New(),
 		JobID:       uuid.New(),
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 		CreatedAt:   time.Now().UTC(),
