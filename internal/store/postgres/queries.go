@@ -2,7 +2,7 @@ package postgres
 
 const queryGetEnabledJobs = `
 SELECT
-    j.id, j.project_id, j.name, j.enabled, j.schedule_id,
+    j.id, j.namespace, j.name, j.enabled, j.schedule_id,
     j.delivery_type, j.webhook_url, j.secret, j.timeout_ms,
     j.analytics_enabled, j.analytics_retention_seconds,
     j.created_at, j.updated_at,
@@ -15,13 +15,13 @@ LIMIT $1 OFFSET $2
 `
 
 const queryInsertExecution = `
-INSERT INTO executions (id, job_id, project_id, scheduled_at, fired_at, status, created_at)
+INSERT INTO executions (id, job_id, namespace, scheduled_at, fired_at, status, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 const queryGetJobByID = `
 SELECT
-    id, project_id, name, enabled, schedule_id,
+    id, namespace, name, enabled, schedule_id,
     delivery_type, webhook_url, secret, timeout_ms,
     analytics_enabled, analytics_retention_seconds,
     created_at, updated_at
@@ -51,26 +51,26 @@ VALUES ($1, $2, $3, $4, $5)
 `
 
 const queryInsertJob = `
-INSERT INTO jobs (id, project_id, name, enabled, schedule_id, delivery_type, webhook_url, secret, timeout_ms, analytics_enabled, analytics_retention_seconds, created_at, updated_at)
+INSERT INTO jobs (id, namespace, name, enabled, schedule_id, delivery_type, webhook_url, secret, timeout_ms, analytics_enabled, analytics_retention_seconds, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
 const queryListJobs = `
 SELECT
-    j.id, j.project_id, j.name, j.enabled, j.schedule_id,
+    j.id, j.namespace, j.name, j.enabled, j.schedule_id,
     j.delivery_type, j.webhook_url, j.secret, j.timeout_ms,
     j.analytics_enabled, j.analytics_retention_seconds,
     j.created_at, j.updated_at,
     s.id, s.cron_expression, s.timezone, s.created_at, s.updated_at
 FROM jobs j
 JOIN schedules s ON j.schedule_id = s.id
-WHERE j.project_id = $1
+WHERE j.namespace = $1
 ORDER BY j.created_at DESC
 LIMIT $2 OFFSET $3
 `
 
 const queryListExecutions = `
-SELECT id, job_id, project_id, scheduled_at, fired_at, status, created_at
+SELECT id, job_id, namespace, scheduled_at, fired_at, status, created_at
 FROM executions
 WHERE job_id = $1
 ORDER BY scheduled_at DESC
@@ -85,11 +85,11 @@ WITH deleted_attempts AS (
 deleted_executions AS (
     DELETE FROM executions WHERE job_id = $1
 )
-DELETE FROM jobs WHERE id = $1 AND project_id = $2
+DELETE FROM jobs WHERE id = $1 AND namespace = $2
 RETURNING id`
 
 const queryGetOrphanedExecutions = `
-SELECT id, job_id, project_id, scheduled_at, fired_at, status, created_at
+SELECT id, job_id, namespace, scheduled_at, fired_at, status, created_at
 FROM executions
 WHERE status = 'emitted'
   AND created_at < $1
@@ -98,7 +98,7 @@ LIMIT $2
 `
 
 const queryDequeueExecution = `
-SELECT id, job_id, project_id, scheduled_at, fired_at, status, created_at
+SELECT id, job_id, namespace, scheduled_at, fired_at, status, created_at
 FROM executions
 WHERE status = 'emitted'
 ORDER BY created_at ASC

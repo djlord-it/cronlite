@@ -21,7 +21,7 @@ type AnalyticsRequest struct {
 
 type JobResponse struct {
 	ID             string `json:"id"`
-	ProjectID      string `json:"project_id"`
+	Namespace      string `json:"namespace"`
 	Name           string `json:"name"`
 	Enabled        bool   `json:"enabled"`
 	CronExpression string `json:"cron_expression"`

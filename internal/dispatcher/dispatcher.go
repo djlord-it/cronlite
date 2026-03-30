@@ -258,7 +258,7 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 		event := domain.TriggerEvent{
 			ExecutionID: exec.ID,
 			JobID:       exec.JobID,
-			ProjectID:   exec.ProjectID,
+			Namespace:   exec.Namespace,
 			ScheduledAt: exec.ScheduledAt,
 			FiredAt:     exec.FiredAt,
 			CreatedAt:   exec.CreatedAt,

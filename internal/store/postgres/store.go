@@ -37,7 +37,7 @@ func (s *Store) withTimeout(parent context.Context) (context.Context, context.Ca
 }
 
 // GetEnabledJobs returns enabled jobs with their schedules, paginated by limit and offset.
-func (s *Store) GetEnabledJobs(ctx context.Context, limit, offset int) ([]scheduler.JobWithSchedule, error) {
+func (s *Store) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
@@ -47,14 +47,14 @@ func (s *Store) GetEnabledJobs(ctx context.Context, limit, offset int) ([]schedu
 	}
 	defer rows.Close()
 
-	var result []scheduler.JobWithSchedule
+	var result []domain.JobWithSchedule
 	for rows.Next() {
-		var jws scheduler.JobWithSchedule
+		var jws domain.JobWithSchedule
 		var timeoutMs int64
 
 		err := rows.Scan(
 			&jws.Job.ID,
-			&jws.Job.ProjectID,
+			&jws.Job.Namespace,
 			&jws.Job.Name,
 			&jws.Job.Enabled,
 			&jws.Job.ScheduleID,
@@ -95,7 +95,7 @@ func (s *Store) InsertExecution(ctx context.Context, exec domain.Execution) erro
 	_, err := s.db.ExecContext(ctx, queryInsertExecution,
 		exec.ID,
 		exec.JobID,
-		exec.ProjectID,
+		string(exec.Namespace),
 		exec.ScheduledAt,
 		exec.FiredAt,
 		string(exec.Status),
@@ -120,7 +120,7 @@ func (s *Store) GetJobByID(ctx context.Context, jobID uuid.UUID) (domain.Job, er
 
 	err := s.db.QueryRowContext(ctx, queryGetJobByID, jobID).Scan(
 		&job.ID,
-		&job.ProjectID,
+		&job.Namespace,
 		&job.Name,
 		&job.Enabled,
 		&job.ScheduleID,
@@ -243,7 +243,7 @@ func (s *Store) CreateJob(ctx context.Context, job domain.Job, schedule domain.S
 
 	_, err = tx.ExecContext(ctx, queryInsertJob,
 		job.ID,
-		job.ProjectID,
+		string(job.Namespace),
 		job.Name,
 		job.Enabled,
 		job.ScheduleID,
@@ -263,25 +263,25 @@ func (s *Store) CreateJob(ctx context.Context, job domain.Job, schedule domain.S
 	return tx.Commit()
 }
 
-// ListJobs returns jobs for a project with their schedules, paginated by limit and offset.
-func (s *Store) ListJobs(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]api.JobWithSchedule, error) {
+// ListJobs returns jobs for a namespace with their schedules, paginated by limit and offset.
+func (s *Store) ListJobs(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	rows, err := s.db.QueryContext(ctx, queryListJobs, projectID, limit, offset)
+	rows, err := s.db.QueryContext(ctx, queryListJobs, string(ns), limit, offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var result []api.JobWithSchedule
+	var result []domain.JobWithSchedule
 	for rows.Next() {
-		var jws api.JobWithSchedule
+		var jws domain.JobWithSchedule
 		var timeoutMs int64
 
 		err := rows.Scan(
 			&jws.Job.ID,
-			&jws.Job.ProjectID,
+			&jws.Job.Namespace,
 			&jws.Job.Name,
 			&jws.Job.Enabled,
 			&jws.Job.ScheduleID,
@@ -332,7 +332,7 @@ func (s *Store) ListExecutions(ctx context.Context, jobID uuid.UUID, limit, offs
 		err := rows.Scan(
 			&exec.ID,
 			&exec.JobID,
-			&exec.ProjectID,
+			&exec.Namespace,
 			&exec.ScheduledAt,
 			&exec.FiredAt,
 			&status,
@@ -352,12 +352,12 @@ func (s *Store) ListExecutions(ctx context.Context, jobID uuid.UUID, limit, offs
 	return result, nil
 }
 
-func (s *Store) DeleteJob(ctx context.Context, jobID, projectID uuid.UUID) error {
+func (s *Store) DeleteJob(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
 	var deletedID uuid.UUID
-	err := s.db.QueryRowContext(ctx, queryDeleteJob, jobID, projectID).Scan(&deletedID)
+	err := s.db.QueryRowContext(ctx, queryDeleteJob, jobID, string(ns)).Scan(&deletedID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return sql.ErrNoRows
@@ -388,7 +388,7 @@ func (s *Store) GetOrphanedExecutions(ctx context.Context, olderThan time.Time, 
 		err := rows.Scan(
 			&exec.ID,
 			&exec.JobID,
-			&exec.ProjectID,
+			&exec.Namespace,
 			&exec.ScheduledAt,
 			&exec.FiredAt,
 			&status,
@@ -427,7 +427,7 @@ func (s *Store) DequeueExecution(ctx context.Context) (*domain.Execution, error)
 	err = tx.QueryRowContext(ctx, queryDequeueExecution).Scan(
 		&exec.ID,
 		&exec.JobID,
-		&exec.ProjectID,
+		&exec.Namespace,
 		&exec.ScheduledAt,
 		&exec.FiredAt,
 		&status,

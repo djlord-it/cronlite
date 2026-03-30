@@ -22,9 +22,9 @@ type mockHandlerStore struct {
 	mu sync.Mutex
 
 	createJobFn      func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	listJobsFn       func(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]JobWithSchedule, error)
+	listJobsFn       func(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error)
 	listExecutionsFn func(ctx context.Context, jobID uuid.UUID, limit, offset int) ([]domain.Execution, error)
-	deleteJobFn      func(ctx context.Context, jobID, projectID uuid.UUID) error
+	deleteJobFn      func(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
 }
 
 func (s *mockHandlerStore) CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -36,11 +36,11 @@ func (s *mockHandlerStore) CreateJob(ctx context.Context, job domain.Job, schedu
 	return nil
 }
 
-func (s *mockHandlerStore) ListJobs(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]JobWithSchedule, error) {
+func (s *mockHandlerStore) ListJobs(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.listJobsFn != nil {
-		return s.listJobsFn(ctx, projectID, limit, offset)
+		return s.listJobsFn(ctx, ns, limit, offset)
 	}
 	return nil, nil
 }
@@ -54,11 +54,11 @@ func (s *mockHandlerStore) ListExecutions(ctx context.Context, jobID uuid.UUID, 
 	return nil, nil
 }
 
-func (s *mockHandlerStore) DeleteJob(ctx context.Context, jobID, projectID uuid.UUID) error {
+func (s *mockHandlerStore) DeleteJob(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.deleteJobFn != nil {
-		return s.deleteJobFn(ctx, jobID, projectID)
+		return s.deleteJobFn(ctx, jobID, ns)
 	}
 	return nil
 }
@@ -79,7 +79,7 @@ func (m *mockHealthChecker) PingContext(ctx context.Context) error {
 }
 
 func newTestHandler(store *mockHandlerStore) *Handler {
-	return NewHandler(store, uuid.MustParse("00000000-0000-0000-0000-000000000001"))
+	return NewHandler(store, domain.Namespace("default"))
 }
 
 // --- CreateJob Tests ---
@@ -214,12 +214,12 @@ func TestHandler_CreateJob_BodyTooLarge(t *testing.T) {
 func TestHandler_ListJobs_Success(t *testing.T) {
 	now := time.Now().UTC()
 	store := &mockHandlerStore{
-		listJobsFn: func(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]JobWithSchedule, error) {
-			return []JobWithSchedule{
+		listJobsFn: func(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
+			return []domain.JobWithSchedule{
 				{
 					Job: domain.Job{
 						ID:        uuid.MustParse("11111111-1111-1111-1111-111111111111"),
-						ProjectID: projectID,
+						Namespace: ns,
 						Name:      "job-1",
 						Enabled:   true,
 						Delivery:  domain.DeliveryConfig{WebhookURL: "https://example.com/1"},
@@ -259,8 +259,8 @@ func TestHandler_ListJobs_Success(t *testing.T) {
 
 func TestHandler_ListJobs_Empty(t *testing.T) {
 	store := &mockHandlerStore{
-		listJobsFn: func(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]JobWithSchedule, error) {
-			return []JobWithSchedule{}, nil
+		listJobsFn: func(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
+			return []domain.JobWithSchedule{}, nil
 		},
 	}
 	handler := newTestHandler(store)
@@ -287,7 +287,7 @@ func TestHandler_ListJobs_Empty(t *testing.T) {
 
 func TestHandler_ListJobs_StoreError(t *testing.T) {
 	store := &mockHandlerStore{
-		listJobsFn: func(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]JobWithSchedule, error) {
+		listJobsFn: func(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error) {
 			return nil, errors.New("db error")
 		},
 	}
@@ -363,7 +363,7 @@ func TestHandler_ListExecutions_InvalidID(t *testing.T) {
 func TestHandler_DeleteJob_Success(t *testing.T) {
 	jobID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 	store := &mockHandlerStore{
-		deleteJobFn: func(ctx context.Context, jID, pID uuid.UUID) error {
+		deleteJobFn: func(ctx context.Context, jID uuid.UUID, ns domain.Namespace) error {
 			if jID != jobID {
 				t.Errorf("jobID = %v, want %v", jID, jobID)
 			}
@@ -384,7 +384,7 @@ func TestHandler_DeleteJob_Success(t *testing.T) {
 
 func TestHandler_DeleteJob_NotFound(t *testing.T) {
 	store := &mockHandlerStore{
-		deleteJobFn: func(ctx context.Context, jID, pID uuid.UUID) error {
+		deleteJobFn: func(ctx context.Context, jID uuid.UUID, ns domain.Namespace) error {
 			return sql.ErrNoRows
 		},
 	}
@@ -417,7 +417,7 @@ func TestHandler_DeleteJob_InvalidID(t *testing.T) {
 
 func TestHandler_DeleteJob_StoreError(t *testing.T) {
 	store := &mockHandlerStore{
-		deleteJobFn: func(ctx context.Context, jID, pID uuid.UUID) error {
+		deleteJobFn: func(ctx context.Context, jID uuid.UUID, ns domain.Namespace) error {
 			return errors.New("db error")
 		},
 	}

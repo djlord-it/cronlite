@@ -16,7 +16,7 @@ import (
 type mockStoreWithErrors struct {
 	mu             sync.Mutex
 	executions     map[string]domain.Execution
-	jobs           []JobWithSchedule
+	jobs           []domain.JobWithSchedule
 	getJobsErr     error
 	insertExecErr  error
 	insertExecKeys []string // tracks which job_id|scheduled_at keys were attempted
@@ -28,7 +28,7 @@ func newMockStoreWithErrors() *mockStoreWithErrors {
 	}
 }
 
-func (s *mockStoreWithErrors) GetEnabledJobs(ctx context.Context, limit, offset int) ([]JobWithSchedule, error) {
+func (s *mockStoreWithErrors) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -145,20 +145,19 @@ func TestScheduler_EmitterError_ContinuesProcessing(t *testing.T) {
 	store := newMockStoreWithErrors()
 	emitter := &mockEmitterWithErrors{}
 
-	projectID := uuid.New()
 	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 
 	failJobID := uuid.New()
 	successJobID := uuid.New()
 
 	// Add two jobs
-	store.jobs = []JobWithSchedule{
+	store.jobs = []domain.JobWithSchedule{
 		{
-			Job:      domain.Job{ID: failJobID, ProjectID: projectID, Name: "fail-job", Enabled: true, ScheduleID: uuid.New()},
+			Job:      domain.Job{ID: failJobID, Namespace: domain.Namespace("test-ns"), Name: "fail-job", Enabled: true, ScheduleID: uuid.New()},
 			Schedule: domain.Schedule{ID: uuid.New(), CronExpression: "0 * * * *", Timezone: "UTC"},
 		},
 		{
-			Job:      domain.Job{ID: successJobID, ProjectID: projectID, Name: "success-job", Enabled: true, ScheduleID: uuid.New()},
+			Job:      domain.Job{ID: successJobID, Namespace: domain.Namespace("test-ns"), Name: "success-job", Enabled: true, ScheduleID: uuid.New()},
 			Schedule: domain.Schedule{ID: uuid.New(), CronExpression: "0 * * * *", Timezone: "UTC"},
 		},
 	}
@@ -236,16 +235,15 @@ func TestScheduler_ParseError_SkipsJob(t *testing.T) {
 	store := newMockStoreWithErrors()
 	emitter := &mockEmitterWithErrors{}
 
-	projectID := uuid.New()
 	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 
-	store.jobs = []JobWithSchedule{
+	store.jobs = []domain.JobWithSchedule{
 		{
-			Job:      domain.Job{ID: uuid.New(), ProjectID: projectID, Name: "bad-cron", Enabled: true, ScheduleID: uuid.New()},
+			Job:      domain.Job{ID: uuid.New(), Namespace: domain.Namespace("test-ns"), Name: "bad-cron", Enabled: true, ScheduleID: uuid.New()},
 			Schedule: domain.Schedule{ID: uuid.New(), CronExpression: "INVALID", Timezone: "UTC"},
 		},
 		{
-			Job:      domain.Job{ID: uuid.New(), ProjectID: projectID, Name: "good-job", Enabled: true, ScheduleID: uuid.New()},
+			Job:      domain.Job{ID: uuid.New(), Namespace: domain.Namespace("test-ns"), Name: "good-job", Enabled: true, ScheduleID: uuid.New()},
 			Schedule: domain.Schedule{ID: uuid.New(), CronExpression: "0 * * * *", Timezone: "UTC"},
 		},
 	}
@@ -310,9 +308,9 @@ func TestScheduler_EmptyTimezone_DefaultsUTC(t *testing.T) {
 
 	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 
-	store.jobs = []JobWithSchedule{
+	store.jobs = []domain.JobWithSchedule{
 		{
-			Job:      domain.Job{ID: uuid.New(), ProjectID: uuid.New(), Name: "no-tz", Enabled: true, ScheduleID: uuid.New()},
+			Job:      domain.Job{ID: uuid.New(), Namespace: domain.Namespace("test-ns"), Name: "no-tz", Enabled: true, ScheduleID: uuid.New()},
 			Schedule: domain.Schedule{ID: uuid.New(), CronExpression: "0 * * * *", Timezone: ""}, // empty timezone
 		},
 	}

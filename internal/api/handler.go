@@ -23,9 +23,9 @@ const (
 
 type Store interface {
 	CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	ListJobs(ctx context.Context, projectID uuid.UUID, limit, offset int) ([]JobWithSchedule, error)
+	ListJobs(ctx context.Context, ns domain.Namespace, limit, offset int) ([]domain.JobWithSchedule, error)
 	ListExecutions(ctx context.Context, jobID uuid.UUID, limit, offset int) ([]domain.Execution, error)
-	DeleteJob(ctx context.Context, jobID, projectID uuid.UUID) error
+	DeleteJob(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
 }
 
 // HealthChecker provides database health status for the /health endpoint.
@@ -33,19 +33,14 @@ type HealthChecker interface {
 	PingContext(ctx context.Context) error
 }
 
-type JobWithSchedule struct {
-	Job      domain.Job
-	Schedule domain.Schedule
-}
-
 type Handler struct {
 	store     Store
-	projectID uuid.UUID // single-tenant for now
+	namespace domain.Namespace // single-tenant for now
 	db        HealthChecker
 }
 
-func NewHandler(store Store, projectID uuid.UUID) *Handler {
-	return &Handler{store: store, projectID: projectID}
+func NewHandler(store Store, ns domain.Namespace) *Handler {
+	return &Handler{store: store, namespace: ns}
 }
 
 // WithHealthChecker sets the database health checker for verbose /health responses.
@@ -154,10 +149,10 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 	scheduleID := uuid.New()
 
 	job := domain.Job{
-		ID:         jobID,
-		ProjectID:  h.projectID,
-		Name:       req.Name,
-		Enabled:    true,
+		ID:        jobID,
+		Namespace: h.namespace,
+		Name:      req.Name,
+		Enabled:   true,
 		ScheduleID: scheduleID,
 		Delivery: domain.DeliveryConfig{
 			Type:       domain.DeliveryTypeWebhook,
@@ -186,7 +181,7 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 
 	resp := JobResponse{
 		ID:             job.ID.String(),
-		ProjectID:      job.ProjectID.String(),
+		Namespace:      job.Namespace.String(),
 		Name:           job.Name,
 		Enabled:        job.Enabled,
 		CronExpression: schedule.CronExpression,
@@ -205,7 +200,7 @@ func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobs, err := h.store.ListJobs(r.Context(), h.projectID, limit, offset)
+	jobs, err := h.store.ListJobs(r.Context(), h.namespace, limit, offset)
 	if err != nil {
 		log.Printf("api: list jobs error: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to list jobs")
@@ -216,7 +211,7 @@ func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
 	for i, jws := range jobs {
 		resp.Jobs[i] = JobResponse{
 			ID:             jws.Job.ID.String(),
-			ProjectID:      jws.Job.ProjectID.String(),
+			Namespace:      jws.Job.Namespace.String(),
 			Name:           jws.Job.Name,
 			Enabled:        jws.Job.Enabled,
 			CronExpression: jws.Schedule.CronExpression,
@@ -287,7 +282,7 @@ func (h *Handler) deleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.store.DeleteJob(r.Context(), jobID, h.projectID); err != nil {
+	if err := h.store.DeleteJob(r.Context(), jobID, h.namespace); err != nil {
 		log.Printf("api: delete job error: %v", err)
 		if err == sql.ErrNoRows {
 			writeError(w, http.StatusNotFound, "job not found")

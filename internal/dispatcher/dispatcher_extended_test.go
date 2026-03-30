@@ -25,7 +25,7 @@ func TestDispatcher_GetJobError(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: uuid.New(),
 		JobID:       uuid.New(), // non-existent
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -45,7 +45,7 @@ func TestDispatcher_NoWebhookURL(t *testing.T) {
 	jobID := uuid.New()
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "no-url-job",
 		Enabled:   true,
 		Delivery:  domain.DeliveryConfig{Type: "webhook", WebhookURL: ""},
@@ -54,7 +54,7 @@ func TestDispatcher_NoWebhookURL(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: uuid.New(),
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -82,7 +82,7 @@ func TestDispatcher_SuccessOnFirstAttempt(t *testing.T) {
 
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -97,7 +97,7 @@ func TestDispatcher_SuccessOnFirstAttempt(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: executionID,
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -182,7 +182,7 @@ func TestDispatcher_MetricsRecording(t *testing.T) {
 
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "test-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -199,7 +199,7 @@ func TestDispatcher_MetricsRecording(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: executionID,
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
@@ -244,7 +244,7 @@ func TestDispatcher_AnalyticsBestEffort(t *testing.T) {
 	jobID := uuid.New()
 	store.addJob(domain.Job{
 		ID:        jobID,
-		ProjectID: uuid.New(),
+		Namespace: domain.Namespace("test-ns"),
 		Name:      "analytics-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -262,7 +262,7 @@ func TestDispatcher_AnalyticsBestEffort(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: uuid.New(),
 		JobID:       jobID,
-		ProjectID:   uuid.New(),
+		Namespace:   domain.Namespace("test-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}

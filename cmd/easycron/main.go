@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
@@ -344,9 +343,9 @@ func runServe() int {
 		log.Println("easycron: circuit breaker disabled (threshold=0)")
 	}
 
-	// Fixed project ID for single-tenant mode.
-	projectID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
-	apiHandler := api.NewHandler(store, projectID).WithHealthChecker(db)
+	// Fixed namespace for single-tenant mode.
+	ns := domain.Namespace("default")
+	apiHandler := api.NewHandler(store, ns).WithHealthChecker(db)
 
 	var rootHandler http.Handler = apiHandler
 	rootHandler = api.RateLimitMiddleware(10, rootHandler) // 10 req/sec per IP

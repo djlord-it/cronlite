@@ -29,7 +29,7 @@ func (s *RedisSink) Record(ctx context.Context, event domain.TriggerEvent, confi
 		return
 	}
 
-	key := buildKey(event.ProjectID.String(), event.JobID.String(), event.ScheduledAt)
+	key := buildKey(event.Namespace.String(), event.JobID.String(), event.ScheduledAt)
 	ttl := resolveTTL(config.RetentionSeconds)
 
 	pipe := s.client.Pipeline()
@@ -42,10 +42,10 @@ func (s *RedisSink) Record(ctx context.Context, event domain.TriggerEvent, confi
 }
 
 // buildKey constructs the Redis key for a given execution.
-// Format: p:{projectID}:j:{jobID}:exec:{YYYYMMDDHHMM}
-func buildKey(projectID, jobID string, scheduledAt time.Time) string {
+// Format: ns:{namespace}:j:{jobID}:exec:{YYYYMMDDHHMM}
+func buildKey(namespace, jobID string, scheduledAt time.Time) string {
 	bucket := scheduledAt.UTC().Format("200601021504")
-	return "p:" + projectID + ":j:" + jobID + ":exec:" + bucket
+	return "ns:" + namespace + ":j:" + jobID + ":exec:" + bucket
 }
 
 // resolveTTL returns the TTL duration, using the default if retentionSeconds is zero or negative.
