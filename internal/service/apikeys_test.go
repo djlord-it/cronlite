@@ -83,14 +83,14 @@ func TestListAPIKeys_NoNamespace(t *testing.T) {
 }
 
 func TestListAPIKeys_HappyPath(t *testing.T) {
+	var capturedNS domain.Namespace
 	expected := []domain.APIKey{
 		{ID: uuid.New(), Namespace: "t1", Label: "key-1"},
+		{ID: uuid.New(), Namespace: "t1", Label: "key-2"},
 	}
 	apiKeyRepo := &mockAPIKeyRepo{
 		listKeysFn: func(_ context.Context, ns domain.Namespace, params domain.ListParams) ([]domain.APIKey, error) {
-			if ns != "t1" {
-				t.Errorf("expected namespace 't1', got %q", ns)
-			}
+			capturedNS = ns
 			return expected, nil
 		},
 	}
@@ -100,8 +100,11 @@ func TestListAPIKeys_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(keys) != 1 {
-		t.Errorf("expected 1 key, got %d", len(keys))
+	if len(keys) != 2 {
+		t.Errorf("expected 2 keys, got %d", len(keys))
+	}
+	if capturedNS != "t1" {
+		t.Errorf("expected namespace 't1', got %q", capturedNS)
 	}
 }
 
@@ -137,4 +140,55 @@ func TestDeleteAPIKey_HappyPath(t *testing.T) {
 	if deletedNS != "t1" {
 		t.Errorf("expected deleted namespace 't1', got %q", deletedNS)
 	}
+}
+
+func TestCreateAPIKey_InsertError(t *testing.T) {
+	insertErr := errors.New("db connection lost")
+	apiKeyRepo := &mockAPIKeyRepo{
+		insertAPIKeyFn: func(_ context.Context, _ domain.APIKey) error {
+			return insertErr
+		},
+	}
+	svc := newTestServiceFull(nil, nil, nil, nil, apiKeyRepo, nil)
+
+	_, err := svc.CreateAPIKey(ctxWithNS("t1"), CreateAPIKeyInput{
+		Label: "my-key",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, insertErr) {
+		t.Errorf("expected wrapped insertErr, got %v", err)
+	}
+}
+
+func TestHashToken(t *testing.T) {
+	t.Run("deterministic", func(t *testing.T) {
+		hash1 := HashToken("ec_abc123")
+		hash2 := HashToken("ec_abc123")
+		if hash1 != hash2 {
+			t.Errorf("expected same hash for same input, got %q and %q", hash1, hash2)
+		}
+	})
+
+	t.Run("different inputs produce different outputs", func(t *testing.T) {
+		hash1 := HashToken("ec_abc123")
+		hash2 := HashToken("ec_xyz789")
+		if hash1 == hash2 {
+			t.Error("expected different hashes for different inputs")
+		}
+	})
+
+	t.Run("output is hex string of length 64", func(t *testing.T) {
+		hash := HashToken("ec_test_token")
+		if len(hash) != 64 {
+			t.Errorf("expected hash length 64, got %d", len(hash))
+		}
+		for _, c := range hash {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				t.Errorf("expected hex character, got %c", c)
+				break
+			}
+		}
+	})
 }
