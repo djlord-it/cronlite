@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ type mockStore struct {
 	executions   map[string]domain.Execution // key: job_id + scheduled_at
 	jobs         []domain.JobWithSchedule
 	getJobsCalls []getJobsCall // tracks pagination calls
+	getJobsErr   error         // if set, GetEnabledJobs returns this error
 }
 
 type getJobsCall struct {
@@ -35,6 +37,10 @@ func (s *mockStore) GetEnabledJobs(ctx context.Context, limit, offset int) ([]do
 	defer s.mu.Unlock()
 
 	s.getJobsCalls = append(s.getJobsCalls, getJobsCall{limit: limit, offset: offset})
+
+	if s.getJobsErr != nil {
+		return nil, s.getJobsErr
+	}
 
 	if offset >= len(s.jobs) {
 		return nil, nil
@@ -420,5 +426,252 @@ func TestScheduler_Pagination(t *testing.T) {
 	// Verify all jobs were processed
 	if store.executionCount() != numJobs {
 		t.Errorf("expected %d executions, got %d", numJobs, store.executionCount())
+	}
+}
+
+// TestProcessTick_GetEnabledJobsError verifies that processTick returns an
+// error when the store fails to fetch enabled jobs.
+func TestProcessTick_GetEnabledJobsError(t *testing.T) {
+	store := newMockStore()
+	store.getJobsErr = errors.New("database connection lost")
+	emitter := &mockEmitter{}
+	parser := &mockCronParser{}
+
+	sched := New(
+		Config{TickInterval: time.Minute},
+		store,
+		parser,
+		emitter,
+	)
+
+	now := time.Date(2024, 1, 15, 10, 0, 30, 0, time.UTC)
+	sched.clock = func() time.Time { return now }
+	sched.lastTick = now.Add(-time.Minute)
+
+	err := sched.processTick(context.Background())
+	if err == nil {
+		t.Fatal("expected error from processTick when GetEnabledJobs fails, got nil")
+	}
+	if !errors.Is(err, store.getJobsErr) {
+		t.Errorf("expected wrapped error containing %q, got %q", store.getJobsErr, err)
+	}
+	if emitter.eventCount() != 0 {
+		t.Errorf("expected 0 events emitted on store error, got %d", emitter.eventCount())
+	}
+}
+
+// mockFailingParser always returns an error from Parse.
+type mockFailingParser struct {
+	err error
+}
+
+func (p *mockFailingParser) Parse(expression string, timezone string) (CronSchedule, error) {
+	return nil, p.err
+}
+
+// TestProcessJob_InvalidTimezone verifies that processJob returns an error
+// when the schedule has an unloadable timezone string.
+func TestProcessJob_InvalidTimezone(t *testing.T) {
+	store := newMockStore()
+	emitter := &mockEmitter{}
+	parser := &mockCronParser{}
+
+	sched := New(
+		Config{TickInterval: time.Minute},
+		store,
+		parser,
+		emitter,
+	)
+
+	jobID := uuid.New()
+	scheduleID := uuid.New()
+
+	jws := domain.JobWithSchedule{
+		Job: domain.Job{
+			ID:         jobID,
+			Namespace:  domain.Namespace("test-ns"),
+			Name:       "bad-tz-job",
+			Enabled:    true,
+			ScheduleID: scheduleID,
+		},
+		Schedule: domain.Schedule{
+			ID:             scheduleID,
+			CronExpression: "0 * * * *",
+			Timezone:       "Invalid/Nowhere",
+		},
+	}
+
+	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	lastTick := now.Add(-time.Minute)
+
+	triggered, err := sched.processJob(context.Background(), jws, lastTick, now)
+	if err == nil {
+		t.Fatal("expected error for invalid timezone, got nil")
+	}
+	if triggered != 0 {
+		t.Errorf("expected 0 triggered jobs for bad timezone, got %d", triggered)
+	}
+}
+
+// TestProcessJob_CronParseError verifies that processJob returns an error
+// when the cron expression cannot be parsed.
+func TestProcessJob_CronParseError(t *testing.T) {
+	store := newMockStore()
+	emitter := &mockEmitter{}
+	parseErr := errors.New("invalid cron expression")
+	parser := &mockFailingParser{err: parseErr}
+
+	sched := New(
+		Config{TickInterval: time.Minute},
+		store,
+		parser,
+		emitter,
+	)
+
+	jobID := uuid.New()
+	scheduleID := uuid.New()
+
+	jws := domain.JobWithSchedule{
+		Job: domain.Job{
+			ID:         jobID,
+			Namespace:  domain.Namespace("test-ns"),
+			Name:       "bad-cron-job",
+			Enabled:    true,
+			ScheduleID: scheduleID,
+		},
+		Schedule: domain.Schedule{
+			ID:             scheduleID,
+			CronExpression: "not a cron",
+			Timezone:       "UTC",
+		},
+	}
+
+	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	lastTick := now.Add(-time.Minute)
+
+	triggered, err := sched.processJob(context.Background(), jws, lastTick, now)
+	if err == nil {
+		t.Fatal("expected error for invalid cron expression, got nil")
+	}
+	if !errors.Is(err, parseErr) {
+		t.Errorf("expected wrapped error containing %q, got %q", parseErr, err)
+	}
+	if triggered != 0 {
+		t.Errorf("expected 0 triggered jobs for parse error, got %d", triggered)
+	}
+}
+
+// mockFailingEmitter returns an error on Emit.
+type mockFailingEmitter struct {
+	mu     sync.Mutex
+	events []domain.TriggerEvent
+	err    error
+}
+
+func (e *mockFailingEmitter) Emit(ctx context.Context, event domain.TriggerEvent) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.events = append(e.events, event)
+	return e.err
+}
+
+// TestProcessJob_EmitError verifies that when the emitter fails, the execution
+// is still inserted into the store but the error is propagated via log (processJob
+// continues to next fire time).
+func TestProcessJob_EmitError(t *testing.T) {
+	store := newMockStore()
+	emitErr := errors.New("channel full")
+	emitter := &mockFailingEmitter{err: emitErr}
+
+	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	parser := &mockCronParser{fireTimes: []time.Time{fireTime}}
+
+	sched := New(
+		Config{TickInterval: time.Minute},
+		store,
+		parser,
+		emitter,
+	)
+
+	jobID := uuid.New()
+	scheduleID := uuid.New()
+
+	jws := domain.JobWithSchedule{
+		Job: domain.Job{
+			ID:         jobID,
+			Namespace:  domain.Namespace("test-ns"),
+			Name:       "emit-fail-job",
+			Enabled:    true,
+			ScheduleID: scheduleID,
+		},
+		Schedule: domain.Schedule{
+			ID:             scheduleID,
+			CronExpression: "0 * * * *",
+			Timezone:       "UTC",
+		},
+	}
+
+	now := fireTime.Add(30 * time.Second)
+	lastTick := fireTime.Add(-time.Minute)
+
+	triggered, err := sched.processJob(context.Background(), jws, lastTick, now)
+	// processJob does not return an error for emit failures; it logs and continues.
+	// triggered count should be 0 because the emit failed.
+	if err != nil {
+		t.Fatalf("processJob returned unexpected error: %v", err)
+	}
+	if triggered != 0 {
+		t.Errorf("expected 0 triggered (emit failed), got %d", triggered)
+	}
+
+	// The execution should still be in the store (orphaned).
+	if store.executionCount() != 1 {
+		t.Errorf("expected 1 execution in store (orphaned), got %d", store.executionCount())
+	}
+}
+
+// TestProcessJob_EmptyTimezoneDefaultsToUTC verifies that an empty timezone
+// string defaults to UTC and does not cause an error.
+func TestProcessJob_EmptyTimezoneDefaultsToUTC(t *testing.T) {
+	store := newMockStore()
+	emitter := &mockEmitter{}
+
+	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+	parser := &mockCronParser{fireTimes: []time.Time{fireTime}}
+
+	sched := New(
+		Config{TickInterval: time.Minute},
+		store,
+		parser,
+		emitter,
+	)
+
+	jobID := uuid.New()
+	scheduleID := uuid.New()
+
+	jws := domain.JobWithSchedule{
+		Job: domain.Job{
+			ID:         jobID,
+			Namespace:  domain.Namespace("test-ns"),
+			Name:       "empty-tz-job",
+			Enabled:    true,
+			ScheduleID: scheduleID,
+		},
+		Schedule: domain.Schedule{
+			ID:             scheduleID,
+			CronExpression: "0 * * * *",
+			Timezone:       "", // empty should default to UTC
+		},
+	}
+
+	now := fireTime.Add(30 * time.Second)
+	lastTick := fireTime.Add(-time.Minute)
+
+	triggered, err := sched.processJob(context.Background(), jws, lastTick, now)
+	if err != nil {
+		t.Fatalf("expected no error for empty timezone, got: %v", err)
+	}
+	if triggered != 1 {
+		t.Errorf("expected 1 triggered job, got %d", triggered)
 	}
 }
