@@ -754,3 +754,63 @@ func TestRunDBPoll_MultipleWorkers(t *testing.T) {
 		t.Errorf("exec2: expected delivered, got %v", s2)
 	}
 }
+
+func TestClassifyStatusForMetrics(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		err        error
+		want       string
+	}{
+		{"200 success", 200, nil, "2xx"},
+		{"201 created", 201, nil, "2xx"},
+		{"299 upper bound 2xx", 299, nil, "2xx"},
+		{"400 bad request", 400, nil, "4xx"},
+		{"404 not found", 404, nil, "4xx"},
+		{"500 internal", 500, nil, "5xx"},
+		{"503 unavailable", 503, nil, "5xx"},
+		{"100 informational maps to other_error", 100, nil, "other_error"},
+		{"timeout context deadline exceeded", 0, errors.New("context deadline exceeded"), "timeout"},
+		{"timeout waiting for response", 0, errors.New("Timeout waiting for response"), "timeout"},
+		{"connection refused", 0, errors.New("connection refused"), "connection_error"},
+		{"dial tcp no such host", 0, errors.New("dial tcp: no such host"), "connection_error"},
+		{"network is unreachable", 0, errors.New("network is unreachable"), "connection_error"},
+		{"random error maps to other_error", 0, errors.New("some random error"), "other_error"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := classifyStatusForMetrics(tt.statusCode, tt.err)
+			if got != tt.want {
+				t.Errorf("classifyStatusForMetrics(%d, %v) = %q, want %q",
+					tt.statusCode, tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestContainsInsensitive(t *testing.T) {
+	tests := []struct {
+		name   string
+		s      string
+		substr string
+		want   bool
+	}{
+		{"lowercase match in mixed case", "Hello World", "hello", true},
+		{"uppercase match in mixed case", "Hello World", "WORLD", true},
+		{"substr longer than s", "abc", "abcd", false},
+		{"empty s non-empty substr", "", "a", false},
+		{"non-empty s empty substr", "abc", "", true},
+		{"case-insensitive connection refused", "Connection Refused", "connection refused", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := containsInsensitive(tt.s, tt.substr)
+			if got != tt.want {
+				t.Errorf("containsInsensitive(%q, %q) = %v, want %v",
+					tt.s, tt.substr, got, tt.want)
+			}
+		})
+	}
+}
