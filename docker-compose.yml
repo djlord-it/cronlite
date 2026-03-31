@@ -26,6 +26,8 @@ services:
     environment:
       DATABASE_URL: postgres://easycron:easycron@postgres:5432/easycron?sslmode=disable
       HTTP_ADDR: ":8080"
+      TICK_INTERVAL: "5s"
+      DISPATCHER_WORKERS: "4"
       RECONCILE_ENABLED: "true"
       METRICS_ENABLED: "true"
     ports:
