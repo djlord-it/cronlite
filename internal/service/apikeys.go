@@ -42,12 +42,17 @@ func (s *JobService) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) 
 	tokenHash := HashToken(plaintext)
 
 	now := time.Now().UTC()
+	scopes := input.Scopes
+	if scopes == nil {
+		scopes = []string{}
+	}
+
 	key := domain.APIKey{
 		ID:        uuid.New(),
 		Namespace: ns,
 		TokenHash: tokenHash,
 		Label:     input.Label,
-		Scopes:    input.Scopes,
+		Scopes:    scopes,
 		Enabled:   true,
 		CreatedAt: now,
 	}

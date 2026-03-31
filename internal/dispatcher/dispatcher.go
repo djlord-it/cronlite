@@ -86,6 +86,7 @@ type WebhookRequest struct {
 
 type WebhookPayload struct {
 	JobID       string `json:"job_id"`
+	JobName     string `json:"job_name"`
 	ExecutionID string `json:"execution_id"`
 	ScheduledAt string `json:"scheduled_at"`
 	FiredAt     string `json:"fired_at"`
@@ -312,6 +313,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 
 	payload := WebhookPayload{
 		JobID:       event.JobID.String(),
+		JobName:     job.Name,
 		ExecutionID: event.ExecutionID.String(),
 		ScheduledAt: event.ScheduledAt.UTC().Format(time.RFC3339),
 		FiredAt:     event.FiredAt.UTC().Format(time.RFC3339),
