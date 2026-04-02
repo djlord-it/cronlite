@@ -22,7 +22,7 @@ type mockHandlerStore struct {
 
 	createJobFn        func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
 	getEnabledJobsFn   func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
-	listJobsFn         func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listJobsFn         func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
 	listExecutionsFn   func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
 	deleteJobFn        func(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
 }
@@ -45,7 +45,7 @@ func (s *mockHandlerStore) GetEnabledJobs(ctx context.Context, limit, offset int
 	return nil, nil
 }
 
-func (s *mockHandlerStore) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+func (s *mockHandlerStore) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.listJobsFn != nil {

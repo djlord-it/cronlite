@@ -21,7 +21,7 @@ type mockJobRepo struct {
 	insertJobFn          func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
 	getJobFn             func(ctx context.Context, id uuid.UUID) (domain.Job, error)
 	getJobWithScheduleFn func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
-	listJobsFn           func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listJobsFn           func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
 	updateJobFn          func(ctx context.Context, job domain.Job) error
 	deleteJobFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
 	getEnabledJobsFn     func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
@@ -48,7 +48,7 @@ func (m *mockJobRepo) GetJobWithSchedule(ctx context.Context, id uuid.UUID) (dom
 	return domain.Job{}, domain.Schedule{}, nil
 }
 
-func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, filter)
 	}
@@ -401,12 +401,15 @@ func TestHandleCreateJob_ServiceError(t *testing.T) {
 
 func TestHandleListJobs_HappyPath(t *testing.T) {
 	jr := &mockJobRepo{
-		listJobsFn: func(_ context.Context, _ domain.JobFilter) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, _ domain.JobFilter) ([]domain.JobWithSchedule, error) {
 			j1 := fixedJob()
 			j2 := fixedJob()
 			j2.ID = uuid.MustParse("bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
 			j2.Name = "other-job"
-			return []domain.Job{j1, j2}, nil
+			return []domain.JobWithSchedule{
+				{Job: j1, Schedule: domain.Schedule{CronExpression: "*/5 * * * *", Timezone: "UTC"}},
+				{Job: j2, Schedule: domain.Schedule{CronExpression: "0 8 * * *", Timezone: "UTC"}},
+			}, nil
 		},
 	}
 	svc := newTestService(jr, nil, nil, nil)
@@ -435,7 +438,7 @@ func TestHandleListJobs_HappyPath(t *testing.T) {
 
 func TestHandleListJobs_Empty(t *testing.T) {
 	jr := &mockJobRepo{
-		listJobsFn: func(_ context.Context, _ domain.JobFilter) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, _ domain.JobFilter) ([]domain.JobWithSchedule, error) {
 			return nil, nil
 		},
 	}
@@ -1204,11 +1207,11 @@ func TestHandleCreateJob_AllOptionalParams(t *testing.T) {
 func TestHandleListJobs_WithFilters(t *testing.T) {
 	var capturedFilter domain.JobFilter
 	jr := &mockJobRepo{
-		listJobsFn: func(_ context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 			capturedFilter = filter
 			j := fixedJob()
 			j.Name = "test-filtered"
-			return []domain.Job{j}, nil
+			return []domain.JobWithSchedule{{Job: j}}, nil
 		},
 	}
 	svc := newTestService(jr, nil, nil, nil)

@@ -22,7 +22,7 @@ const (
 
 type Store interface {
 	CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
 	GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
 	ListExecutions(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
 	DeleteJob(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error

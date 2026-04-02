@@ -13,7 +13,7 @@ type JobRepository interface {
 	InsertJob(ctx context.Context, job Job, schedule Schedule) error
 	GetJob(ctx context.Context, id uuid.UUID) (Job, error)
 	GetJobWithSchedule(ctx context.Context, id uuid.UUID) (Job, Schedule, error)
-	ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
+	ListJobs(ctx context.Context, filter JobFilter) ([]JobWithSchedule, error)
 	UpdateJob(ctx context.Context, job Job) error
 	DeleteJob(ctx context.Context, id uuid.UUID, ns Namespace) error
 	GetEnabledJobs(ctx context.Context, limit, offset int) ([]JobWithSchedule, error)

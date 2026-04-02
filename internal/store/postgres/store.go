@@ -198,7 +198,7 @@ func (s *Store) GetJobWithSchedule(ctx context.Context, id uuid.UUID) (domain.Jo
 // ListJobs returns jobs matching the filter. It supports the full JobFilter
 // including namespace, tags, enabled, and name substring filtering.
 // This method satisfies the domain.JobRepository interface.
-func (s *Store) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+func (s *Store) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
@@ -242,8 +242,10 @@ SELECT
     j.id, j.namespace, j.name, j.enabled, j.schedule_id,
     j.delivery_type, j.webhook_url, j.secret, j.timeout_ms,
     j.analytics_enabled, j.analytics_retention_seconds,
-    j.created_at, j.updated_at
+    j.created_at, j.updated_at,
+    s.id, s.cron_expression, s.timezone, s.created_at, s.updated_at
 FROM jobs j
+JOIN schedules s ON j.schedule_id = s.id
 WHERE %s
 ORDER BY j.created_at DESC
 LIMIT $%d OFFSET $%d
@@ -257,13 +259,13 @@ LIMIT $%d OFFSET $%d
 	}
 	defer rows.Close()
 
-	var result []domain.Job
+	var result []domain.JobWithSchedule
 	for rows.Next() {
-		job, err := scanJobRow(rows)
+		jws, err := scanJobWithScheduleRow(rows)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, job)
+		result = append(result, jws)
 	}
 
 	if err := rows.Err(); err != nil {

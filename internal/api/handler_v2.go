@@ -132,8 +132,8 @@ func (s *ServerImpl) ListJobs(ctx context.Context, request ListJobsRequestObject
 	}
 
 	apiJobs := make([]Job, len(jobs))
-	for i, j := range jobs {
-		apiJobs[i] = domainJobToAPI(j, "", "")
+	for i, jws := range jobs {
+		apiJobs[i] = domainJobToAPI(jws.Job, jws.Schedule.CronExpression, jws.Schedule.Timezone)
 	}
 
 	return ListJobs200JSONResponse{Jobs: apiJobs}, nil

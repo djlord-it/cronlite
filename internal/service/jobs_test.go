@@ -17,7 +17,7 @@ type mockJobRepo struct {
 	insertJobFn          func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
 	getJobFn             func(ctx context.Context, id uuid.UUID) (domain.Job, error)
 	getJobWithScheduleFn func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
-	listJobsFn           func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listJobsFn           func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
 	updateJobFn          func(ctx context.Context, job domain.Job) error
 	deleteJobFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
 	getEnabledJobsFn     func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
@@ -49,7 +49,7 @@ func (m *mockJobRepo) GetJobWithSchedule(ctx context.Context, id uuid.UUID) (dom
 	return domain.Job{}, domain.Schedule{}, nil
 }
 
-func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, filter)
 	}
@@ -575,11 +575,11 @@ func TestResolveSchedule_UnrecognizedInput(t *testing.T) {
 func TestListJobs_HappyPath(t *testing.T) {
 	var capturedFilter domain.JobFilter
 	jobRepo := &mockJobRepo{
-		listJobsFn: func(_ context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+		listJobsFn: func(_ context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 			capturedFilter = filter
-			return []domain.Job{
-				{ID: uuid.New(), Namespace: "t1", Name: "job-1"},
-				{ID: uuid.New(), Namespace: "t1", Name: "job-2"},
+			return []domain.JobWithSchedule{
+				{Job: domain.Job{ID: uuid.New(), Namespace: "t1", Name: "job-1"}},
+				{Job: domain.Job{ID: uuid.New(), Namespace: "t1", Name: "job-2"}},
 			}, nil
 		},
 	}

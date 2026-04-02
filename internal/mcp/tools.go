@@ -237,14 +237,16 @@ func handleListJobs(svc *service.JobService) server.ToolHandlerFunc {
 		}
 
 		jobList := make([]map[string]any, len(jobs))
-		for i, j := range jobs {
+		for i, jws := range jobs {
 			jobList[i] = map[string]any{
-				"id":         j.ID.String(),
-				"namespace":  j.Namespace.String(),
-				"name":       j.Name,
-				"enabled":    j.Enabled,
-				"created_at": j.CreatedAt.Format(time.RFC3339),
-				"updated_at": j.UpdatedAt.Format(time.RFC3339),
+				"id":              jws.Job.ID.String(),
+				"namespace":       jws.Job.Namespace.String(),
+				"name":            jws.Job.Name,
+				"enabled":         jws.Job.Enabled,
+				"cron_expression": jws.Schedule.CronExpression,
+				"timezone":        jws.Schedule.Timezone,
+				"created_at":      jws.Job.CreatedAt.Format(time.RFC3339),
+				"updated_at":      jws.Job.UpdatedAt.Format(time.RFC3339),
 			}
 		}
 

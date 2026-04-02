@@ -139,7 +139,7 @@ func (s *JobService) GetJob(ctx context.Context, id uuid.UUID) (domain.Job, doma
 }
 
 // ListJobs returns jobs matching the filter, scoped to the namespace from ctx.
-func (s *JobService) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+func (s *JobService) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 	ns := domain.NamespaceFromContext(ctx)
 	if ns.IsZero() {
 		return nil, domain.ErrNamespaceRequired
