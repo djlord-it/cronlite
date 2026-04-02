@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -102,8 +103,14 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
 
 	var text string
 	if checkURL != "" {
+		if !isPublicURL(checkURL) {
+			log.Printf("blocked non-public check URL: %s", checkURL)
+			http.Error(w, "check URL must be public", http.StatusBadRequest)
+			return
+		}
 		// Fetch the check URL and report results
 		status, summary := fetch(checkURL)
+		summary = sanitizeResponse(summary)
 		icon := "✅"
 		if status < 200 || status >= 400 {
 			icon = "❌"
@@ -243,6 +250,70 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// isPublicURL rejects URLs targeting private/internal networks (SSRF protection).
+func isPublicURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+
+	// Only allow http(s)
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+
+	host := u.Hostname()
+
+	// Block obvious internal hostnames
+	blocked := []string{"localhost", "metadata.google.internal", "169.254.169.254"}
+	for _, b := range blocked {
+		if strings.EqualFold(host, b) {
+			return false
+		}
+	}
+	if strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
+		return false
+	}
+
+	// Resolve and block private IP ranges
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return false
+	}
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			return false
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return false
+		}
+	}
+
+	return true
+}
+
+// sanitizeResponse strips patterns that could be used for prompt injection
+// when response text flows back through Telegram into a conversation with an LLM.
+func sanitizeResponse(s string) string {
+	// Strip common injection prefixes (case-insensitive check)
+	lower := strings.ToLower(s)
+	injectionPrefixes := []string{
+		"ignore", "system:", "assistant:", "user:", "<|",
+		"forget your", "disregard", "new instructions",
+	}
+	for _, prefix := range injectionPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return "[response filtered]"
+		}
+	}
+	// Truncate to a safe length
+	if len(s) > 500 {
+		s = s[:500]
+	}
+	return s
 }
 
 func sendTelegram(text string) error {
