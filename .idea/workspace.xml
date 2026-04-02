@@ -4,14 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="4649d6bb-4a64-437b-b2fc-0e850d8452f6" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+    <list default="true" id="4649d6bb-4a64-437b-b2fc-0e850d8452f6" name="Changes" comment="Update Docs">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/OPERATORS.md" beforeDir="false" afterPath="$PROJECT_DIR$/OPERATORS.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cmd/easycron/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/cmd/easycron/main.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/internal/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/config/config.go" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/internal/metrics/prometheus.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/metrics/prometheus.go" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -19,6 +13,11 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="design/horizontal-scaling" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="GitHubPullRequestSearchHistory">{
@@ -33,6 +32,9 @@
     &quot;accountId&quot;: &quot;83a734dd-74a4-4f66-807d-b00c333f4d3a&quot;
   }
 }</component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="CurrentFile" />
+  </component>
   <component name="ProjectColorInfo">{
   &quot;customColor&quot;: &quot;&quot;,
   &quot;associatedIndex&quot;: 6
@@ -50,7 +52,7 @@
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.go.formatter.settings.were.checked": "true",
     "RunOnceActivity.go.migrated.go.modules.settings": "true",
-    "git-widget-placeholder": "design/horizontal-scaling",
+    "git-widget-placeholder": "mcp-agent-playground",
     "go.import.settings.migrated": "true",
     "kotlin-language-version-configured": "true",
     "node.js.detected.package.eslint": "true",
@@ -99,7 +101,28 @@
       <updated>1770126295741</updated>
       <workItem from="1770126297145" duration="401000" />
       <workItem from="1771453838072" duration="1249000" />
+      <workItem from="1771478935339" duration="1383000" />
+      <workItem from="1771516460287" duration="2731000" />
+      <workItem from="1774884544342" duration="1184000" />
+      <workItem from="1774926396175" duration="44000" />
     </task>
+    <task id="LOCAL-00001" summary="Update Docs">
+      <option name="closed" value="true" />
+      <created>1771479245587</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1771479245587</updated>
+    </task>
+    <task id="LOCAL-00002" summary="Update Docs">
+      <option name="closed" value="true" />
+      <created>1771517871162</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1771517871162</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -115,6 +138,10 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Update Docs" />
+    <option name="LAST_COMMIT_MESSAGE" value="Update Docs" />
   </component>
   <component name="VgoProject">
     <settings-migrated>true</settings-migrated>

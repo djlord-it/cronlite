@@ -47,7 +47,7 @@ func (s *JobService) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) 
 		Namespace: ns,
 		TokenHash: tokenHash,
 		Label:     input.Label,
-		Scopes:    input.Scopes,
+		Scopes:    append([]string{}, input.Scopes...),
 		Enabled:   true,
 		CreatedAt: now,
 	}

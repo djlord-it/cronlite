@@ -18,6 +18,10 @@ coverage.out
 go.work
 go.work.sum
 
+# Environment files (may contain secrets)
+.env
+playground/.env
+
 *.md
 !README.md
 !OPERATORS.md

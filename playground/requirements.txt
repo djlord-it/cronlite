@@ -1,0 +1,3 @@
+# Requires Python >= 3.10
+anthropic>=0.49
+mcp>=1.8

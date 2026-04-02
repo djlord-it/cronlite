@@ -283,6 +283,17 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 		return fmt.Errorf("get job: %w", err)
 	}
 
+	// Skip delivery if the job has been paused since this execution was emitted.
+	if !job.Enabled {
+		log.Printf("dispatcher: job=%s is paused, skipping execution=%s", event.JobID, event.ExecutionID)
+		if err := d.store.UpdateExecutionStatus(ctx, event.ExecutionID, domain.ExecutionStatusFailed); err != nil {
+			if !errors.Is(err, ErrStatusTransitionDenied) {
+				return err
+			}
+		}
+		return nil
+	}
+
 	// Write analytics immediately on every TriggerEvent, independent of delivery outcome.
 	// This counts executions, not successful deliveries.
 	d.writeAnalytics(ctx, event, job)
