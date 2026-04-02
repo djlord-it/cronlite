@@ -24,6 +24,7 @@ import traceback
 import urllib.request
 import urllib.parse
 import urllib.error
+from datetime import datetime, timezone
 
 import anthropic
 
@@ -41,18 +42,30 @@ MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # ---------------------------------------------------------------------------
-# System prompt
+# User timezone (persisted in-memory, set via /timezone command)
 # ---------------------------------------------------------------------------
-SYSTEM_PROMPT = f"""\
+user_timezone = "UTC"
+
+# ---------------------------------------------------------------------------
+# System prompt (built dynamically to include current date and user timezone)
+# ---------------------------------------------------------------------------
+def build_system_prompt() -> str:
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return f"""\
 You are an EasyCron assistant running inside Telegram. You manage cron jobs
 via the EasyCron REST API using the tools provided.
 
+Current date/time: {now}
+User's timezone: {user_timezone}
+
 Ground rules:
 - Be concise. This is Telegram — short messages.
-- Use timezone "UTC" unless the user specifies otherwise.
+- Use timezone "{user_timezone}" for all jobs unless the user specifies otherwise.
 - Default webhook secret: "telegram-bot-secret"
 - When creating jobs, always tag with env:telegram.
 - If you list jobs, show a clean summary (name, enabled, schedule, last status).
+- When showing durations (how long a job has been running), calculate from
+  created_at relative to the current date/time above. Be precise.
 - NEVER assume a cron schedule. If the user does not specify when a job should
   run, ASK them before creating it.
 
@@ -312,7 +325,7 @@ def handle_message(claude: anthropic.Anthropic, text: str, history: list) -> str
         response = claude.messages.create(
             model=MODEL,
             max_tokens=2048,
-            system=SYSTEM_PROMPT,
+            system=build_system_prompt(),
             tools=TOOLS,
             messages=history,
         )
@@ -388,6 +401,17 @@ def main():
                 if text == "/reset":
                     history.clear()
                     send_msg(chat_id, "Conversation reset.")
+                    continue
+
+                # /timezone sets the user's default timezone
+                if text.startswith("/timezone"):
+                    global user_timezone
+                    parts = text.split(maxsplit=1)
+                    if len(parts) < 2:
+                        send_msg(chat_id, f"Current timezone: {user_timezone}\n\nUsage: /timezone America/Toronto")
+                        continue
+                    user_timezone = parts[1].strip()
+                    send_msg(chat_id, f"Timezone set to: {user_timezone}\nAll new jobs will use this timezone.")
                     continue
 
                 send_typing(chat_id)
