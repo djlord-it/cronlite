@@ -280,11 +280,15 @@ def tg(method: str, payload: dict | None = None) -> dict:
     data = json.dumps(payload).encode() if payload else None
     req = urllib.request.Request(url, data=data)
     req.add_header("Content-Type", "application/json")
+    # getUpdates uses a 30s server-side long-poll; give the socket 5s of headroom
+    socket_timeout = 35 if method == "getUpdates" else 15
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=socket_timeout) as resp:
             return json.loads(resp.read().decode())
     except Exception as e:
-        print(f"telegram error ({method}): {e}", flush=True)
+        # getUpdates timeouts are normal long-poll behavior — don't spam logs
+        if method != "getUpdates":
+            print(f"telegram error ({method}): {e}", flush=True)
         return {}
 
 
