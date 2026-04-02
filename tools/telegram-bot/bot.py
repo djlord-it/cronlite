@@ -401,7 +401,17 @@ def main():
                 chat_id = str(msg.get("chat", {}).get("id", ""))
                 text = msg.get("text", "").strip()
 
-                if not text or not chat_id:
+                if not chat_id:
+                    continue
+
+                # Only text messages are supported
+                if not text:
+                    media_types = ("photo", "video", "audio", "voice", "document",
+                                   "sticker", "animation", "video_note", "contact",
+                                   "location", "venue", "poll")
+                    if any(msg.get(m) for m in media_types):
+                        if chat_id == CHAT_ID:
+                            send_msg(chat_id, "I only understand text messages. Send me a command or question.")
                     continue
 
                 # Security: only respond to authorized chat
