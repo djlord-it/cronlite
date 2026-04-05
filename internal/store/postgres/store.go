@@ -195,6 +195,46 @@ func (s *Store) GetJobWithSchedule(ctx context.Context, id uuid.UUID) (domain.Jo
 	return job, sched, nil
 }
 
+// GetJobWithScheduleScoped returns a job and its schedule filtered by both ID and namespace.
+// This provides defense-in-depth for API-facing operations.
+func (s *Store) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	var job domain.Job
+	var sched domain.Schedule
+	var timeoutMs int64
+
+	err := s.db.QueryRowContext(ctx, queryGetJobWithScheduleScoped, id, string(ns)).Scan(
+		&job.ID,
+		&job.Namespace,
+		&job.Name,
+		&job.Enabled,
+		&job.ScheduleID,
+		&job.Delivery.Type,
+		&job.Delivery.WebhookURL,
+		&job.Delivery.Secret,
+		&timeoutMs,
+		&job.Analytics.Enabled,
+		&job.Analytics.RetentionSeconds,
+		&job.CreatedAt,
+		&job.UpdatedAt,
+		&sched.ID,
+		&sched.CronExpression,
+		&sched.Timezone,
+		&sched.CreatedAt,
+		&sched.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+		}
+		return domain.Job{}, domain.Schedule{}, err
+	}
+	job.Delivery.Timeout = time.Duration(timeoutMs) * time.Millisecond
+	return job, sched, nil
+}
+
 // ListJobs returns jobs matching the filter. It supports the full JobFilter
 // including namespace, tags, enabled, and name substring filtering.
 // This method satisfies the domain.JobRepository interface.
@@ -684,7 +724,6 @@ func (s *Store) InsertAPIKey(ctx context.Context, key domain.APIKey) error {
 		string(key.Namespace),
 		key.TokenHash,
 		key.Label,
-		pq.Array(key.Scopes),
 		key.Enabled,
 		key.CreatedAt,
 	)
@@ -708,7 +747,6 @@ func (s *Store) GetKeyByTokenHash(ctx context.Context, tokenHash string) (domain
 		&key.Namespace,
 		&key.TokenHash,
 		&key.Label,
-		pq.Array(&key.Scopes),
 		&key.Enabled,
 		&key.CreatedAt,
 		&key.LastUsedAt,
@@ -743,7 +781,6 @@ func (s *Store) ListKeys(ctx context.Context, ns domain.Namespace, params domain
 			&key.Namespace,
 			&key.TokenHash,
 			&key.Label,
-			pq.Array(&key.Scopes),
 			&key.Enabled,
 			&key.CreatedAt,
 			&key.LastUsedAt,

@@ -3,8 +3,11 @@ package mcp
 import (
 	"context"
 	"crypto/subtle"
+	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	"github.com/djlord-it/easy-cron/internal/domain"
 	"github.com/djlord-it/easy-cron/internal/service"
@@ -19,6 +22,8 @@ import (
 // If the legacy fallbackKey matches, namespace "default" is used.
 // If neither matches, a 401 response is returned.
 func AuthMiddleware(keyRepo domain.APIKeyRepository, fallbackKey string, next http.Handler) http.Handler {
+	var lastLegacyWarn atomic.Int64
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, "Bearer ") {
@@ -36,8 +41,14 @@ func AuthMiddleware(keyRepo domain.APIKeyRepository, fallbackKey string, next ht
 			return
 		}
 
-		// Fallback: legacy single API_KEY support.
+		// Fallback: legacy single API_KEY support (deprecated).
 		if fallbackKey != "" && subtle.ConstantTimeCompare([]byte(token), []byte(fallbackKey)) == 1 {
+			now := time.Now().Unix()
+			if last := lastLegacyWarn.Load(); now-last >= 60 {
+				if lastLegacyWarn.CompareAndSwap(last, now) {
+					log.Printf("DEPRECATED: legacy API_KEY used for MCP — migrate to multi-key auth via 'easycron create-key'")
+				}
+			}
 			ctx := domain.NamespaceToContext(r.Context(), domain.Namespace("default"))
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
@@ -66,7 +77,8 @@ func httpContextFunc(keyRepo domain.APIKeyRepository, fallbackKey string) func(c
 			return domain.NamespaceToContext(ctx, key.Namespace)
 		}
 
-		// Fallback: legacy single API_KEY support.
+		// Fallback: legacy single API_KEY support (deprecated).
+		// Deprecation is logged by AuthMiddleware on the initial HTTP connection.
 		if fallbackKey != "" && subtle.ConstantTimeCompare([]byte(token), []byte(fallbackKey)) == 1 {
 			return domain.NamespaceToContext(ctx, domain.Namespace("default"))
 		}

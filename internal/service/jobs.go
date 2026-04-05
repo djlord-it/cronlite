@@ -116,12 +116,8 @@ func (s *JobService) GetJob(ctx context.Context, id uuid.UUID) (domain.Job, doma
 		return domain.Job{}, domain.Schedule{}, nil, nil, domain.ErrNamespaceRequired
 	}
 
-	job, schedule, err := s.jobs.GetJobWithSchedule(ctx, id)
+	job, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Job{}, domain.Schedule{}, nil, nil, domain.ErrJobNotFound
-	}
-
-	if job.Namespace != ns {
 		return domain.Job{}, domain.Schedule{}, nil, nil, domain.ErrJobNotFound
 	}
 
@@ -158,11 +154,8 @@ func (s *JobService) UpdateJob(ctx context.Context, id uuid.UUID, input UpdateJo
 		return domain.Job{}, domain.Schedule{}, domain.ErrNamespaceRequired
 	}
 
-	job, schedule, err := s.jobs.GetJobWithSchedule(ctx, id)
+	job, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
-	}
-	if job.Namespace != ns {
 		return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 	}
 
@@ -248,11 +241,8 @@ func (s *JobService) PauseJob(ctx context.Context, id uuid.UUID) (domain.Job, er
 		return domain.Job{}, domain.ErrNamespaceRequired
 	}
 
-	job, _, err := s.jobs.GetJobWithSchedule(ctx, id)
+	job, _, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Job{}, domain.ErrJobNotFound
-	}
-	if job.Namespace != ns {
 		return domain.Job{}, domain.ErrJobNotFound
 	}
 
@@ -273,11 +263,8 @@ func (s *JobService) ResumeJob(ctx context.Context, id uuid.UUID) (domain.Job, e
 		return domain.Job{}, domain.ErrNamespaceRequired
 	}
 
-	job, _, err := s.jobs.GetJobWithSchedule(ctx, id)
+	job, _, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Job{}, domain.ErrJobNotFound
-	}
-	if job.Namespace != ns {
 		return domain.Job{}, domain.ErrJobNotFound
 	}
 
@@ -298,11 +285,8 @@ func (s *JobService) TriggerNow(ctx context.Context, jobID uuid.UUID) (domain.Ex
 		return domain.Execution{}, domain.ErrNamespaceRequired
 	}
 
-	job, _, err := s.jobs.GetJobWithSchedule(ctx, jobID)
+	job, _, err := s.jobs.GetJobWithScheduleScoped(ctx, jobID, ns)
 	if err != nil {
-		return domain.Execution{}, domain.ErrJobNotFound
-	}
-	if job.Namespace != ns {
 		return domain.Execution{}, domain.ErrJobNotFound
 	}
 	if !job.Enabled {
@@ -335,11 +319,8 @@ func (s *JobService) GetNextRunTime(ctx context.Context, jobID uuid.UUID) (time.
 		return time.Time{}, nil, domain.Schedule{}, domain.ErrNamespaceRequired
 	}
 
-	job, schedule, err := s.jobs.GetJobWithSchedule(ctx, jobID)
+	_, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, jobID, ns)
 	if err != nil {
-		return time.Time{}, nil, domain.Schedule{}, domain.ErrJobNotFound
-	}
-	if job.Namespace != ns {
 		return time.Time{}, nil, domain.Schedule{}, domain.ErrJobNotFound
 	}
 
