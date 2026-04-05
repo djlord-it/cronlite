@@ -644,6 +644,10 @@ func logConfigWarnings(cfg *config.Config) {
 		log.Printf("WARNING [P0]: DISPATCH_MODE=channel with RECONCILE_ENABLED=false — orphaned executions from buffer overflow will be PERMANENTLY LOST. Set RECONCILE_ENABLED=true for production.")
 	}
 
+	if cfg.DispatchMode == "db" && !cfg.ReconcileEnabled {
+		log.Printf("WARNING [P0]: DISPATCH_MODE=db with RECONCILE_ENABLED=false — the reconciler is the crash recovery mechanism for in_progress executions. Without it, a dispatcher worker crash leaves executions permanently stuck in in_progress status with no automatic recovery. Set RECONCILE_ENABLED=true.")
+	}
+
 	if !cfg.ReconcileEnabled {
 		log.Printf("WARNING [P0]: RECONCILE_ENABLED=false — no automatic orphan recovery. Crashed or timed-out executions will remain stuck. Set RECONCILE_ENABLED=true for production.")
 	}
