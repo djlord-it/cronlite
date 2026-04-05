@@ -1,0 +1,110 @@
+x-easycron-env: &easycron-env
+  DATABASE_URL: postgres://easycron:easycron@postgres:5432/easycron?sslmode=disable
+  DISPATCH_MODE: db
+  DISPATCHER_WORKERS: "16"
+  DB_POLL_INTERVAL: 200ms
+  TICK_INTERVAL: 5s
+  LEADER_LOCK_KEY: "728379"
+  LEADER_RETRY_INTERVAL: 3s
+  LEADER_HEARTBEAT_INTERVAL: 1s
+  METRICS_ENABLED: "true"
+  RECONCILE_ENABLED: "true"
+  RECONCILE_INTERVAL: 15s
+  RECONCILE_THRESHOLD: 2m
+  EVENTBUS_BUFFER_SIZE: "1000"
+  DB_MAX_OPEN_CONNS: "50"
+  DB_MAX_IDLE_CONNS: "20"
+  RATE_LIMIT: "100000"
+  NAMESPACE_RATE_LIMIT: "100000"
+  CIRCUIT_BREAKER_THRESHOLD: "5"
+  CIRCUIT_BREAKER_COOLDOWN: 30s
+  API_KEY: stress-test-key
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: easycron
+      POSTGRES_USER: easycron
+      POSTGRES_PASSWORD: easycron
+    volumes:
+      - ../schema/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql
+      - ../schema/002_add_indexes.sql:/docker-entrypoint-initdb.d/002_add_indexes.sql
+      - ../schema/003_add_claimed_at.sql:/docker-entrypoint-initdb.d/003_add_claimed_at.sql
+      - ../schema/004_agent_platform.sql:/docker-entrypoint-initdb.d/004_agent_platform.sql
+      - ../schema/005_drop_scopes.sql:/docker-entrypoint-initdb.d/005_drop_scopes.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easycron"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  webhook-receiver:
+    build: ../tools/webhook-receiver
+    ports:
+      - "9091:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 5
+
+  easycron_1:
+    build: ..
+    container_name: stress_easycron_1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      webhook-receiver:
+        condition: service_healthy
+    environment:
+      <<: *easycron-env
+      HTTP_ADDR: ":8080"
+    ports:
+      - "8091:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  easycron_2:
+    build: ..
+    container_name: stress_easycron_2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      webhook-receiver:
+        condition: service_healthy
+    environment:
+      <<: *easycron-env
+      HTTP_ADDR: ":8080"
+    ports:
+      - "8092:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  easycron_3:
+    build: ..
+    container_name: stress_easycron_3
+    depends_on:
+      postgres:
+        condition: service_healthy
+      webhook-receiver:
+        condition: service_healthy
+    environment:
+      <<: *easycron-env
+      HTTP_ADDR: ":8080"
+    ports:
+      - "8093:8080"
+    deploy:
+      resources:
+        limits:
+          memory: 256M

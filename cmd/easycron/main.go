@@ -145,7 +145,8 @@ Environment Variables:
 
   RECONCILE_ENABLED         Enable orphan execution reconciler (default: "false")
   RECONCILE_INTERVAL        How often to scan for orphans (default: "5m")
-  RECONCILE_THRESHOLD       Age before execution is orphaned (default: "10m")
+  RECONCILE_THRESHOLD       Age before emitted execution is orphaned (default: "15m")
+  RECONCILE_REQUEUE_THRESHOLD Age before in_progress execution is requeued (default: "2m", db mode)
   RECONCILE_BATCH_SIZE      Max orphans per cycle (default: "100")`)
 }
 
@@ -194,9 +195,10 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 
 		recon := reconciler.New(
 			reconciler.Config{
-				Interval:  lr.cfg.ReconcileInterval,
-				Threshold: lr.cfg.ReconcileThreshold,
-				BatchSize: lr.cfg.ReconcileBatchSize,
+				Interval:         lr.cfg.ReconcileInterval,
+				Threshold:        lr.cfg.ReconcileThreshold,
+				RequeueThreshold: lr.cfg.ReconcileRequeueThreshold,
+				BatchSize:        lr.cfg.ReconcileBatchSize,
 			},
 			lr.store,
 			lr.emitter,
@@ -211,8 +213,8 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 			defer lr.wg.Done()
 			recon.Run(reconCtx)
 		}()
-		log.Printf("easycron: reconciler started (interval=%s, threshold=%s, batch=%d)",
-			lr.cfg.ReconcileInterval, lr.cfg.ReconcileThreshold, lr.cfg.ReconcileBatchSize)
+		log.Printf("easycron: reconciler started (interval=%s, threshold=%s, requeue_threshold=%s, batch=%d)",
+			lr.cfg.ReconcileInterval, lr.cfg.ReconcileThreshold, lr.cfg.ReconcileRequeueThreshold, lr.cfg.ReconcileBatchSize)
 	}
 
 	lr.running = true
@@ -478,9 +480,10 @@ func runServe() int {
 			reconcilerCtx, cancelReconciler = context.WithCancel(context.Background())
 			recon := reconciler.New(
 				reconciler.Config{
-					Interval:  cfg.ReconcileInterval,
-					Threshold: cfg.ReconcileThreshold,
-					BatchSize: cfg.ReconcileBatchSize,
+					Interval:         cfg.ReconcileInterval,
+					Threshold:        cfg.ReconcileThreshold,
+					RequeueThreshold: cfg.ReconcileRequeueThreshold,
+					BatchSize:        cfg.ReconcileBatchSize,
 				},
 				store,
 				emitter,
@@ -493,8 +496,8 @@ func runServe() int {
 				defer reconcilerWg.Done()
 				recon.Run(reconcilerCtx)
 			}()
-			log.Printf("easycron: reconciler enabled (interval=%s, threshold=%s, batch=%d)",
-				cfg.ReconcileInterval, cfg.ReconcileThreshold, cfg.ReconcileBatchSize)
+			log.Printf("easycron: reconciler enabled (interval=%s, threshold=%s, requeue_threshold=%s, batch=%d)",
+				cfg.ReconcileInterval, cfg.ReconcileThreshold, cfg.ReconcileRequeueThreshold, cfg.ReconcileBatchSize)
 		} else {
 			log.Println("easycron: RECONCILE_ENABLED not set; reconciler disabled")
 		}
@@ -655,6 +658,10 @@ func logConfigWarnings(cfg *config.Config) {
 
 	if cfg.DispatchMode == "db" && cfg.DispatcherWorkers == 1 {
 		log.Printf("INFO: DISPATCH_MODE=db with DISPATCHER_WORKERS=1 — consider increasing to 2-4 for production workloads.")
+	}
+
+	if cfg.DispatchMode == "db" && cfg.ReconcileEnabled && cfg.ReconcileRequeueThreshold > 5*time.Minute {
+		log.Printf("WARNING [P1]: RECONCILE_REQUEUE_THRESHOLD=%s is very conservative. FOR UPDATE SKIP LOCKED prevents premature requeue, so values of 1-2m are safe and improve crash recovery time.", cfg.ReconcileRequeueThreshold)
 	}
 
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {

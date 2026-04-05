@@ -457,6 +457,9 @@ func TestReconciler_DefaultConfig(t *testing.T) {
 	if cfg.Threshold != expectedThreshold {
 		t.Errorf("default threshold should be %s, got %s", expectedThreshold, cfg.Threshold)
 	}
+	if cfg.RequeueThreshold != DefaultRequeueThreshold {
+		t.Errorf("default requeue threshold should be %s, got %s", DefaultRequeueThreshold, cfg.RequeueThreshold)
+	}
 	if cfg.BatchSize != 100 {
 		t.Errorf("default batch size should be 100, got %d", cfg.BatchSize)
 	}
@@ -502,13 +505,92 @@ func TestReconciler_RequeuesStaleExecutions(t *testing.T) {
 
 type mockStoreWithRequeue struct {
 	mockStore
-	mu            sync.Mutex
-	requeueCalled bool
+	mu               sync.Mutex
+	requeueCalled    bool
+	requeueOlderThan time.Time
 }
 
 func (s *mockStoreWithRequeue) RequeueStaleExecutions(ctx context.Context, olderThan time.Time, limit int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.requeueCalled = true
+	s.requeueOlderThan = olderThan
 	return 0, nil
+}
+
+// TestReconciler_SplitThresholds verifies that RequeueStaleExecutions uses
+// RequeueThreshold while GetOrphanedExecutions uses Threshold.
+func TestReconciler_SplitThresholds(t *testing.T) {
+	store := &mockStoreWithThresholdCapture{}
+	emitter := &mockEmitter{}
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	recon := New(Config{
+		Interval:         time.Hour,
+		Threshold:        15 * time.Minute,
+		RequeueThreshold: 2 * time.Minute,
+		BatchSize:        100,
+	}, store, emitter)
+	recon.clock = func() time.Time { return now }
+
+	ctx := context.Background()
+	recon.runCycle(ctx)
+
+	// RequeueStaleExecutions should use the aggressive RequeueThreshold (2m)
+	expectedRequeue := now.Add(-2 * time.Minute)
+	if !store.requeueOlderThan.Equal(expectedRequeue) {
+		t.Errorf("RequeueStaleExecutions olderThan: want %s, got %s", expectedRequeue, store.requeueOlderThan)
+	}
+
+	// GetOrphanedExecutions should use the conservative Threshold (15m)
+	expectedOrphan := now.Add(-15 * time.Minute)
+	if !store.orphanOlderThan.Equal(expectedOrphan) {
+		t.Errorf("GetOrphanedExecutions olderThan: want %s, got %s", expectedOrphan, store.orphanOlderThan)
+	}
+}
+
+// TestReconciler_RequeueThresholdFallback verifies that when RequeueThreshold
+// is zero, the reconciler falls back to using Threshold for both operations.
+func TestReconciler_RequeueThresholdFallback(t *testing.T) {
+	store := &mockStoreWithThresholdCapture{}
+	emitter := &mockEmitter{}
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	recon := New(Config{
+		Interval:         time.Hour,
+		Threshold:        15 * time.Minute,
+		RequeueThreshold: 0, // not set — should fall back to Threshold
+		BatchSize:        100,
+	}, store, emitter)
+	recon.clock = func() time.Time { return now }
+
+	ctx := context.Background()
+	recon.runCycle(ctx)
+
+	expected := now.Add(-15 * time.Minute)
+	if !store.requeueOlderThan.Equal(expected) {
+		t.Errorf("RequeueStaleExecutions should fall back to Threshold: want %s, got %s", expected, store.requeueOlderThan)
+	}
+}
+
+type mockStoreWithThresholdCapture struct {
+	mu               sync.Mutex
+	requeueOlderThan time.Time
+	orphanOlderThan  time.Time
+}
+
+func (s *mockStoreWithThresholdCapture) RequeueStaleExecutions(ctx context.Context, olderThan time.Time, limit int) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.requeueOlderThan = olderThan
+	return 0, nil
+}
+
+func (s *mockStoreWithThresholdCapture) GetOrphanedExecutions(ctx context.Context, olderThan time.Time, maxResults int) ([]domain.Execution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.orphanOlderThan = olderThan
+	return nil, nil
 }

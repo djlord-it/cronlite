@@ -46,8 +46,18 @@ type Config struct {
 	Interval time.Duration
 
 	// Threshold is the age after which an emitted execution is considered orphaned.
-	// Default: 10 minutes.
+	// Must be >= dispatcher.MaxRetryDuration() to avoid re-emitting executions
+	// that are still being actively retried.
+	// Default: MaxRetryDuration + SafetyMargin (~15 minutes).
 	Threshold time.Duration
+
+	// RequeueThreshold is the age after which an in_progress execution is
+	// considered stale and requeued back to emitted (DB dispatch mode crash
+	// recovery). This can be much more aggressive than Threshold because the
+	// SQL query uses FOR UPDATE SKIP LOCKED — if a dispatcher IS actively
+	// processing the row, the lock prevents premature requeue.
+	// Default: 2 minutes.
+	RequeueThreshold time.Duration
 
 	// BatchSize is the maximum number of orphans to process per cycle.
 	// Default: 100.
@@ -58,11 +68,17 @@ type Config struct {
 // The threshold is derived from the dispatcher's maximum retry duration plus
 // a safety margin, ensuring the reconciler never re-emits executions that are
 // still being actively retried.
+// DefaultRequeueThreshold is the default age after which in_progress executions
+// are requeued. Safe to be aggressive because FOR UPDATE SKIP LOCKED prevents
+// requeuing rows that a dispatcher is actively holding.
+const DefaultRequeueThreshold = 2 * time.Minute
+
 func DefaultConfig() Config {
 	return Config{
-		Interval:  5 * time.Minute,
-		Threshold: dispatcher.MaxRetryDuration() + SafetyMargin,
-		BatchSize: 100,
+		Interval:         5 * time.Minute,
+		Threshold:        dispatcher.MaxRetryDuration() + SafetyMargin,
+		RequeueThreshold: DefaultRequeueThreshold,
+		BatchSize:        100,
 	}
 }
 
@@ -116,18 +132,29 @@ func (r *Reconciler) Run(ctx context.Context) {
 // runCycle executes one reconciliation cycle.
 func (r *Reconciler) runCycle(ctx context.Context) {
 	now := r.clock().UTC()
-	threshold := now.Add(-r.config.Threshold)
+
+	// Use separate thresholds for the two recovery operations:
+	// - RequeueThreshold (aggressive, default 2m): safe because FOR UPDATE SKIP LOCKED
+	//   prevents requeuing rows a dispatcher is actively holding.
+	// - Threshold (conservative, default 15m): must exceed MaxRetryDuration to avoid
+	//   re-emitting executions still being retried.
+	requeueThreshold := r.config.RequeueThreshold
+	if requeueThreshold == 0 {
+		requeueThreshold = r.config.Threshold // backward compat
+	}
+	requeueCutoff := now.Add(-requeueThreshold)
+	orphanCutoff := now.Add(-r.config.Threshold)
 
 	// Requeue stale in_progress executions (DB dispatch mode crash recovery).
 	// In channel mode this is a no-op (no in_progress rows exist).
-	requeued, err := r.store.RequeueStaleExecutions(ctx, threshold, r.config.BatchSize)
+	requeued, err := r.store.RequeueStaleExecutions(ctx, requeueCutoff, r.config.BatchSize)
 	if err != nil {
 		log.Printf("reconciler: failed to requeue stale executions: %v", err)
 	} else if requeued > 0 {
 		log.Printf("reconciler: requeued %d stale in_progress executions", requeued)
 	}
 
-	orphans, err := r.store.GetOrphanedExecutions(ctx, threshold, r.config.BatchSize)
+	orphans, err := r.store.GetOrphanedExecutions(ctx, orphanCutoff, r.config.BatchSize)
 	if err != nil {
 		// DB error: log and abort cycle. Will retry next interval.
 		log.Printf("reconciler: failed to fetch orphans: %v", err)

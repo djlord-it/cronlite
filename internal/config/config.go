@@ -44,6 +44,11 @@ type Config struct {
 	ReconcileThreshold    time.Duration `json:"-"`
 	ReconcileThresholdStr string        `json:"reconcile_threshold"`
 
+	// ReconcileRequeueThreshold: age before in_progress execution is requeued (crash recovery).
+	// Can be aggressive (FOR UPDATE SKIP LOCKED prevents premature requeue).
+	ReconcileRequeueThreshold    time.Duration `json:"-"`
+	ReconcileRequeueThresholdStr string        `json:"reconcile_requeue_threshold"`
+
 	ReconcileBatchSize int `json:"reconcile_batch_size"`
 	EventBusBufferSize int `json:"eventbus_buffer_size"`
 
@@ -92,8 +97,9 @@ func Load() Config {
 		MetricsEnabled:            os.Getenv("METRICS_ENABLED") == "true",
 		MetricsPath:               os.Getenv("METRICS_PATH"),
 		ReconcileEnabled:          os.Getenv("RECONCILE_ENABLED") == "true",
-		ReconcileIntervalStr:      os.Getenv("RECONCILE_INTERVAL"),
-		ReconcileThresholdStr:     os.Getenv("RECONCILE_THRESHOLD"),
+		ReconcileIntervalStr:          os.Getenv("RECONCILE_INTERVAL"),
+		ReconcileThresholdStr:         os.Getenv("RECONCILE_THRESHOLD"),
+		ReconcileRequeueThresholdStr:  os.Getenv("RECONCILE_REQUEUE_THRESHOLD"),
 	}
 
 	if batchStr := os.Getenv("RECONCILE_BATCH_SIZE"); batchStr != "" {
@@ -235,6 +241,9 @@ func Load() Config {
 	if cfg.ReconcileThresholdStr == "" {
 		cfg.ReconcileThresholdStr = "15m"
 	}
+	if cfg.ReconcileRequeueThresholdStr == "" {
+		cfg.ReconcileRequeueThresholdStr = "2m"
+	}
 	if cfg.CircuitBreakerCooldownStr == "" {
 		cfg.CircuitBreakerCooldownStr = "2m"
 	}
@@ -272,6 +281,9 @@ func Load() Config {
 	}
 	if d, err := time.ParseDuration(cfg.ReconcileThresholdStr); err == nil {
 		cfg.ReconcileThreshold = d
+	}
+	if d, err := time.ParseDuration(cfg.ReconcileRequeueThresholdStr); err == nil {
+		cfg.ReconcileRequeueThreshold = d
 	}
 	if d, err := time.ParseDuration(cfg.CircuitBreakerCooldownStr); err == nil {
 		cfg.CircuitBreakerCooldown = d
@@ -319,8 +331,9 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		MetricsPath            string `json:"metrics_path"`
 		ReconcileEnabled       bool   `json:"reconcile_enabled"`
 		ReconcileInterval      string `json:"reconcile_interval"`
-		ReconcileThreshold     string `json:"reconcile_threshold"`
-		ReconcileBatchSize     int    `json:"reconcile_batch_size"`
+		ReconcileThreshold         string `json:"reconcile_threshold"`
+		ReconcileRequeueThreshold  string `json:"reconcile_requeue_threshold"`
+		ReconcileBatchSize         int    `json:"reconcile_batch_size"`
 		EventBusBufferSize      int    `json:"eventbus_buffer_size"`
 		CircuitBreakerThreshold int    `json:"circuit_breaker_threshold"`
 		CircuitBreakerCooldown  string `json:"circuit_breaker_cooldown"`
@@ -348,8 +361,9 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		MetricsPath:            c.MetricsPath,
 		ReconcileEnabled:       c.ReconcileEnabled,
 		ReconcileInterval:      c.ReconcileIntervalStr,
-		ReconcileThreshold:     c.ReconcileThresholdStr,
-		ReconcileBatchSize:     c.ReconcileBatchSize,
+		ReconcileThreshold:        c.ReconcileThresholdStr,
+		ReconcileRequeueThreshold: c.ReconcileRequeueThresholdStr,
+		ReconcileBatchSize:        c.ReconcileBatchSize,
 		EventBusBufferSize:      c.EventBusBufferSize,
 		CircuitBreakerThreshold: c.CircuitBreakerThreshold,
 		CircuitBreakerCooldown:  c.CircuitBreakerCooldownStr,
