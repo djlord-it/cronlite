@@ -79,6 +79,14 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	log.Printf("scheduler: started, tick=%s", s.config.TickInterval)
+	// On new leader election after a failover, lastTick resets to the current time.
+	// This means any jobs that came due during the leaderless gap (between the old
+	// leader's last tick and this startup) are NOT backfilled — they will be missed
+	// until their next scheduled occurrence. This is a deliberate design decision:
+	// backfilling would require persisting lastTick to the database and adds complexity
+	// for a scenario (failover gap of seconds to minutes) that is acceptable for most
+	// cron workloads. The (job_id, scheduled_at) unique constraint ensures that if the
+	// old leader did schedule them before dying, duplicate inserts are safely ignored.
 	s.lastTick = s.clock().UTC()
 	expectedNext := s.lastTick.Add(s.config.TickInterval)
 
