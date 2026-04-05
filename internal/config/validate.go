@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"time"
+
+	"github.com/djlord-it/easy-cron/internal/dispatcher"
 )
 
 // ValidationError represents a configuration validation error.
@@ -66,6 +68,67 @@ func Validate(cfg Config) error {
 		errs = append(errs, ValidationError{
 			Field:   "DISPATCH_MODE",
 			Message: fmt.Sprintf("must be 'channel' or 'db', got %q", cfg.DispatchMode),
+		})
+	}
+
+	// DB dispatch mode: leader election parameters
+	if cfg.DispatchMode == "db" {
+		if cfg.LeaderRetryInterval <= 0 && cfg.LeaderRetryIntervalStr != "" {
+			errs = append(errs, ValidationError{
+				Field:   "LEADER_RETRY_INTERVAL",
+				Message: "must be positive",
+			})
+		}
+		if cfg.LeaderHeartbeatInterval <= 0 && cfg.LeaderHeartbeatIntervalStr != "" {
+			errs = append(errs, ValidationError{
+				Field:   "LEADER_HEARTBEAT_INTERVAL",
+				Message: "must be positive",
+			})
+		}
+		if cfg.LeaderHeartbeatInterval > 0 && cfg.LeaderRetryInterval > 0 &&
+			cfg.LeaderHeartbeatInterval >= cfg.LeaderRetryInterval {
+			errs = append(errs, ValidationError{
+				Field:   "LEADER_HEARTBEAT_INTERVAL",
+				Message: fmt.Sprintf("must be less than LEADER_RETRY_INTERVAL (%s)", cfg.LeaderRetryInterval),
+			})
+		}
+	}
+
+	// Reconciler parameters (when enabled)
+	if cfg.ReconcileEnabled {
+		if cfg.ReconcileInterval <= 0 && cfg.ReconcileIntervalStr != "" {
+			errs = append(errs, ValidationError{
+				Field:   "RECONCILE_INTERVAL",
+				Message: "must be positive",
+			})
+		}
+		if cfg.ReconcileThreshold <= 0 && cfg.ReconcileThresholdStr != "" {
+			errs = append(errs, ValidationError{
+				Field:   "RECONCILE_THRESHOLD",
+				Message: "must be positive",
+			})
+		}
+		if cfg.ReconcileRequeueThreshold <= 0 && cfg.ReconcileRequeueThresholdStr != "" {
+			errs = append(errs, ValidationError{
+				Field:   "RECONCILE_REQUEUE_THRESHOLD",
+				Message: "must be positive",
+			})
+		}
+		maxRetry := dispatcher.MaxRetryDuration()
+		if cfg.ReconcileThreshold > 0 && cfg.ReconcileThreshold < maxRetry {
+			errs = append(errs, ValidationError{
+				Field: "RECONCILE_THRESHOLD",
+				Message: fmt.Sprintf("must be >= dispatcher max retry duration (%s) to prevent duplicate deliveries",
+					maxRetry),
+			})
+		}
+	}
+
+	// Circuit breaker: cooldown must be positive when enabled
+	if cfg.CircuitBreakerThreshold > 0 && cfg.CircuitBreakerCooldown <= 0 && cfg.CircuitBreakerCooldownStr != "" {
+		errs = append(errs, ValidationError{
+			Field:   "CIRCUIT_BREAKER_COOLDOWN",
+			Message: "must be positive when circuit breaker is enabled",
 		})
 	}
 
