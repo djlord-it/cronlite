@@ -457,7 +457,7 @@ func (m *mockCircuitBreaker) setOpen(url string) {
 	m.allowErr[url] = errors.New("circuit breaker is open")
 }
 
-func TestDispatch_CircuitOpen_SkipsRetryLoop(t *testing.T) {
+func TestDispatch_CircuitOpen_DefersWithoutMarkingFailed(t *testing.T) {
 	store := newMockStore()
 	sender := &mockSender{results: []WebhookResult{}}
 	cb := newMockCircuitBreaker()
@@ -497,12 +497,11 @@ func TestDispatch_CircuitOpen_SkipsRetryLoop(t *testing.T) {
 		t.Errorf("expected 0 send calls, got %d", sender.callCount())
 	}
 
-	// Execution should be marked as failed
-	store.mu.Lock()
-	status := store.executionStatus[execID]
-	store.mu.Unlock()
-	if status != domain.ExecutionStatusFailed {
-		t.Errorf("expected status failed, got %v", status)
+	// Execution status should NOT have been updated (stays emitted/in_progress,
+	// allowing retry when circuit closes)
+	updates := store.getStatusUpdates()
+	if len(updates) != 0 {
+		t.Errorf("expected no status updates when circuit is open, got %d: %v", len(updates), updates)
 	}
 }
 
