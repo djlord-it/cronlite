@@ -1,10 +1,14 @@
 # Build stage
 FROM golang:1.25-alpine AS builder
 
+ARG RACE_ENABLED=0
+
 WORKDIR /app
 
 # Install git for go mod download (some dependencies may need it)
-RUN apk add --no-cache git
+# Install gcc + musl-dev when race detection is enabled (requires CGO)
+RUN apk add --no-cache git && \
+    if [ "$RACE_ENABLED" = "1" ]; then apk add --no-cache gcc musl-dev; fi
 
 # Copy go mod files first for better caching
 COPY go.mod go.sum ./
@@ -14,11 +18,20 @@ RUN go mod download
 COPY . .
 
 # Build the binary with version info
+# Race detection requires CGO_ENABLED=1; strip flags (-s -w) omitted for race
+# builds to preserve stack trace quality in race reports.
 ARG VERSION=dev
 ARG COMMIT=unknown
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
-    -o /easycron ./cmd/easycron
+RUN set -e; \
+    if [ "$RACE_ENABLED" = "1" ]; then \
+      CGO_ENABLED=1 GOOS=linux go build -race \
+        -ldflags="-X main.version=${VERSION} -X main.commit=${COMMIT}" \
+        -o /easycron ./cmd/easycron; \
+    else \
+      CGO_ENABLED=0 GOOS=linux go build \
+        -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
+        -o /easycron ./cmd/easycron; \
+    fi
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \

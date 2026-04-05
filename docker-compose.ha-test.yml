@@ -43,7 +43,10 @@ services:
       retries: 5
 
   easycron_1:
-    build: .
+    build:
+      context: .
+      args:
+        RACE_ENABLED: "${RACE_ENABLED:-0}"
     container_name: easycron_1
     depends_on:
       postgres:
@@ -57,7 +60,10 @@ services:
       - "8081:8080"
 
   easycron_2:
-    build: .
+    build:
+      context: .
+      args:
+        RACE_ENABLED: "${RACE_ENABLED:-0}"
     container_name: easycron_2
     depends_on:
       postgres:
@@ -71,7 +77,10 @@ services:
       - "8082:8080"
 
   easycron_3:
-    build: .
+    build:
+      context: .
+      args:
+        RACE_ENABLED: "${RACE_ENABLED:-0}"
     container_name: easycron_3
     depends_on:
       postgres:

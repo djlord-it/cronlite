@@ -29,6 +29,7 @@ jobs:
       - name: Run HA test harness
         env:
           HA_TEST_SKIP_CLEANUP: "true"
+          RACE_ENABLED: "1"
         run: ./scripts/ha_test.sh
 
       - name: Collect diagnostics
