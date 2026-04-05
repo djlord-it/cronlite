@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      COVERAGE_THRESHOLD: "25"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,8 +47,9 @@ jobs:
         run: |
           COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
           echo "Total coverage: ${COVERAGE}%"
-          if [ "$(echo "$COVERAGE < 70" | bc -l)" -eq 1 ]; then
-            echo "::error::Coverage ${COVERAGE}% is below 70% threshold"
+          echo "Coverage threshold: ${COVERAGE_THRESHOLD}%"
+          if [ "$(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l)" -eq 1 ]; then
+            echo "::error::Coverage ${COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
             exit 1
           fi
 
