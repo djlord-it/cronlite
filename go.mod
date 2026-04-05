@@ -7,6 +7,7 @@ toolchain go1.25.8
 require github.com/google/uuid v1.6.0
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/getkin/kin-openapi v0.134.0
 	github.com/lib/pq v1.11.1
 	github.com/mark3labs/mcp-go v0.46.0
@@ -18,7 +19,6 @@ require (
 )
 
 require (
-	github.com/DATA-DOG/go-sqlmock v1.5.2 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
