@@ -2,56 +2,17 @@
 
 **Schedule HTTP webhooks with cron expressions. No SDK, no queue, no complexity.**
 
-[![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/djlord-it/easy-cron)
 
 EasyCron is a self-hosted cron-as-a-service with namespace-scoped API keys and MCP support. POST a job with a cron expression and a webhook URL — EasyCron fires HTTP callbacks on schedule with HMAC-signed payloads, automatic retries, and Prometheus metrics.
 
-## Architecture
-
-```mermaid
-flowchart LR
-    subgraph Instances["EasyCron Instances"]
-        direction TB
-        subgraph I1["Instance 1 (leader)"]
-            API1[REST API / MCP]
-            S[Scheduler]
-            R[Reconciler]
-            D1[Dispatcher Workers]
-        end
-        subgraph I2["Instance 2"]
-            API2[REST API / MCP]
-            D2[Dispatcher Workers]
-        end
-        subgraph I3["Instance 3"]
-            API3[REST API / MCP]
-            D3[Dispatcher Workers]
-        end
-    end
-
-    App[Your App] -->|POST /jobs| API1 & API2 & API3
-    Agent[AI Agent] -->|MCP tools| API1
-    API1 & API2 & API3 --> DB[(PostgreSQL)]
-    DB -->|cron tick| S
-    S -->|insert executions| DB
-    DB -->|SKIP LOCKED poll| D1 & D2 & D3
-    D1 & D2 & D3 -->|POST webhook| App
-    R -->|recover orphans| DB
-```
-
-1. Register jobs via the REST API (any instance)
-2. Instances compete for a Postgres advisory lock — exactly one becomes **leader**
-3. The leader's **Scheduler** inserts executions into Postgres on each tick
-4. **Dispatcher workers** on all instances poll Postgres with `SKIP LOCKED` to claim and deliver webhooks
-5. The leader's **Reconciler** recovers stalled executions
-6. If the leader dies, a follower takes over within seconds
-
-> **Single-instance mode:** Set `DISPATCH_MODE=channel` (default) for an in-memory Event Bus instead of DB polling. Simpler, but no horizontal scaling.
-
 ## Quick Start
 
 ```bash
+git clone https://github.com/djlord-it/easy-cron.git
+cd easy-cron
 docker compose up -d
 ```
 
@@ -95,46 +56,34 @@ curl -H "Authorization: Bearer ${EASYCRON_API_KEY}" \
 ```bash
 go build -o easycron ./cmd/easycron
 createdb easycron
-psql easycron < schema/001_initial.sql
-psql easycron < schema/002_add_indexes.sql
-psql easycron < schema/003_add_claimed_at.sql
-psql easycron < schema/004_agent_platform.sql
+for f in schema/0*.sql; do psql easycron < "$f"; done
 export DATABASE_URL="postgres://localhost/easycron?sslmode=disable"
 ./easycron create-key default local-dev
 ./easycron serve
 ```
 </details>
 
-## Production Checklist
+## Architecture
 
-- [ ] All migrations applied: `001_initial.sql`, `002_add_indexes.sql`, `003_add_claimed_at.sql`, `004_agent_platform.sql`
-- [ ] `RECONCILE_ENABLED=true` — without this, orphaned executions are **permanently lost**
-- [ ] `METRICS_ENABLED=true`
-- [ ] `DISPATCH_MODE=db` if running multiple instances
-- [ ] At least one API key provisioned (`easycron create-key <namespace> <label>`)
-- [ ] Webhook handlers are idempotent (use `X-EasyCron-Execution-ID`)
-- [ ] Alert on `easycron_orphaned_executions > 0`
+```mermaid
+flowchart LR
+    App[Your App] -->|POST /jobs| API[REST API]
+    API --> DB[(PostgreSQL)]
+    DB --> S[Scheduler]
+    S -->|insert executions| DB
+    DB -->|SKIP LOCKED| D[Dispatcher]
+    D -->|POST webhook| App
+    R[Reconciler] -.->|recover orphans| DB
+```
 
-> Full details: [Operator Guide](OPERATORS.md)
+1. Register jobs via the REST API (any instance)
+2. Instances compete for a Postgres advisory lock — exactly one becomes **leader**
+3. The leader's **Scheduler** inserts executions into Postgres on each tick
+4. **Dispatcher workers** on all instances poll Postgres with `SKIP LOCKED` to claim and deliver webhooks
+5. The leader's **Reconciler** recovers stalled executions
+6. If the leader dies, a follower takes over within seconds
 
-## Configuration
-
-All configuration is via environment variables. Run `./easycron --help` for the full list.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_URL` | *required* | PostgreSQL connection string |
-| `API_KEY` | *(optional)* | Legacy static Bearer token fallback (recommended for bootstrap/ops) |
-| `HTTP_ADDR` | `:8080` | Listen address |
-| `TICK_INTERVAL` | `30s` | Scheduler polling interval |
-| `DISPATCH_MODE` | `channel` | `channel` (in-memory) or `db` (Postgres polling) |
-| `DISPATCHER_WORKERS` | `1` | Concurrent dispatch workers (DB mode) |
-| `RECONCILE_ENABLED` | `false` | Enable orphan recovery (**set `true` in production**) |
-| `METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` endpoint |
-| `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures before circuit opens (0 = disabled) |
-| `RATE_LIMIT` | `10` | Per-IP request rate limit (requests/sec) |
-
-> **DO NOT run multiple instances with `DISPATCH_MODE=channel`.** Channel mode uses an in-memory event bus with no cross-instance coordination. Multiple instances will each run their own scheduler, producing duplicate webhook deliveries. Use `DISPATCH_MODE=db` for any multi-instance deployment.
+> **Single-instance mode:** Set `DISPATCH_MODE=channel` (default) for an in-memory Event Bus instead of DB polling. Simpler, but no horizontal scaling.
 
 ## API
 
@@ -175,7 +124,7 @@ X-EasyCron-Signature: <hmac-sha256-hex>
 
 **Retries:** 4 attempts with backoff (immediate → 30s → 2m → 10m). Retryable: 5xx, 429, network errors. Non-retryable: 4xx.
 
-**Circuit breaker:** After 5 consecutive failures per URL, delivery is short-circuited until cooldown expires.
+**Circuit breaker:** Per-URL circuit breaker protects downstream services from retry storms. See the [Operator Guide](OPERATORS.md#circuit-breaker) for full behavior and tuning.
 
 Use `X-EasyCron-Execution-ID` for idempotency in your handler.
 
@@ -200,17 +149,7 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 - **All instances** dispatch webhooks and serve the API
 - **Automatic failover** within seconds if the leader dies
 
-```bash
-# Key env vars (same on all instances):
-DISPATCH_MODE=db
-LEADER_LOCK_KEY=728379
-RECONCILE_ENABLED=true
-METRICS_ENABLED=true
-```
-
-Validate with the HA test harness: `./scripts/ha_test.sh`
-
-> See the [Operator Guide](OPERATORS.md#horizontal-scaling-multi-instance-ha) for tuning, failover timing, and alerting rules.
+> See the [Operator Guide](OPERATORS.md#horizontal-scaling-multi-instance-ha) for configuration, tuning, failover timing, and alerting rules.
 
 ## CLI
 
@@ -279,9 +218,13 @@ All tools are namespace-scoped via the API key used for authentication.
 
 - **Namespace isolation**: API keys are scoped to namespaces — each key can only access its own jobs and executions
 - **SSRF protection**: Webhook URLs targeting private/reserved IP ranges (RFC 1918, loopback, link-local) are rejected at creation time
-- **Rate limiting**: Per-IP token bucket rate limiter (default 10 req/sec) on all endpoints except `/health`
+- **Rate limiting**: Two-layer rate limiting — per-IP (default 10 req/sec, before auth) and per-namespace (default 100 req/sec, after auth) on all endpoints except `/health`
 - **Credential safety**: `DATABASE_URL` and `REDIS_ADDR` credentials are masked in `easycron config` output; startup warns when `sslmode=disable`
 - **Error sanitization**: Database error details are never exposed in API responses
+
+## Configuration
+
+All configuration is via environment variables. Run `./easycron --help` for defaults. See the [Operator Guide](OPERATORS.md#configuration-reference) for the full reference and production recommendations.
 
 ## License
 

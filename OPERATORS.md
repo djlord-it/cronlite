@@ -2,17 +2,11 @@
 
 Operational contract: what EasyCron guarantees, how it fails, and how to run it.
 
-## Critical Warnings
+## Important Notes
 
-> **DO NOT** run multiple instances with `DISPATCH_MODE=channel`. Each instance runs an independent scheduler and event bus — this causes duplicate webhook deliveries with no deduplication. Use `DISPATCH_MODE=db` for multi-instance deployments.
+**Use `DISPATCH_MODE=db` for multi-instance deployments.** Channel mode (the default) uses an in-memory event bus with no cross-instance coordination. Running multiple instances in channel mode causes duplicate webhook deliveries. If you're running a single instance, channel mode works fine.
 
-> **DO NOT** deploy to production with `RECONCILE_ENABLED=false`. Without the reconciler, any orphaned execution (from crashes, buffer overflow, or stale claims) is **permanently lost**. There is no manual recovery path short of direct SQL intervention.
-
-> **DO NOT** run `DISPATCH_MODE=db` without applying `schema/003_add_claimed_at.sql`. The stale execution recovery mechanism depends on the `claimed_at` column. Without it, crashed worker claims are never recovered.
-
-> **DO NOT** skip `schema/004_agent_platform.sql` in current releases. API keys, namespaces, tags, and execution acknowledgment fields are defined there. Missing migration 004 breaks auth and newer API paths.
-
-> **DO NOT** assume instant failover. Leader election depends on Postgres detecting a dead TCP connection. Without tuned TCP keepalive settings, failover can take **minutes, not seconds**. See [Failover Timing](#failover-timing).
+**Make sure `RECONCILE_ENABLED=true` in production.** Without the reconciler, orphaned executions from crashes, buffer overflow, or stale claims have no automatic recovery path. The only alternative is direct SQL intervention.
 
 ## Deployment Decision Tree
 
@@ -28,15 +22,15 @@ Operational contract: what EasyCron guarantees, how it fails, and how to run it.
              │
              ├─ NO → 1 instance, DISPATCH_MODE=db
              │        Required: DATABASE_URL, RECONCILE_ENABLED=true, METRICS_ENABLED=true
-             │        Run migrations 003_add_claimed_at.sql and 004_agent_platform.sql
+             │        Apply all migrations (see [Migrations](#migrations))
              │        Benefit: crash recovery via claimed_at; ready to scale later
              │
              └─ YES → 2+ instances, DISPATCH_MODE=db
                        Required: DATABASE_URL (same on all), DISPATCH_MODE=db,
                                  LEADER_LOCK_KEY=728379 (same on all),
                                  RECONCILE_ENABLED=true, METRICS_ENABLED=true
-                       Run ALL migrations (001, 002, 003, 004)
-                       Tune: TCP keepalive on Postgres (see Failover Timing)
+                       Apply all migrations (see [Migrations](#migrations))
+                       Tune: TCP keepalive on Postgres (see [Failover Timing](#failover-timing))
                        Tune: DISPATCHER_WORKERS=2-4
 
 ### What happens during failover?
@@ -61,24 +55,22 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 
 ## Production Checklist
 
-Copy this checklist before deploying EasyCron to production:
-
-- [ ] 1. All migrations applied in order: `001_initial.sql`, `002_add_indexes.sql`, `003_add_claimed_at.sql`, `004_agent_platform.sql`
-- [ ] 2. `RECONCILE_ENABLED=true` on all instances
-- [ ] 3. `METRICS_ENABLED=true` on all instances
-- [ ] 4. `DISPATCH_MODE=db` if running more than one instance
-- [ ] 5. `LEADER_LOCK_KEY` identical across all instances (default: 728379)
-- [ ] 6. `DISPATCHER_WORKERS` set to 2-4 for production workloads
-- [ ] 7. Postgres TCP keepalive tuned: `tcp_keepalives_idle=10`, `tcp_keepalives_interval=5`, `tcp_keepalives_count=3`
-- [ ] 8. Prometheus scraping `/metrics` endpoint on all instances
-- [ ] 9. Alerts configured: EasyCronNoLeader, EasyCronSplitBrain, EasyCronOrphanedExecutions, EasyCronBufferSaturation, EasyCronReconcilerDisabled, EasyCronCircuitBreakerActive
-- [ ] 10. Webhook handlers are idempotent (use `X-EasyCron-Execution-ID` for dedup)
-- [ ] 11. Startup logs reviewed — no `WARNING [P0]` or `WARNING [P1]` lines present
-- [ ] 12. Health check configured at `/health?verbose=true` for load balancer
-- [ ] 13. Graceful shutdown timeout in orchestrator ≥ 45s (covers 40s EasyCron drain)
-- [ ] 14. `DATABASE_URL` uses `sslmode=require` or stricter
-- [ ] 15. Circuit breaker enabled (`CIRCUIT_BREAKER_THRESHOLD=5`) with monitoring for `circuit_open` outcomes
-- [ ] 16. At least one API key provisioned (`easycron create-key <namespace> <label>`) before exposing API traffic
+- [ ] All migrations applied in order (see [Migrations](#migrations))
+- [ ] `RECONCILE_ENABLED=true` on all instances
+- [ ] `METRICS_ENABLED=true` on all instances
+- [ ] `DISPATCH_MODE=db` if running more than one instance
+- [ ] `LEADER_LOCK_KEY` identical across all instances (default: 728379)
+- [ ] `DISPATCHER_WORKERS` set to 2-4 for production workloads
+- [ ] Postgres TCP keepalive tuned: `tcp_keepalives_idle=10`, `tcp_keepalives_interval=5`, `tcp_keepalives_count=3`
+- [ ] Prometheus scraping `/metrics` endpoint on all instances
+- [ ] Alerts configured: EasyCronNoLeader, EasyCronSplitBrain, EasyCronOrphanedExecutions, EasyCronBufferSaturation, EasyCronReconcilerDisabled, EasyCronCircuitBreakerActive
+- [ ] Webhook handlers are idempotent (use `X-EasyCron-Execution-ID` for dedup)
+- [ ] Startup logs reviewed — no `WARNING [P0]` or `WARNING [P1]` lines present
+- [ ] Health check configured at `/health?verbose=true` for load balancer
+- [ ] Graceful shutdown timeout in orchestrator ≥ 45s (covers 40s EasyCron drain)
+- [ ] `DATABASE_URL` uses `sslmode=require` or stricter
+- [ ] Circuit breaker enabled (`CIRCUIT_BREAKER_THRESHOLD=5`) with monitoring for `circuit_open` outcomes
+- [ ] At least one API key provisioned (`easycron create-key <namespace> <label>`) before exposing API traffic
 
 ## Configuration Reference
 
@@ -94,6 +86,7 @@ Copy this checklist before deploying EasyCron to production:
 | `RECONCILE_ENABLED` | `false` | Enable orphan recovery |
 | `RECONCILE_INTERVAL` | `5m` | Orphan scan frequency |
 | `RECONCILE_THRESHOLD` | `15m` | Age before execution is considered orphaned |
+| `RECONCILE_REQUEUE_THRESHOLD` | `2m` | Age before in-progress execution is requeued (crash recovery) |
 | `RECONCILE_BATCH_SIZE` | `100` | Max orphans per cycle |
 | `METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` |
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures to open circuit (0 = disabled) |
@@ -108,7 +101,9 @@ Copy this checklist before deploying EasyCron to production:
 | `LEADER_LOCK_KEY` | `728379` | Postgres advisory lock key (DB mode) |
 | `LEADER_RETRY_INTERVAL` | `5s` | Follower lock acquisition retry (DB mode) |
 | `LEADER_HEARTBEAT_INTERVAL` | `2s` | Leader connection health check (DB mode) |
+| `MAX_FIRES_PER_TICK` | `1000` | Max executions a single job can emit per scheduler tick |
 | `RATE_LIMIT` | `10` | Per-IP request rate limit (requests/sec) |
+| `NAMESPACE_RATE_LIMIT` | `100` | Per-namespace request rate limit (requests/sec, after auth) |
 
 ### Required in Production
 
@@ -126,7 +121,7 @@ Copy this checklist before deploying EasyCron to production:
 **Delivery**
 - Automatic retry with bounded backoff — up to 4 attempts (0s → 30s → 2m → 10m)
 - Crash recovery — orphaned and in-progress executions are automatically detected and re-dispatched by the reconciler
-- Per-URL circuit breaker — protects downstream services from retry storms
+- Per-URL circuit breaker — protects downstream services from retry storms; open circuit defers (not fails) executions for reconciler recovery
 - Stable execution identity — the same `X-EasyCron-Execution-ID` is preserved across retries and re-emits, enabling simple client-side deduplication
 - Terminal state immutability — `delivered` and `failed` never change once set
 
@@ -150,8 +145,28 @@ Copy this checklist before deploying EasyCron to production:
 | **Scaling** | Single process only | Multiple workers / instances |
 | **DB load** | Lower | Higher (polling every `DB_POLL_INTERVAL`) |
 
-DB mode requires migration: `psql easycron < schema/003_add_claimed_at.sql`
-Current API/auth model also requires: `psql easycron < schema/004_agent_platform.sql`
+DB mode requires all migrations to be applied. See [Migrations](#migrations).
+
+## Migrations
+
+Schema migrations live in `schema/` and are numbered sequentially. Apply them in order:
+
+```bash
+for f in schema/0*.sql; do psql easycron < "$f"; done
+```
+
+Current migrations:
+
+| File | Purpose |
+|------|---------|
+| `001_initial.sql` | Core tables: jobs, executions, delivery_attempts |
+| `002_add_indexes.sql` | Performance indexes |
+| `003_add_claimed_at.sql` | Adds `claimed_at` column for stale execution recovery (required for DB mode) |
+| `004_agent_platform.sql` | API keys, namespaces, tags, execution acknowledgment |
+| `005_drop_scopes.sql` | Removes unused `scopes` column from api_keys |
+| `006_add_claimed_at_index.sql` | Partial index for reconciler crash recovery queries |
+
+Current releases require all migrations through 006. Skipping migrations may cause auth failures, missing columns, or degraded reconciler performance.
 
 ## Auth Model
 
@@ -171,11 +186,11 @@ EasyCron uses namespace-scoped API keys with SHA-256 hashed storage.
 
 **Exempt paths:** `/health`, `/metrics`, `/mcp` (MCP has its own auth via `HTTPContextFunc`)
 
-**Rate limiting:** Per-IP token bucket (10 req/sec default) on all endpoints except `/health`. Returns `429 Too Many Requests` when exceeded.
+**Rate limiting:** Two-layer token bucket — per-IP (10 req/sec default, applied before auth) and per-namespace (100 req/sec default, applied after auth) on all endpoints except `/health`. Returns `429 Too Many Requests` when exceeded. Configure via `RATE_LIMIT` and `NAMESPACE_RATE_LIMIT`.
 
 **`last_used_at` tracking:** Debounced in-memory with background flush every 60 seconds to minimize DB writes under high traffic.
 
-**Legacy compatibility:** The `API_KEY` env var still works as a fallback and maps to the `default` namespace. Recommended for bootstrap and ops tooling.
+**Legacy compatibility:** The `API_KEY` env var still works as a fallback and maps to the `default` namespace, but now emits rate-limited deprecation warnings in logs. Migrate to namespace-scoped API keys (`easycron create-key`) for production use.
 
 ## Execution Lifecycle
 
@@ -206,11 +221,12 @@ CLOSED ──(N consecutive failures)──→ OPEN ──(cooldown)──→ HA
 ```
 
 - Counts fully-failed **executions** (not individual HTTP attempts)
-- Open circuit → executions immediately marked `failed`, no HTTP calls
+- Open circuit → executions are **deferred** (left in current state, no HTTP call). The reconciler will retry them once the circuit closes
+- Half-open state allows up to 3 probe requests through to detect service recovery
 - Each URL has an independent circuit
 - Set `CIRCUIT_BREAKER_THRESHOLD=0` to disable
 
-> **Forensics note:** When the circuit breaker is open, executions are marked `failed` immediately without any HTTP call. No `delivery_attempts` row is created. To distinguish circuit-breaker failures from exhausted-retry failures, check the `easycron_dispatcher_delivery_outcomes_total{outcome="circuit_open"}` metric or look for `"circuit open for ... skipping"` in logs.
+> **Forensics note:** When the circuit breaker is open, executions are skipped without any HTTP call — no `delivery_attempts` row is created, and the execution remains in its current state (`emitted` or `in_progress`). The `easycron_dispatcher_delivery_outcomes_total{outcome="circuit_open"}` metric tracks these deferrals. Look for `"circuit open for ... skipping"` in logs.
 
 ## Failure Modes
 
@@ -221,7 +237,7 @@ CLOSED ──(N consecutive failures)──→ OPEN ──(cooldown)──→ HA
 | **Redis down** | Analytics disabled, delivery unaffected |
 | **Webhook timeout/5xx/429** | Retryable, up to 4 attempts |
 | **Webhook 4xx (not 429)** | Non-retryable, marked `failed` immediately |
-| **Circuit open** | Execution marked `failed`, no HTTP call |
+| **Circuit open** | Execution deferred (left in current state), no HTTP call; reconciler retries when circuit closes |
 | **Buffer full (channel mode)** | Event dropped after 5s, execution orphaned |
 | **Process crash** | Buffer lost; reconciler recovers DB-inserted orphans |
 
@@ -272,7 +288,7 @@ EasyCron exposes an MCP (Model Context Protocol) interface for AI agent integrat
 **Operational notes:**
 - MCP tools are namespace-scoped (same isolation as REST)
 - The embedded server uses SSE for streaming — ensure your reverse proxy supports long-lived connections
-- 10 Phase 1 tools available: `create-job`, `list-jobs`, `get-job`, `update-job`, `delete-job`, `pause-job`, `resume-job`, `trigger-job`, `next-run`, `resolve-schedule`
+- 10 tools available: `create-job`, `list-jobs`, `get-job`, `update-job`, `delete-job`, `pause-job`, `resume-job`, `trigger-job`, `next-run`, `resolve-schedule`
 - `delete-job` is marked as destructive in the MCP tool metadata
 
 ## Horizontal Scaling (Multi-Instance HA)
@@ -347,14 +363,14 @@ The `(job_id, scheduled_at)` unique constraint prevents double-scheduling even d
 
 ### Failover Timing
 
-Advisory lock release depends on Postgres detecting a dead connection. The detection speed depends on TCP keepalive settings on **both** the Postgres server and the OS running EasyCron.
+Advisory lock release depends on Postgres detecting a dead connection. The detection speed depends on TCP keepalive settings on **both** the Postgres server and the OS running EasyCron. Without tuning, Linux defaults (`tcp_keepalive_time=7200`) mean failover could take over 2 hours.
 
 **Recommended Postgres settings** (in `postgresql.conf`):
 - `tcp_keepalives_idle = 10` (seconds before first probe)
 - `tcp_keepalives_interval = 5` (seconds between probes)
 - `tcp_keepalives_count = 3` (failed probes before disconnect)
 
-With these settings, worst-case failover is ~25 seconds (10 + 5×3). Without tuning, Linux defaults (`tcp_keepalive_time=7200`) mean failover could take **over 2 hours**.
+With these settings, worst-case failover is ~25 seconds (10 + 5×3).
 
 The `LEADER_HEARTBEAT_INTERVAL` (default 2s) detects local connection failures quickly, but cannot detect remote connection death — that depends entirely on TCP keepalive.
 
@@ -471,7 +487,7 @@ leader: released advisory lock 728379              # Lost leadership
 | Resource | Limit | Consequence |
 |----------|-------|-------------|
 | Event buffer (channel mode) | 100 events | Drops after 5s block → orphan |
-| Fires per job per tick | 1000 (hardcoded) | Excess **permanently lost** |
+| Fires per job per tick | 1000 (configurable via `MAX_FIRES_PER_TICK`) | Excess skipped until next tick |
 | Webhook timeout | 1–60s (default 30) | Retried up to 4 attempts |
 | Max retry duration | ~12 min | Then marked `failed` |
 | Max shutdown time | 40s default | Buffer + HTTP drain |
