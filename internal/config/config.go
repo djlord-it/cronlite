@@ -75,6 +75,9 @@ type Config struct {
 	LeaderHeartbeatInterval    time.Duration `json:"-"`
 	LeaderHeartbeatIntervalStr string        `json:"leader_heartbeat_interval"`
 
+	// MaxFiresPerTick: safety cap on how many executions a single job can emit per tick.
+	MaxFiresPerTick int `json:"max_fires_per_tick"`
+
 	// IPRateLimit: per-IP request rate (req/sec). Applied before auth.
 	IPRateLimit int `json:"ip_rate_limit"`
 	// NamespaceRateLimit: per-namespace request rate (req/sec). Applied after auth.
@@ -164,6 +167,17 @@ func Load() Config {
 	}
 	if cfg.DispatcherWorkers == 0 {
 		cfg.DispatcherWorkers = 1
+	}
+
+	if mfStr := os.Getenv("MAX_FIRES_PER_TICK"); mfStr != "" {
+		if n, err := parseInt(mfStr); err == nil && n > 0 {
+			cfg.MaxFiresPerTick = n
+		} else {
+			log.Printf("config: invalid MAX_FIRES_PER_TICK %q (must be a positive integer), using default 1000", mfStr)
+		}
+	}
+	if cfg.MaxFiresPerTick == 0 {
+		cfg.MaxFiresPerTick = 1000
 	}
 
 	if rlStr := os.Getenv("RATE_LIMIT"); rlStr != "" {
@@ -343,6 +357,7 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		LeaderLockKey            int64  `json:"leader_lock_key"`
 		LeaderRetryInterval      string `json:"leader_retry_interval"`
 		LeaderHeartbeatInterval  string `json:"leader_heartbeat_interval"`
+		MaxFiresPerTick          int    `json:"max_fires_per_tick"`
 		IPRateLimit              int    `json:"ip_rate_limit"`
 		NamespaceRateLimit       int    `json:"namespace_rate_limit"`
 	}{
@@ -373,6 +388,7 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		LeaderLockKey:           c.LeaderLockKey,
 		LeaderRetryInterval:     c.LeaderRetryIntervalStr,
 		LeaderHeartbeatInterval: c.LeaderHeartbeatIntervalStr,
+		MaxFiresPerTick:         c.MaxFiresPerTick,
 		IPRateLimit:             c.IPRateLimit,
 		NamespaceRateLimit:      c.NamespaceRateLimit,
 	}
