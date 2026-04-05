@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -1027,13 +1028,18 @@ func scanExecutionRows(rows *sql.Rows) ([]domain.Execution, error) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// isDuplicateKeyError checks if the error is a PostgreSQL unique violation.
+// isDuplicateKeyError checks if the error is a PostgreSQL unique violation (code 23505).
+// Primary path: typed assertion on *pq.Error via errors.As (handles wrapped errors).
+// Fallback: string matching for non-pq drivers or unusual wrapping.
 func isDuplicateKeyError(err error) bool {
 	if err == nil {
 		return false
 	}
-	// PostgreSQL unique violation error code is 23505
-	// Check error message for common patterns from both lib/pq and pgx
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505"
+	}
+	// Fallback for wrapped or non-pq errors.
 	errStr := err.Error()
 	return containsSubstring(errStr, "23505") || containsSubstring(errStr, "unique constraint") || containsSubstring(errStr, "duplicate key")
 }
