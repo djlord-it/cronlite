@@ -317,7 +317,10 @@ func runServe() int {
 	}
 
 	sched := scheduler.New(
-		scheduler.Config{TickInterval: cfg.TickInterval},
+		scheduler.Config{
+			TickInterval:    cfg.TickInterval,
+			MaxFiresPerTick: cfg.MaxFiresPerTick,
+		},
 		store,
 		cronParser,
 		emitter,

@@ -45,7 +45,8 @@ type MetricsSink interface {
 }
 
 type Config struct {
-	TickInterval time.Duration
+	TickInterval    time.Duration
+	MaxFiresPerTick int // 0 = use default (1000)
 }
 
 type Scheduler struct {
@@ -177,7 +178,10 @@ func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, 
 	}
 
 	// Loop through all due times since last tick
-	const maxIterations = 1000
+	maxIterations := s.config.MaxFiresPerTick
+	if maxIterations <= 0 {
+		maxIterations = 1000
+	}
 	t := cronSched.Next(lastTickInTZ)
 	triggered := 0
 
