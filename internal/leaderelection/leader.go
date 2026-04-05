@@ -98,13 +98,23 @@ func (e *Elector) Run(ctx context.Context) {
 	}
 }
 
+// connAcquireTimeout bounds how long we wait for a connection from the pool.
+// Prevents indefinite blocking when the pool is exhausted.
+const connAcquireTimeout = 10 * time.Second
+
 // runOnce attempts to acquire the advisory lock and hold it.
 // Returns the reason leadership was lost ("" if lock was not acquired).
 func (e *Elector) runOnce(ctx context.Context) string {
 	// Advisory lock is session-scoped: must use a dedicated connection.
-	conn, err := e.db.Conn(ctx)
+	// Use a bounded timeout to prevent indefinite blocking on pool exhaustion.
+	connCtx, connCancel := context.WithTimeout(ctx, connAcquireTimeout)
+	conn, err := e.db.Conn(connCtx)
+	connCancel()
 	if err != nil {
 		log.Printf("leader: failed to acquire dedicated connection: %v", err)
+		if e.metrics != nil {
+			e.metrics.LeaderLost("error")
+		}
 		return ""
 	}
 	defer conn.Close()
@@ -114,6 +124,9 @@ func (e *Elector) runOnce(ctx context.Context) string {
 	err = conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", e.lockKey).Scan(&acquired)
 	if err != nil {
 		log.Printf("leader: advisory lock query failed: %v", err)
+		if e.metrics != nil {
+			e.metrics.LeaderLost("error")
+		}
 		return ""
 	}
 	if !acquired {
@@ -135,7 +148,19 @@ func (e *Elector) runOnce(ctx context.Context) string {
 	reason := e.holdLock(ctx, conn)
 
 	cancelLeader()
-	e.onDemoted()
+
+	// Recover from panics in onDemoted to prevent uncontrolled process crash.
+	// A panic here would leave the advisory lock held until Postgres detects
+	// the dead connection via TCP keepalive, delaying failover significantly.
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("leader: CRITICAL: onDemoted panicked: %v", r)
+				reason = "panic"
+			}
+		}()
+		e.onDemoted()
+	}()
 
 	if e.metrics != nil {
 		e.metrics.LeaderStatusChanged(false)
