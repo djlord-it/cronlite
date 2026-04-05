@@ -20,21 +20,37 @@ type urlState struct {
 	state               state
 	consecutiveFailures int
 	openedAt            time.Time
+	halfOpenProbes      int
 }
 
+// DefaultHalfOpenProbes is the number of probe requests allowed in half-open
+// state before the circuit must decide (close on success or re-open on failure).
+const DefaultHalfOpenProbes = 3
+
 type CircuitBreaker struct {
-	mu        sync.Mutex
-	states    map[string]*urlState
-	threshold int
-	cooldown  time.Duration
+	mu             sync.Mutex
+	states         map[string]*urlState
+	threshold      int
+	cooldown       time.Duration
+	halfOpenProbes int
 }
 
 func New(threshold int, cooldown time.Duration) *CircuitBreaker {
 	return &CircuitBreaker{
-		states:    make(map[string]*urlState),
-		threshold: threshold,
-		cooldown:  cooldown,
+		states:         make(map[string]*urlState),
+		threshold:      threshold,
+		cooldown:       cooldown,
+		halfOpenProbes: DefaultHalfOpenProbes,
 	}
+}
+
+// WithHalfOpenProbes sets the number of probe requests allowed in half-open state.
+func (cb *CircuitBreaker) WithHalfOpenProbes(n int) *CircuitBreaker {
+	if n < 1 {
+		n = 1
+	}
+	cb.halfOpenProbes = n
+	return cb
 }
 
 func (cb *CircuitBreaker) Allow(url string) error {
@@ -52,10 +68,15 @@ func (cb *CircuitBreaker) Allow(url string) error {
 	case stateOpen:
 		if time.Since(s.openedAt) >= cb.cooldown {
 			s.state = stateHalfOpen
+			s.halfOpenProbes = 1 // this call counts as the first probe
 			return nil
 		}
 		return ErrCircuitOpen
 	case stateHalfOpen:
+		if s.halfOpenProbes < cb.halfOpenProbes {
+			s.halfOpenProbes++
+			return nil
+		}
 		return ErrCircuitOpen
 	default:
 		return nil
@@ -72,6 +93,7 @@ func (cb *CircuitBreaker) RecordSuccess(url string) {
 	}
 	s.state = stateClosed
 	s.consecutiveFailures = 0
+	s.halfOpenProbes = 0
 }
 
 func (cb *CircuitBreaker) RecordFailure(url string) {
