@@ -459,6 +459,7 @@ func runServe() int {
 
 		log.Printf("easycron: leader election enabled (lock_key=%d, retry=%s, heartbeat=%s)",
 			cfg.LeaderLockKey, cfg.LeaderRetryInterval, cfg.LeaderHeartbeatInterval)
+		log.Printf("easycron: IMPORTANT: if multiple EasyCron clusters share this Postgres instance, each must use a distinct LEADER_LOCK_KEY (current: %d) or they will silently compete for the same lock", cfg.LeaderLockKey)
 	} else {
 		// Channel mode: no leader election needed.
 		schedulerCtx, cancelScheduler := context.WithCancel(context.Background())
