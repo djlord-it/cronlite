@@ -30,7 +30,8 @@ func (s *mockStore) GetOrphanedExecutions(ctx context.Context, olderThan time.Ti
 
 	// Filter by olderThan and limit
 	var result []domain.Execution
-	for _, exec := range s.orphans {
+	for i := range s.orphans {
+		exec := s.orphans[i]
 		if exec.CreatedAt.Before(olderThan) {
 			result = append(result, exec)
 			if len(result) >= maxResults {

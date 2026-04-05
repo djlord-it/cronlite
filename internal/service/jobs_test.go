@@ -14,13 +14,14 @@ import (
 // --- Mock repositories ---
 
 type mockJobRepo struct {
-	insertJobFn          func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	getJobFn             func(ctx context.Context, id uuid.UUID) (domain.Job, error)
-	getJobWithScheduleFn func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
-	listJobsFn           func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
-	updateJobFn          func(ctx context.Context, job domain.Job) error
-	deleteJobFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
-	getEnabledJobsFn     func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
+	insertJobFn                func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
+	getJobFn                   func(ctx context.Context, id uuid.UUID) (domain.Job, error)
+	getJobWithScheduleFn       func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
+	getJobWithScheduleScopedFn func(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error)
+	listJobsFn                 func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	updateJobFn                func(ctx context.Context, job domain.Job) error
+	deleteJobFn                func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
+	getEnabledJobsFn           func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
 
 	// capture last call
 	lastInsertedJob domain.Job
@@ -43,6 +44,17 @@ func (m *mockJobRepo) GetJob(ctx context.Context, id uuid.UUID) (domain.Job, err
 }
 
 func (m *mockJobRepo) GetJobWithSchedule(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+	if m.getJobWithScheduleFn != nil {
+		return m.getJobWithScheduleFn(ctx, id)
+	}
+	return domain.Job{}, domain.Schedule{}, nil
+}
+
+func (m *mockJobRepo) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+	if m.getJobWithScheduleScopedFn != nil {
+		return m.getJobWithScheduleScopedFn(ctx, id, ns)
+	}
+	// Delegate to unscoped for backward compatibility with existing tests.
 	if m.getJobWithScheduleFn != nil {
 		return m.getJobWithScheduleFn(ctx, id)
 	}
@@ -386,20 +398,19 @@ func TestCreateJob_InvalidCron(t *testing.T) {
 
 func TestGetJob_WrongNamespace(t *testing.T) {
 	jobID := uuid.New()
-	schedID := uuid.New()
 	jobRepo := &mockJobRepo{
-		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{
-				ID:         jobID,
-				Namespace:  "tenant-A",
-				ScheduleID: schedID,
-			}, domain.Schedule{ID: schedID}, nil
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			// Simulate SQL-level namespace filtering: wrong namespace returns not found.
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A"}, domain.Schedule{}, nil
 		},
 	}
 
 	svc := newTestService(jobRepo)
 
-	// Request with a different namespace.
+	// Request with a different namespace — SQL filter rejects it.
 	ctx := ctxWithNS("tenant-B")
 	_, _, _, _, err := svc.GetJob(ctx, jobID)
 
@@ -708,13 +719,12 @@ func TestUpdateJob_NoNamespace(t *testing.T) {
 
 func TestUpdateJob_NamespaceMismatch(t *testing.T) {
 	jobID := uuid.New()
-	schedID := uuid.New()
 	jobRepo := &mockJobRepo{
-		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{
-				ID: jobID, Namespace: "tenant-A", Name: "my-job", ScheduleID: schedID, Enabled: true,
-				Delivery: domain.DeliveryConfig{WebhookURL: "https://example.com", Timeout: 30 * time.Second},
-			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A"}, domain.Schedule{}, nil
 		},
 	}
 	svc := newTestService(jobRepo)
@@ -1105,12 +1115,11 @@ func TestTriggerNow_NoNamespace(t *testing.T) {
 func TestPauseJob_NamespaceMismatch(t *testing.T) {
 	jobID := uuid.New()
 	jobRepo := &mockJobRepo{
-		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{
-				ID:        jobID,
-				Namespace: "tenant-A",
-				Enabled:   true,
-			}, domain.Schedule{}, nil
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A", Enabled: true}, domain.Schedule{}, nil
 		},
 	}
 	svc := newTestService(jobRepo)
@@ -1124,12 +1133,11 @@ func TestPauseJob_NamespaceMismatch(t *testing.T) {
 func TestResumeJob_NamespaceMismatch(t *testing.T) {
 	jobID := uuid.New()
 	jobRepo := &mockJobRepo{
-		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{
-				ID:        jobID,
-				Namespace: "tenant-A",
-				Enabled:   false,
-			}, domain.Schedule{}, nil
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A", Enabled: false}, domain.Schedule{}, nil
 		},
 	}
 	svc := newTestService(jobRepo)
@@ -1143,12 +1151,11 @@ func TestResumeJob_NamespaceMismatch(t *testing.T) {
 func TestTriggerNow_NamespaceMismatch(t *testing.T) {
 	jobID := uuid.New()
 	jobRepo := &mockJobRepo{
-		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{
-				ID:        jobID,
-				Namespace: "tenant-A",
-				Enabled:   true,
-			}, domain.Schedule{}, nil
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A", Enabled: true}, domain.Schedule{}, nil
 		},
 	}
 	svc := newTestServiceFull(jobRepo, nil, &mockExecutionRepo{}, nil, nil, nil)

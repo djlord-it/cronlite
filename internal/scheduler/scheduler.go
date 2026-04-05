@@ -122,11 +122,11 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 			return fmt.Errorf("get jobs: %w", err)
 		}
 
-		for _, jws := range jobs {
-			triggered, jobErr := s.processJob(ctx, jws, s.lastTick, now)
+		for i := range jobs {
+			triggered, jobErr := s.processJob(ctx, jobs[i], s.lastTick, now)
 			jobsTriggered += triggered
 			if jobErr != nil {
-				log.Printf("scheduler: job=%s namespace=%s error: %v", jws.Job.ID, jws.Job.Namespace, jobErr)
+				log.Printf("scheduler: job=%s namespace=%s error: %v", jobs[i].Job.ID, jobs[i].Job.Namespace, jobErr)
 			}
 		}
 

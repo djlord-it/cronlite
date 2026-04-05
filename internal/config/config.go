@@ -69,6 +69,11 @@ type Config struct {
 	// connection death. Does NOT renew the advisory lock.
 	LeaderHeartbeatInterval    time.Duration `json:"-"`
 	LeaderHeartbeatIntervalStr string        `json:"leader_heartbeat_interval"`
+
+	// IPRateLimit: per-IP request rate (req/sec). Applied before auth.
+	IPRateLimit int `json:"ip_rate_limit"`
+	// NamespaceRateLimit: per-namespace request rate (req/sec). Applied after auth.
+	NamespaceRateLimit int `json:"namespace_rate_limit"`
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -153,6 +158,28 @@ func Load() Config {
 	}
 	if cfg.DispatcherWorkers == 0 {
 		cfg.DispatcherWorkers = 1
+	}
+
+	if rlStr := os.Getenv("RATE_LIMIT"); rlStr != "" {
+		if n, err := parseInt(rlStr); err == nil && n > 0 {
+			cfg.IPRateLimit = n
+		} else {
+			log.Printf("config: invalid RATE_LIMIT %q (must be a positive integer), using default 10", rlStr)
+		}
+	}
+	if cfg.IPRateLimit == 0 {
+		cfg.IPRateLimit = 10
+	}
+
+	if nsrlStr := os.Getenv("NAMESPACE_RATE_LIMIT"); nsrlStr != "" {
+		if n, err := parseInt(nsrlStr); err == nil && n > 0 {
+			cfg.NamespaceRateLimit = n
+		} else {
+			log.Printf("config: invalid NAMESPACE_RATE_LIMIT %q (must be a positive integer), using default 100", nsrlStr)
+		}
+	}
+	if cfg.NamespaceRateLimit == 0 {
+		cfg.NamespaceRateLimit = 100
 	}
 
 	if maxOpenStr := os.Getenv("DB_MAX_OPEN_CONNS"); maxOpenStr != "" {
@@ -303,6 +330,8 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		LeaderLockKey            int64  `json:"leader_lock_key"`
 		LeaderRetryInterval      string `json:"leader_retry_interval"`
 		LeaderHeartbeatInterval  string `json:"leader_heartbeat_interval"`
+		IPRateLimit              int    `json:"ip_rate_limit"`
+		NamespaceRateLimit       int    `json:"namespace_rate_limit"`
 	}{
 		DatabaseURL:            maskSecret(c.DatabaseURL),
 		RedisAddr:              maskSecret(c.RedisAddr),
@@ -330,6 +359,8 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		LeaderLockKey:           c.LeaderLockKey,
 		LeaderRetryInterval:     c.LeaderRetryIntervalStr,
 		LeaderHeartbeatInterval: c.LeaderHeartbeatIntervalStr,
+		IPRateLimit:             c.IPRateLimit,
+		NamespaceRateLimit:      c.NamespaceRateLimit,
 	}
 	return json.MarshalIndent(masked, "", "  ")
 }

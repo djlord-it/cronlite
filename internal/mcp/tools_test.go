@@ -48,6 +48,13 @@ func (m *mockJobRepo) GetJobWithSchedule(ctx context.Context, id uuid.UUID) (dom
 	return domain.Job{}, domain.Schedule{}, nil
 }
 
+func (m *mockJobRepo) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+	if m.getJobWithScheduleFn != nil {
+		return m.getJobWithScheduleFn(ctx, id)
+	}
+	return domain.Job{}, domain.Schedule{}, nil
+}
+
 func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, filter)

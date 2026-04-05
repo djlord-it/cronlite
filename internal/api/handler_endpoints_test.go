@@ -20,11 +20,11 @@ import (
 type mockHandlerStore struct {
 	mu sync.Mutex
 
-	createJobFn        func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	getEnabledJobsFn   func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
-	listJobsFn         func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
-	listExecutionsFn   func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
-	deleteJobFn        func(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
+	createJobFn      func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
+	getEnabledJobsFn func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
+	listJobsFn       func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listExecutionsFn func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
+	deleteJobFn      func(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error
 }
 
 func (s *mockHandlerStore) CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -156,7 +156,9 @@ func TestHandler_CreateJob_ValidationError(t *testing.T) {
 	}
 
 	var resp ErrorResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
 	if !strings.Contains(resp.Error, "name") {
 		t.Errorf("error should mention name: %q", resp.Error)
 	}
@@ -285,7 +287,9 @@ func TestHandler_ListJobs_Empty(t *testing.T) {
 
 	// Verify response is empty array, not null
 	var resp ListJobsResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
 	if resp.Jobs == nil {
 		t.Error("Jobs should be empty array, not null")
 	}
@@ -347,7 +351,9 @@ func TestHandler_ListExecutions_Success(t *testing.T) {
 	}
 
 	var resp ListExecutionsResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
 	if len(resp.Executions) != 1 {
 		t.Fatalf("expected 1 execution, got %d", len(resp.Executions))
 	}
@@ -459,7 +465,9 @@ func TestHandler_Health_Simple(t *testing.T) {
 	}
 
 	var resp LegacyHealthResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
 	if resp.Status != "ok" {
 		t.Errorf("Status = %q, want ok", resp.Status)
 	}
@@ -480,7 +488,9 @@ func TestHandler_Health_Verbose_Healthy(t *testing.T) {
 	}
 
 	var resp LegacyHealthResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
 	if resp.Status != "ok" {
 		t.Errorf("Status = %q, want ok", resp.Status)
 	}
@@ -508,7 +518,9 @@ func TestHandler_Health_Verbose_Unhealthy(t *testing.T) {
 	}
 
 	var resp LegacyHealthResponse
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
 	if resp.Status != "degraded" {
 		t.Errorf("Status = %q, want degraded", resp.Status)
 	}

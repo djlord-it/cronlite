@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ha-test-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ha-test:
     runs-on: ubuntu-latest

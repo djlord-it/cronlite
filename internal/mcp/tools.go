@@ -237,7 +237,8 @@ func handleListJobs(svc *service.JobService) server.ToolHandlerFunc {
 		}
 
 		jobList := make([]map[string]any, len(jobs))
-		for i, j := range jobs {
+		for i := range jobs {
+			j := &jobs[i]
 			jobList[i] = map[string]any{
 				"id":         j.ID.String(),
 				"namespace":  j.Namespace.String(),
@@ -293,8 +294,8 @@ func handleGetJob(svc *service.JobService) server.ToolHandlerFunc {
 
 		if len(executions) > 0 {
 			execList := make([]map[string]any, len(executions))
-			for i, e := range executions {
-				execList[i] = executionToMap(e)
+			for i := range executions {
+				execList[i] = executionToMap(executions[i])
 			}
 			result["recent_executions"] = execList
 		}
@@ -514,9 +515,9 @@ func handleResolveSchedule(svc *service.JobService) server.ToolHandlerFunc {
 
 		return jsonResult(map[string]any{
 			"cron_expression": result.CronExpression,
-			"description":    result.Description,
-			"timezone":       result.Timezone,
-			"next_runs":      runStrs,
+			"description":     result.Description,
+			"timezone":        result.Timezone,
+			"next_runs":       runStrs,
 		})
 	}
 }

@@ -83,7 +83,9 @@ func (s *Store) CreateJob(ctx context.Context, job domain.Job, schedule domain.S
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	_, err = tx.ExecContext(ctx, queryInsertSchedule,
 		schedule.ID,
@@ -166,6 +168,46 @@ func (s *Store) GetJobWithSchedule(ctx context.Context, id uuid.UUID) (domain.Jo
 	var timeoutMs int64
 
 	err := s.db.QueryRowContext(ctx, queryGetJobWithSchedule, id).Scan(
+		&job.ID,
+		&job.Namespace,
+		&job.Name,
+		&job.Enabled,
+		&job.ScheduleID,
+		&job.Delivery.Type,
+		&job.Delivery.WebhookURL,
+		&job.Delivery.Secret,
+		&timeoutMs,
+		&job.Analytics.Enabled,
+		&job.Analytics.RetentionSeconds,
+		&job.CreatedAt,
+		&job.UpdatedAt,
+		&sched.ID,
+		&sched.CronExpression,
+		&sched.Timezone,
+		&sched.CreatedAt,
+		&sched.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+		}
+		return domain.Job{}, domain.Schedule{}, err
+	}
+	job.Delivery.Timeout = time.Duration(timeoutMs) * time.Millisecond
+	return job, sched, nil
+}
+
+// GetJobWithScheduleScoped returns a job and its schedule filtered by both ID and namespace.
+// This provides defense-in-depth for API-facing operations.
+func (s *Store) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	var job domain.Job
+	var sched domain.Schedule
+	var timeoutMs int64
+
+	err := s.db.QueryRowContext(ctx, queryGetJobWithScheduleScoped, id, string(ns)).Scan(
 		&job.ID,
 		&job.Namespace,
 		&job.Name,
@@ -551,12 +593,16 @@ func (s *Store) DequeueExecution(ctx context.Context) (*domain.Execution, error)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	exec, err := scanSingleExecution(tx.QueryRowContext(ctx, queryDequeueExecution))
 	if err == sql.ErrNoRows {
 		// No work available -- commit to release any advisory locks and return nil
-		tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	if err != nil {
@@ -624,7 +670,9 @@ func (s *Store) UpsertTags(ctx context.Context, jobID uuid.UUID, tags []domain.T
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	for _, tag := range tags {
 		_, err := tx.ExecContext(ctx, queryUpsertTag, jobID, tag.Key, tag.Value)
@@ -684,7 +732,6 @@ func (s *Store) InsertAPIKey(ctx context.Context, key domain.APIKey) error {
 		string(key.Namespace),
 		key.TokenHash,
 		key.Label,
-		pq.Array(key.Scopes),
 		key.Enabled,
 		key.CreatedAt,
 	)
@@ -708,7 +755,6 @@ func (s *Store) GetKeyByTokenHash(ctx context.Context, tokenHash string) (domain
 		&key.Namespace,
 		&key.TokenHash,
 		&key.Label,
-		pq.Array(&key.Scopes),
 		&key.Enabled,
 		&key.CreatedAt,
 		&key.LastUsedAt,
@@ -743,7 +789,6 @@ func (s *Store) ListKeys(ctx context.Context, ns domain.Namespace, params domain
 			&key.Namespace,
 			&key.TokenHash,
 			&key.Label,
-			pq.Array(&key.Scopes),
 			&key.Enabled,
 			&key.CreatedAt,
 			&key.LastUsedAt,
@@ -1012,10 +1057,10 @@ var (
 	_ dispatcher.Store = (*Store)(nil)
 	_ api.Store        = (*Store)(nil)
 
-	_ domain.JobRepository            = (*Store)(nil)
-	_ domain.ScheduleRepository       = (*Store)(nil)
-	_ domain.ExecutionRepository      = (*Store)(nil)
-	_ domain.TagRepository            = (*Store)(nil)
-	_ domain.APIKeyRepository         = (*Store)(nil)
+	_ domain.JobRepository             = (*Store)(nil)
+	_ domain.ScheduleRepository        = (*Store)(nil)
+	_ domain.ExecutionRepository       = (*Store)(nil)
+	_ domain.TagRepository             = (*Store)(nil)
+	_ domain.APIKeyRepository          = (*Store)(nil)
 	_ domain.DeliveryAttemptRepository = (*Store)(nil)
 )

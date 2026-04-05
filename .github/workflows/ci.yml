@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      COVERAGE_THRESHOLD: "25"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -16,7 +18,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
+
+      - name: Check go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "go.mod/go.sum is not tidy. Run 'go mod tidy' and commit." && exit 1)
 
       - name: Build
         run: go build ./...
@@ -27,11 +34,29 @@ jobs:
           go generate ./internal/api/...
           git diff --exit-code internal/api/server.gen.go || (echo "Generated code is out of date. Run 'go generate ./internal/api/...' and commit." && exit 1)
 
-      - name: Vet
-        run: go vet ./...
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          install-mode: goinstall
 
       - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
 
-      - name: Coverage summary
-        run: go tool cover -func=coverage.out | tail -1
+      - name: Coverage gate
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${COVERAGE}%"
+          echo "Coverage threshold: ${COVERAGE_THRESHOLD}%"
+          if [ "$(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l)" -eq 1 ]; then
+            echo "::error::Coverage ${COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
+            exit 1
+          fi
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
+          retention-days: 14

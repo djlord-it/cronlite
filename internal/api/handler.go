@@ -149,10 +149,10 @@ func (h *LegacyHandler) createJob(w http.ResponseWriter, r *http.Request) {
 	scheduleID := uuid.New()
 
 	job := domain.Job{
-		ID:        jobID,
-		Namespace: h.namespace,
-		Name:      req.Name,
-		Enabled:   true,
+		ID:         jobID,
+		Namespace:  h.namespace,
+		Name:       req.Name,
+		Enabled:    true,
 		ScheduleID: scheduleID,
 		Delivery: domain.DeliveryConfig{
 			Type:       domain.DeliveryTypeWebhook,
@@ -209,7 +209,8 @@ func (h *LegacyHandler) listJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := ListJobsResponse{Jobs: make([]JobResponse, len(jobs))}
-	for i, jws := range jobs {
+	for i := range jobs {
+		jws := &jobs[i]
 		resp.Jobs[i] = JobResponse{
 			ID:             jws.Job.ID.String(),
 			Namespace:      jws.Job.Namespace.String(),
@@ -257,7 +258,8 @@ func (h *LegacyHandler) listExecutions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := ListExecutionsResponse{Executions: make([]ExecutionResponse, len(executions))}
-	for i, exec := range executions {
+	for i := range executions {
+		exec := &executions[i]
 		resp.Executions[i] = ExecutionResponse{
 			ID:          exec.ID.String(),
 			JobID:       exec.JobID.String(),

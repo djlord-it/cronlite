@@ -106,7 +106,6 @@ func (p *mockCronParser) Parse(expression string, timezone string) (CronSchedule
 
 type mockCronSchedule struct {
 	fireTimes []time.Time
-	index     int
 }
 
 func (s *mockCronSchedule) Next(after time.Time) time.Time {

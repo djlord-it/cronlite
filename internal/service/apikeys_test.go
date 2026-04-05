@@ -21,8 +21,7 @@ func TestCreateAPIKey_HappyPath(t *testing.T) {
 	svc := newTestServiceFull(nil, nil, nil, nil, apiKeyRepo, nil)
 
 	result, err := svc.CreateAPIKey(ctxWithNS("t1"), CreateAPIKeyInput{
-		Label:  "test-key",
-		Scopes: []string{"jobs:read", "jobs:write"},
+		Label: "test-key",
 	})
 
 	if err != nil {

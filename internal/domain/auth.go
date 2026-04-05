@@ -33,7 +33,6 @@ type APIKey struct {
 	Namespace  Namespace
 	TokenHash  string
 	Label      string
-	Scopes     []string
 	Enabled    bool
 	CreatedAt  time.Time
 	LastUsedAt *time.Time

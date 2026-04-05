@@ -149,7 +149,8 @@ func (r *Reconciler) runCycle(ctx context.Context) {
 	emitted := 0
 	failed := 0
 
-	for _, exec := range orphans {
+	for i := range orphans {
+		exec := &orphans[i]
 		// Check context before each emit to allow graceful shutdown
 		if ctx.Err() != nil {
 			log.Printf("reconciler: cycle interrupted, processed %d/%d orphans", emitted+failed, len(orphans))

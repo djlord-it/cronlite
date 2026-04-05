@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -183,7 +183,9 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 	lr.wg.Add(1)
 	go func() {
 		defer lr.wg.Done()
-		lr.sched.Run(schedCtx)
+		if err := lr.sched.Run(schedCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("easycron: leader scheduler stopped with error: %v", err)
+		}
 	}()
 
 	if lr.cfg.ReconcileEnabled {
@@ -357,16 +359,19 @@ func runServe() int {
 	strictHandler := api.NewStrictHandler(serverImpl, nil)
 	apiRouter := api.Handler(strictHandler)
 
+	// Middleware chain (outermost executes first):
+	//   IP rate limit → Auth → Namespace rate limit → Router
 	var rootHandler http.Handler = apiRouter
-	rootHandler = api.RateLimitMiddleware(10, rootHandler) // 10 req/sec per IP
-
-	// Multi-key auth with legacy fallback.
-	rootHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, rootHandler)
+	rootHandler = api.NamespaceRateLimitMiddleware(cfg.NamespaceRateLimit, rootHandler) // per-namespace, after auth
+	rootHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, rootHandler)            // sets namespace in ctx
+	rootHandler = api.RateLimitMiddleware(cfg.IPRateLimit, rootHandler)                 // per-IP, before auth
 	if cfg.APIKey != "" {
-		log.Println("easycron: API key authentication enabled (multi-key + legacy fallback)")
+		log.Println("easycron: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
+		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'easycron create-key' and remove API_KEY.")
 	} else {
 		log.Println("WARNING [P0]: API_KEY not set — API endpoints are unauthenticated. Set API_KEY for production.")
 	}
+	log.Printf("easycron: rate limits: %d req/s per IP, %d req/s per namespace", cfg.IPRateLimit, cfg.NamespaceRateLimit)
 
 	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
 	mcpServer := mcpsrv.NewServer(jobService)
@@ -377,7 +382,7 @@ func runServe() int {
 	if cfg.MetricsEnabled {
 		metricsHandler := http.Handler(promhttp.Handler())
 		if cfg.APIKey != "" {
-			metricsHandler = api.AuthMiddleware(cfg.APIKey, metricsHandler)
+			metricsHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, metricsHandler)
 		}
 		httpMux.Handle(cfg.MetricsPath, metricsHandler)
 	}
@@ -460,7 +465,9 @@ func runServe() int {
 		schedulerWg.Add(1)
 		go func() {
 			defer schedulerWg.Done()
-			sched.Run(schedulerCtx)
+			if err := sched.Run(schedulerCtx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("easycron: scheduler stopped with error: %v", err)
+			}
 		}()
 
 		var reconcilerWg sync.WaitGroup

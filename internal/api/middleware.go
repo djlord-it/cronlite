@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,12 +46,12 @@ func AuthMiddleware(apiKey string, next http.Handler) http.Handler {
 // MultiKeyAuthMiddleware performs multi-key authentication with SHA-256 lookup.
 // It also supports the legacy single API_KEY env var as a fallback.
 //
-// - Exempt paths: /health, /mcp (SSE transport, future use)
-// - If a matching key is found via the repository, the key's namespace is
-//   injected into the request context.
-// - If the legacy fallbackKey matches, namespace "default" is used.
-// - If neither matches, 401 is returned.
-// - last_used_at is tracked with in-process debounce (dirty map + background flush).
+//   - Exempt paths: /health, /mcp (SSE transport, future use)
+//   - If a matching key is found via the repository, the key's namespace is
+//     injected into the request context.
+//   - If the legacy fallbackKey matches, namespace "default" is used.
+//   - If neither matches, 401 is returned.
+//   - last_used_at is tracked with in-process debounce (dirty map + background flush).
 func MultiKeyAuthMiddleware(
 	keyRepo domain.APIKeyRepository,
 	fallbackKey string,
@@ -58,8 +59,12 @@ func MultiKeyAuthMiddleware(
 ) http.Handler {
 	tracker := newLastUsedTracker(keyRepo)
 
+	// Rate-limited deprecation log: at most once per 60 seconds.
+	var lastLegacyWarn atomic.Int64
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Exempt paths
+		// Exempt paths: /mcp has its own auth middleware (see internal/mcp/auth.go)
+		// that performs the same token validation independently.
 		if r.URL.Path == "/health" || r.URL.Path == "/metrics" || strings.HasPrefix(r.URL.Path, "/mcp") {
 			next.ServeHTTP(w, r)
 			return
@@ -83,8 +88,14 @@ func MultiKeyAuthMiddleware(
 			return
 		}
 
-		// Fallback: legacy single API_KEY support.
+		// Fallback: legacy single API_KEY support (deprecated).
 		if fallbackKey != "" && subtle.ConstantTimeCompare([]byte(token), []byte(fallbackKey)) == 1 {
+			now := time.Now().Unix()
+			if last := lastLegacyWarn.Load(); now-last >= 60 {
+				if lastLegacyWarn.CompareAndSwap(last, now) {
+					log.Printf("DEPRECATED: legacy API_KEY used for %s %s — migrate to multi-key auth via 'easycron create-key'", r.Method, r.URL.Path)
+				}
+			}
 			ctx := domain.NamespaceToContext(r.Context(), domain.Namespace("default"))
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
@@ -97,11 +108,10 @@ func MultiKeyAuthMiddleware(
 // lastUsedTracker debounces last_used_at updates for API keys.
 // Dirty keys are flushed to the repository every 60 seconds.
 type lastUsedTracker struct {
-	mu      sync.Mutex
-	dirty   map[uuid.UUID]struct{}
-	repo    domain.APIKeyRepository
-	stopCh  chan struct{}
-	stopped bool
+	mu     sync.Mutex
+	dirty  map[uuid.UUID]struct{}
+	repo   domain.APIKeyRepository
+	stopCh chan struct{}
 }
 
 func newLastUsedTracker(repo domain.APIKeyRepository) *lastUsedTracker {
@@ -216,6 +226,72 @@ func (l *ipRateLimiter) allow(ip string) bool {
 	}
 
 	// Refill tokens based on elapsed time
+	elapsed := now.Sub(b.lastSeen).Seconds()
+	b.tokens += int(elapsed * float64(l.rate))
+	if b.tokens > l.rate {
+		b.tokens = l.rate
+	}
+	b.lastSeen = now
+
+	if b.tokens <= 0 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// NamespaceRateLimitMiddleware limits requests per namespace using a token bucket.
+// ratePerSecond is the sustained request rate per namespace.
+// Requests without a namespace in context (exempt paths) pass through.
+// Health and metrics endpoints are exempt.
+func NamespaceRateLimitMiddleware(ratePerSecond int, next http.Handler) http.Handler {
+	limiter := newNamespaceRateLimiter(ratePerSecond)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" || r.URL.Path == "/metrics" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		ns := domain.NamespaceFromContext(r.Context())
+		if ns.IsZero() {
+			// No namespace in context (unauthenticated or exempt path).
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if !limiter.allow(ns.String()) {
+			writeError(w, http.StatusTooManyRequests, "namespace rate limit exceeded")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// namespaceRateLimiter tracks request counts per namespace using a token bucket.
+type namespaceRateLimiter struct {
+	mu         sync.Mutex
+	rate       int
+	namespaces map[string]*clientBucket
+}
+
+func newNamespaceRateLimiter(ratePerSecond int) *namespaceRateLimiter {
+	return &namespaceRateLimiter{
+		rate:       ratePerSecond,
+		namespaces: make(map[string]*clientBucket),
+	}
+}
+
+func (l *namespaceRateLimiter) allow(ns string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	b, exists := l.namespaces[ns]
+	if !exists {
+		l.namespaces[ns] = &clientBucket{tokens: l.rate - 1, lastSeen: now}
+		return true
+	}
+
 	elapsed := now.Sub(b.lastSeen).Seconds()
 	b.tokens += int(elapsed * float64(l.rate))
 	if b.tokens > l.rate {

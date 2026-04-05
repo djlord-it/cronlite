@@ -284,7 +284,9 @@ func TestScheduler_MetricsRecording(t *testing.T) {
 	sched.lastTick = now.Add(-time.Minute)
 
 	ctx := context.Background()
-	sched.processTick(ctx)
+	if err := sched.processTick(ctx); err != nil {
+		t.Fatalf("processTick should not return error: %v", err)
+	}
 
 	metrics.mu.Lock()
 	defer metrics.mu.Unlock()

@@ -12,7 +12,12 @@ import (
 type JobRepository interface {
 	InsertJob(ctx context.Context, job Job, schedule Schedule) error
 	GetJob(ctx context.Context, id uuid.UUID) (Job, error)
+	// GetJobWithSchedule retrieves a job by ID without namespace filtering.
+	// Used by system components (scheduler, reconciler) that operate cross-namespace.
 	GetJobWithSchedule(ctx context.Context, id uuid.UUID) (Job, Schedule, error)
+	// GetJobWithScheduleScoped retrieves a job by ID filtered by namespace at the SQL level.
+	// Used by the service layer for API-facing operations (defense-in-depth).
+	GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID, ns Namespace) (Job, Schedule, error)
 	ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
 	UpdateJob(ctx context.Context, job Job) error
 	DeleteJob(ctx context.Context, id uuid.UUID, ns Namespace) error

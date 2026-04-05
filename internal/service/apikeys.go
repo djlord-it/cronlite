@@ -14,8 +14,7 @@ import (
 
 // CreateAPIKeyInput holds the parameters for creating an API key.
 type CreateAPIKeyInput struct {
-	Label  string
-	Scopes []string
+	Label string
 }
 
 // CreateAPIKeyResult contains the plaintext token (shown once) and the
@@ -42,17 +41,11 @@ func (s *JobService) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) 
 	tokenHash := HashToken(plaintext)
 
 	now := time.Now().UTC()
-	scopes := input.Scopes
-	if scopes == nil {
-		scopes = []string{}
-	}
-
 	key := domain.APIKey{
 		ID:        uuid.New(),
 		Namespace: ns,
 		TokenHash: tokenHash,
 		Label:     input.Label,
-		Scopes:    scopes,
 		Enabled:   true,
 		CreatedAt: now,
 	}

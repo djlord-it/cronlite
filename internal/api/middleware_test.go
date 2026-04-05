@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/djlord-it/easy-cron/internal/domain"
 )
 
 func TestAuthMiddleware_ValidKey(t *testing.T) {
@@ -214,5 +217,115 @@ func TestRateLimitMiddleware_PerIPIsolation(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 for different IP, got %d", w.Code)
+	}
+}
+
+func TestNamespaceRateLimit_AllowsUnderLimit(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := NamespaceRateLimitMiddleware(10, inner)
+
+	ctx := domain.NamespaceToContext(context.Background(), domain.Namespace("ns1"))
+	req := httptest.NewRequest(http.MethodPost, "/jobs", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+func TestNamespaceRateLimit_BlocksOverLimit(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := NamespaceRateLimitMiddleware(2, inner)
+
+	ctx := domain.NamespaceToContext(context.Background(), domain.Namespace("ns1"))
+
+	// Exhaust the limit
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/jobs", nil).WithContext(ctx)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+	}
+
+	// Next request should be blocked
+	req := httptest.NewRequest(http.MethodPost, "/jobs", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", w.Code)
+	}
+}
+
+func TestNamespaceRateLimit_CrossNamespaceIsolation(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := NamespaceRateLimitMiddleware(2, inner)
+
+	ctxA := domain.NamespaceToContext(context.Background(), domain.Namespace("ns-a"))
+
+	// Exhaust limit for namespace A
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/jobs", nil).WithContext(ctxA)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+	}
+
+	// Namespace B should still work
+	ctxB := domain.NamespaceToContext(context.Background(), domain.Namespace("ns-b"))
+	req := httptest.NewRequest(http.MethodPost, "/jobs", nil).WithContext(ctxB)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for different namespace, got %d", w.Code)
+	}
+}
+
+func TestNamespaceRateLimit_NoNamespacePassThrough(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := NamespaceRateLimitMiddleware(1, inner)
+
+	// Request without namespace context — should pass through
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/jobs", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("request %d: expected 200 for no-namespace pass-through, got %d", i, w.Code)
+		}
+	}
+}
+
+func TestNamespaceRateLimit_HealthBypass(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := NamespaceRateLimitMiddleware(1, inner)
+
+	ctx := domain.NamespaceToContext(context.Background(), domain.Namespace("ns1"))
+
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil).WithContext(ctx)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("request %d: expected 200 for /health bypass, got %d", i, w.Code)
+		}
 	}
 }
