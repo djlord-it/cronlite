@@ -55,20 +55,6 @@ JOIN schedules s ON j.schedule_id = s.id
 WHERE j.id = $1 AND j.namespace = $2
 `
 
-const queryListJobs = `
-SELECT
-    j.id, j.namespace, j.name, j.enabled, j.schedule_id,
-    j.delivery_type, j.webhook_url, j.secret, j.timeout_ms,
-    j.analytics_enabled, j.analytics_retention_seconds,
-    j.created_at, j.updated_at,
-    s.id, s.cron_expression, s.timezone, s.created_at, s.updated_at
-FROM jobs j
-JOIN schedules s ON j.schedule_id = s.id
-WHERE j.namespace = $1
-ORDER BY j.created_at DESC
-LIMIT $2 OFFSET $3
-`
-
 const queryUpdateJob = `
 UPDATE jobs SET
     name = $1,
@@ -139,14 +125,6 @@ ORDER BY created_at DESC
 LIMIT $2
 `
 
-const queryListExecutions = `
-SELECT id, job_id, namespace, trigger_type, scheduled_at, fired_at, status, acknowledged_at, created_at
-FROM executions
-WHERE job_id = $1
-ORDER BY scheduled_at DESC
-LIMIT $2 OFFSET $3
-`
-
 const queryGetExecutionStatus = `
 SELECT status FROM executions WHERE id = $1
 `
@@ -156,22 +134,6 @@ UPDATE executions
 SET status = $1
 WHERE id = $2
   AND status NOT IN ('delivered', 'failed')
-`
-
-const queryListPendingAck = `
-SELECT id, job_id, namespace, trigger_type, scheduled_at, fired_at, status, acknowledged_at, created_at
-FROM executions
-WHERE namespace = $1
-  AND acknowledged_at IS NULL
-  AND status IN ('delivered', 'failed')
-ORDER BY created_at DESC
-LIMIT $2 OFFSET $3
-`
-
-const queryAckExecution = `
-UPDATE executions
-SET acknowledged_at = NOW()
-WHERE id = $1 AND acknowledged_at IS NULL
 `
 
 const queryGetOrphanedExecutions = `

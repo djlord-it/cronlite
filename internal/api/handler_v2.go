@@ -132,8 +132,8 @@ func (s *ServerImpl) ListJobs(ctx context.Context, request ListJobsRequestObject
 	}
 
 	apiJobs := make([]Job, len(jobs))
-	for i, j := range jobs {
-		apiJobs[i] = domainJobToAPI(j, "", "")
+	for i := range jobs {
+		apiJobs[i] = domainJobToAPI(jobs[i], "", "")
 	}
 
 	return ListJobs200JSONResponse{Jobs: apiJobs}, nil
@@ -484,8 +484,8 @@ func domainExecutionToAPI(e domain.Execution) Execution {
 // domainExecutionsToAPI converts a slice of domain.Execution to the generated slice.
 func domainExecutionsToAPI(execs []domain.Execution) []Execution {
 	result := make([]Execution, len(execs))
-	for i, e := range execs {
-		result[i] = domainExecutionToAPI(e)
+	for i := range execs {
+		result[i] = domainExecutionToAPI(execs[i])
 	}
 	return result
 }

@@ -83,7 +83,9 @@ func (s *Store) CreateJob(ctx context.Context, job domain.Job, schedule domain.S
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	_, err = tx.ExecContext(ctx, queryInsertSchedule,
 		schedule.ID,
@@ -591,12 +593,16 @@ func (s *Store) DequeueExecution(ctx context.Context) (*domain.Execution, error)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	exec, err := scanSingleExecution(tx.QueryRowContext(ctx, queryDequeueExecution))
 	if err == sql.ErrNoRows {
 		// No work available -- commit to release any advisory locks and return nil
-		tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	if err != nil {
@@ -664,7 +670,9 @@ func (s *Store) UpsertTags(ctx context.Context, jobID uuid.UUID, tags []domain.T
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	for _, tag := range tags {
 		_, err := tx.ExecContext(ctx, queryUpsertTag, jobID, tag.Key, tag.Value)
@@ -1049,10 +1057,10 @@ var (
 	_ dispatcher.Store = (*Store)(nil)
 	_ api.Store        = (*Store)(nil)
 
-	_ domain.JobRepository            = (*Store)(nil)
-	_ domain.ScheduleRepository       = (*Store)(nil)
-	_ domain.ExecutionRepository      = (*Store)(nil)
-	_ domain.TagRepository            = (*Store)(nil)
-	_ domain.APIKeyRepository         = (*Store)(nil)
+	_ domain.JobRepository             = (*Store)(nil)
+	_ domain.ScheduleRepository        = (*Store)(nil)
+	_ domain.ExecutionRepository       = (*Store)(nil)
+	_ domain.TagRepository             = (*Store)(nil)
+	_ domain.APIKeyRepository          = (*Store)(nil)
 	_ domain.DeliveryAttemptRepository = (*Store)(nil)
 )

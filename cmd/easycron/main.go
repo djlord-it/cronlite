@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -183,7 +183,9 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 	lr.wg.Add(1)
 	go func() {
 		defer lr.wg.Done()
-		lr.sched.Run(schedCtx)
+		if err := lr.sched.Run(schedCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("easycron: leader scheduler stopped with error: %v", err)
+		}
 	}()
 
 	if lr.cfg.ReconcileEnabled {
@@ -380,7 +382,7 @@ func runServe() int {
 	if cfg.MetricsEnabled {
 		metricsHandler := http.Handler(promhttp.Handler())
 		if cfg.APIKey != "" {
-			metricsHandler = api.AuthMiddleware(cfg.APIKey, metricsHandler)
+			metricsHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, metricsHandler)
 		}
 		httpMux.Handle(cfg.MetricsPath, metricsHandler)
 	}
@@ -463,7 +465,9 @@ func runServe() int {
 		schedulerWg.Add(1)
 		go func() {
 			defer schedulerWg.Done()
-			sched.Run(schedulerCtx)
+			if err := sched.Run(schedulerCtx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("easycron: scheduler stopped with error: %v", err)
+			}
 		}()
 
 		var reconcilerWg sync.WaitGroup

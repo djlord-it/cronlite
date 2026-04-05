@@ -204,7 +204,9 @@ func TestDispatcher_MetricsRecording(t *testing.T) {
 		FiredAt:     time.Now().UTC(),
 	}
 
-	d.Dispatch(context.Background(), event)
+	if err := d.Dispatch(context.Background(), event); err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
 
 	metrics.mu.Lock()
 	defer metrics.mu.Unlock()
@@ -267,7 +269,9 @@ func TestDispatcher_AnalyticsBestEffort(t *testing.T) {
 		FiredAt:     time.Now().UTC(),
 	}
 
-	d.Dispatch(context.Background(), event)
+	if err := d.Dispatch(context.Background(), event); err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
 
 	analytics.mu.Lock()
 	calls := analytics.calls

@@ -55,7 +55,9 @@ func TestRecordSuccess_ResetsToClose(t *testing.T) {
 	cb.RecordFailure(url)
 	cb.RecordFailure(url)
 	time.Sleep(15 * time.Millisecond)
-	cb.Allow(url)
+	if err := cb.Allow(url); err != nil {
+		t.Fatalf("expected nil (probe allowed), got %v", err)
+	}
 	cb.RecordSuccess(url)
 	if err := cb.Allow(url); err != nil {
 		t.Fatalf("expected nil after reset, got %v", err)
@@ -69,7 +71,9 @@ func TestRecordFailure_HalfOpenReOpens(t *testing.T) {
 	cb.RecordFailure(url)
 	cb.RecordFailure(url)
 	time.Sleep(15 * time.Millisecond)
-	cb.Allow(url)
+	if err := cb.Allow(url); err != nil {
+		t.Fatalf("expected nil (probe allowed), got %v", err)
+	}
 	cb.RecordFailure(url)
 	if err := cb.Allow(url); err == nil {
 		t.Fatal("expected ErrCircuitOpen after probe failure re-open")

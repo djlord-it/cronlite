@@ -46,12 +46,12 @@ func AuthMiddleware(apiKey string, next http.Handler) http.Handler {
 // MultiKeyAuthMiddleware performs multi-key authentication with SHA-256 lookup.
 // It also supports the legacy single API_KEY env var as a fallback.
 //
-// - Exempt paths: /health, /mcp (SSE transport, future use)
-// - If a matching key is found via the repository, the key's namespace is
-//   injected into the request context.
-// - If the legacy fallbackKey matches, namespace "default" is used.
-// - If neither matches, 401 is returned.
-// - last_used_at is tracked with in-process debounce (dirty map + background flush).
+//   - Exempt paths: /health, /mcp (SSE transport, future use)
+//   - If a matching key is found via the repository, the key's namespace is
+//     injected into the request context.
+//   - If the legacy fallbackKey matches, namespace "default" is used.
+//   - If neither matches, 401 is returned.
+//   - last_used_at is tracked with in-process debounce (dirty map + background flush).
 func MultiKeyAuthMiddleware(
 	keyRepo domain.APIKeyRepository,
 	fallbackKey string,
@@ -108,11 +108,10 @@ func MultiKeyAuthMiddleware(
 // lastUsedTracker debounces last_used_at updates for API keys.
 // Dirty keys are flushed to the repository every 60 seconds.
 type lastUsedTracker struct {
-	mu      sync.Mutex
-	dirty   map[uuid.UUID]struct{}
-	repo    domain.APIKeyRepository
-	stopCh  chan struct{}
-	stopped bool
+	mu     sync.Mutex
+	dirty  map[uuid.UUID]struct{}
+	repo   domain.APIKeyRepository
+	stopCh chan struct{}
 }
 
 func newLastUsedTracker(repo domain.APIKeyRepository) *lastUsedTracker {

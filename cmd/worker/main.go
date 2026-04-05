@@ -77,7 +77,9 @@ func main() {
 	schedulerWg.Add(1)
 	go func() {
 		defer schedulerWg.Done()
-		sched.Run(schedulerCtx)
+		if err := sched.Run(schedulerCtx); err != nil {
+			log.Printf("worker: scheduler stopped with error: %v", err)
+		}
 	}()
 
 	dispatcherWg.Add(1)

@@ -228,10 +228,12 @@ func TestEventBus_MetricsOnBufferFull(t *testing.T) {
 	ctx := context.Background()
 
 	// Fill the buffer
-	bus.Emit(ctx, newTestEvent())
+	if err := bus.Emit(ctx, newTestEvent()); err != nil {
+		t.Fatalf("first emit failed: %v", err)
+	}
 
 	// This should fail
-	bus.Emit(ctx, newTestEvent())
+	_ = bus.Emit(ctx, newTestEvent())
 
 	metrics.mu.Lock()
 	errCalls := metrics.emitErrorCalls
