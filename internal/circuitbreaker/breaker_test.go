@@ -40,11 +40,16 @@ func TestAllow_OpenAfterCooldown_HalfOpen(t *testing.T) {
 	cb.RecordFailure(url)
 	cb.RecordFailure(url)
 	time.Sleep(15 * time.Millisecond)
-	if err := cb.Allow(url); err != nil {
-		t.Fatalf("expected nil (probe allowed), got %v", err)
+
+	// DefaultHalfOpenProbes (3) requests should be allowed
+	for i := 0; i < DefaultHalfOpenProbes; i++ {
+		if err := cb.Allow(url); err != nil {
+			t.Fatalf("probe %d: expected nil (probe allowed), got %v", i+1, err)
+		}
 	}
+	// Next request should be blocked
 	if err := cb.Allow(url); err == nil {
-		t.Fatal("expected ErrCircuitOpen while half-open probe in flight")
+		t.Fatal("expected ErrCircuitOpen after all half-open probes used")
 	}
 }
 
@@ -71,12 +76,55 @@ func TestRecordFailure_HalfOpenReOpens(t *testing.T) {
 	cb.RecordFailure(url)
 	cb.RecordFailure(url)
 	time.Sleep(15 * time.Millisecond)
+	// Allow one probe
 	if err := cb.Allow(url); err != nil {
 		t.Fatalf("expected nil (probe allowed), got %v", err)
 	}
+	// Probe fails — circuit should re-open (failure count exceeds threshold)
 	cb.RecordFailure(url)
+	// Even remaining half-open probes should be blocked after re-open
 	if err := cb.Allow(url); err == nil {
 		t.Fatal("expected ErrCircuitOpen after probe failure re-open")
+	}
+}
+
+func TestHalfOpen_CustomProbeCount(t *testing.T) {
+	cb := New(3, 10*time.Millisecond).WithHalfOpenProbes(5)
+	url := "http://example.com/hook"
+	cb.RecordFailure(url)
+	cb.RecordFailure(url)
+	cb.RecordFailure(url)
+	time.Sleep(15 * time.Millisecond)
+
+	// 5 probes should be allowed (the first transitions to half-open + 4 more)
+	for i := 0; i < 5; i++ {
+		if err := cb.Allow(url); err != nil {
+			t.Fatalf("probe %d: expected nil, got %v", i+1, err)
+		}
+	}
+	if err := cb.Allow(url); err == nil {
+		t.Fatal("expected ErrCircuitOpen after all 5 probes used")
+	}
+}
+
+func TestHalfOpen_SuccessResetsProbeCounter(t *testing.T) {
+	cb := New(3, 10*time.Millisecond)
+	url := "http://example.com/hook"
+	cb.RecordFailure(url)
+	cb.RecordFailure(url)
+	cb.RecordFailure(url)
+	time.Sleep(15 * time.Millisecond)
+	// Use one probe
+	if err := cb.Allow(url); err != nil {
+		t.Fatalf("expected nil (probe allowed), got %v", err)
+	}
+	// Probe succeeds — circuit closes
+	cb.RecordSuccess(url)
+	// Should now allow unlimited requests (closed state)
+	for i := 0; i < 100; i++ {
+		if err := cb.Allow(url); err != nil {
+			t.Fatalf("request %d after reset: expected nil, got %v", i, err)
+		}
 	}
 }
 

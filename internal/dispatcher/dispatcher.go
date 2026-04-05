@@ -293,19 +293,15 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 		return fmt.Errorf("job %s: no webhook URL", event.JobID)
 	}
 
-	// Circuit breaker: skip dispatch if circuit is open for this URL
+	// Circuit breaker: skip dispatch if circuit is open for this URL.
+	// Do NOT mark the execution as failed — leave it in its current state
+	// so it can be retried when the circuit closes. In DB poll mode the row
+	// is released and another worker will claim it later.
 	if d.breaker != nil {
 		if err := d.breaker.Allow(job.Delivery.WebhookURL); err != nil {
-			log.Printf("dispatcher: job=%s circuit open for %s, skipping", event.JobID, job.Delivery.WebhookURL)
+			log.Printf("dispatcher: job=%s circuit open for %s, deferring", event.JobID, job.Delivery.WebhookURL)
 			if d.metrics != nil {
 				d.metrics.DeliveryOutcome("circuit_open")
-			}
-			if err := d.store.UpdateExecutionStatus(ctx, event.ExecutionID, domain.ExecutionStatusFailed); err != nil {
-				if errors.Is(err, ErrStatusTransitionDenied) {
-					log.Printf("dispatcher: job=%s execution=%s already terminal, skipping status update", event.JobID, event.ExecutionID)
-					return nil
-				}
-				return err
 			}
 			return nil
 		}
