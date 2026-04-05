@@ -90,7 +90,12 @@ func TestLogConfigWarnings_DBNoReconciler(t *testing.T) {
 		t.Error("did not expect channel-specific P0 warning in db mode, got:", output)
 	}
 
-	// Warning 2: no reconciler (general) should fire
+	// DB-specific reconciler warning should fire
+	if !strings.Contains(output, "WARNING [P0]: DISPATCH_MODE=db with RECONCILE_ENABLED=false") {
+		t.Error("expected db+no-reconciler P0 warning, got:", output)
+	}
+
+	// Warning 2: no reconciler (general) should also fire
 	if !strings.Contains(output, "WARNING [P0]: RECONCILE_ENABLED=false") {
 		t.Error("expected general no-reconciler P0 warning, got:", output)
 	}

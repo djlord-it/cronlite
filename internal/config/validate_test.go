@@ -3,6 +3,9 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/djlord-it/easy-cron/internal/dispatcher"
 )
 
 func TestValidate_ValidConfig(t *testing.T) {
@@ -139,5 +142,89 @@ func TestValidationErrors_Format(t *testing.T) {
 	empty := ValidationErrors{}
 	if empty.Error() != "" {
 		t.Errorf("empty errors should return empty string, got %q", empty.Error())
+	}
+}
+
+// validDBConfig returns a minimal valid Config for DB dispatch mode.
+func validDBConfig() Config {
+	return Config{
+		DatabaseURL:             "postgres://localhost/test",
+		DispatchMode:            "db",
+		LeaderRetryInterval:     5 * time.Second,
+		LeaderRetryIntervalStr:  "5s",
+		LeaderHeartbeatInterval: 2 * time.Second,
+		LeaderHeartbeatIntervalStr: "2s",
+	}
+}
+
+func TestValidate_LeaderHeartbeatMustBeLessThanRetry(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.LeaderHeartbeatInterval = 10 * time.Second // >= retry (5s)
+	cfg.LeaderHeartbeatIntervalStr = "10s"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error when heartbeat >= retry interval")
+	}
+	if !strings.Contains(err.Error(), "LEADER_HEARTBEAT_INTERVAL") {
+		t.Errorf("error should mention LEADER_HEARTBEAT_INTERVAL: %q", err)
+	}
+}
+
+func TestValidate_LeaderIntervals_Valid(t *testing.T) {
+	cfg := validDBConfig()
+	if err := Validate(cfg); err != nil {
+		t.Errorf("valid DB config should not error: %v", err)
+	}
+}
+
+func TestValidate_ReconcileThresholdBelowMaxRetry(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.ReconcileEnabled = true
+	cfg.ReconcileThreshold = 1 * time.Minute // way below MaxRetryDuration
+	cfg.ReconcileThresholdStr = "1m"
+	cfg.ReconcileInterval = 5 * time.Minute
+	cfg.ReconcileIntervalStr = "5m"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error when reconcile threshold < max retry duration")
+	}
+
+	maxRetry := dispatcher.MaxRetryDuration()
+	if !strings.Contains(err.Error(), maxRetry.String()) {
+		t.Errorf("error should mention max retry duration: %q", err)
+	}
+}
+
+func TestValidate_ReconcileThresholdSafe(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.ReconcileEnabled = true
+	cfg.ReconcileThreshold = 15 * time.Minute
+	cfg.ReconcileThresholdStr = "15m"
+	cfg.ReconcileInterval = 5 * time.Minute
+	cfg.ReconcileIntervalStr = "5m"
+	cfg.ReconcileRequeueThreshold = 2 * time.Minute
+	cfg.ReconcileRequeueThresholdStr = "2m"
+
+	if err := Validate(cfg); err != nil {
+		t.Errorf("valid reconciler config should not error: %v", err)
+	}
+}
+
+func TestValidate_CircuitBreakerCooldownRequired(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:              "postgres://localhost/test",
+		CircuitBreakerThreshold:  5,
+		CircuitBreakerCooldown:   -1 * time.Second,
+		CircuitBreakerCooldownStr: "-1s",
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error when circuit breaker enabled with non-positive cooldown")
+	}
+	if !strings.Contains(err.Error(), "CIRCUIT_BREAKER_COOLDOWN") {
+		t.Errorf("error should mention CIRCUIT_BREAKER_COOLDOWN: %q", err)
 	}
 }
