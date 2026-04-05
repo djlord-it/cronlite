@@ -580,3 +580,588 @@ func TestResolveSchedule_UnrecognizedInput(t *testing.T) {
 		t.Errorf("expected ErrScheduleParseFailure, got %v", err)
 	}
 }
+
+// --- ListJobs tests ---
+
+func TestListJobs_HappyPath(t *testing.T) {
+	var capturedFilter domain.JobFilter
+	jobRepo := &mockJobRepo{
+		listJobsFn: func(_ context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+			capturedFilter = filter
+			return []domain.Job{
+				{ID: uuid.New(), Namespace: "t1", Name: "job-1"},
+				{ID: uuid.New(), Namespace: "t1", Name: "job-2"},
+			}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	jobs, err := svc.ListJobs(ctxWithNS("t1"), domain.JobFilter{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Errorf("expected 2 jobs, got %d", len(jobs))
+	}
+	if capturedFilter.Namespace != "t1" {
+		t.Errorf("expected namespace 't1' on filter, got %q", capturedFilter.Namespace)
+	}
+	if capturedFilter.Limit <= 0 {
+		t.Error("expected ListParams defaults to be applied")
+	}
+}
+
+func TestListJobs_NoNamespace(t *testing.T) {
+	svc := newTestService(nil)
+
+	_, err := svc.ListJobs(context.Background(), domain.JobFilter{})
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+// --- UpdateJob tests ---
+
+func TestUpdateJob_HappyPath(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "t1", Name: "old-name", ScheduleID: schedID, Enabled: true,
+				Delivery: domain.DeliveryConfig{WebhookURL: "https://old.com", Timeout: 30 * time.Second},
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	newName := "new-name"
+	job, sched, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{Name: &newName})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.Name != "new-name" {
+		t.Errorf("expected name 'new-name', got %q", job.Name)
+	}
+	if sched.CronExpression != "*/5 * * * *" {
+		t.Errorf("expected cron unchanged, got %q", sched.CronExpression)
+	}
+	if jobRepo.lastUpdatedJob.Name != "new-name" {
+		t.Errorf("expected repo to receive name 'new-name', got %q", jobRepo.lastUpdatedJob.Name)
+	}
+}
+
+func TestUpdateJob_ScheduleChanged(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	var scheduleUpdated bool
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "t1", Name: "my-job", ScheduleID: schedID, Enabled: true,
+				Delivery: domain.DeliveryConfig{WebhookURL: "https://example.com", Timeout: 30 * time.Second},
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+	}
+	schedRepo := &mockScheduleRepo{
+		updateScheduleFn: func(_ context.Context, schedule domain.Schedule) error {
+			scheduleUpdated = true
+			if schedule.CronExpression != "*/10 * * * *" {
+				t.Errorf("expected cron '*/10 * * * *', got %q", schedule.CronExpression)
+			}
+			return nil
+		},
+	}
+	svc := newTestServiceFull(jobRepo, schedRepo, nil, nil, nil, nil)
+
+	newCron := "*/10 * * * *"
+	_, sched, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{CronExpression: &newCron})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !scheduleUpdated {
+		t.Error("expected schedule to be updated")
+	}
+	if sched.CronExpression != "*/10 * * * *" {
+		t.Errorf("expected new cron '*/10 * * * *', got %q", sched.CronExpression)
+	}
+}
+
+func TestUpdateJob_InvalidNewCron(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "t1", Name: "my-job", ScheduleID: schedID, Enabled: true,
+				Delivery: domain.DeliveryConfig{WebhookURL: "https://example.com", Timeout: 30 * time.Second},
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	badCron := "not valid cron"
+	_, _, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{CronExpression: &badCron})
+	if !errors.Is(err, domain.ErrInvalidCronExpression) {
+		t.Errorf("expected ErrInvalidCronExpression, got %v", err)
+	}
+}
+
+func TestUpdateJob_NoNamespace(t *testing.T) {
+	svc := newTestService(nil)
+
+	newName := "whatever"
+	_, _, err := svc.UpdateJob(context.Background(), uuid.New(), UpdateJobInput{Name: &newName})
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+func TestUpdateJob_NamespaceMismatch(t *testing.T) {
+	jobID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A"}, domain.Schedule{}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	newName := "new-name"
+	_, _, err := svc.UpdateJob(ctxWithNS("tenant-B"), jobID, UpdateJobInput{Name: &newName})
+	if !errors.Is(err, domain.ErrJobNotFound) {
+		t.Errorf("expected ErrJobNotFound for namespace mismatch, got %v", err)
+	}
+}
+
+func TestUpdateJob_WithTags(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "t1", Name: "my-job", ScheduleID: schedID, Enabled: true,
+				Delivery: domain.DeliveryConfig{WebhookURL: "https://example.com", Timeout: 30 * time.Second},
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+	}
+
+	var deleteCalled, upsertCalled bool
+	tagRepo := &mockTagRepo{
+		deleteTagsFn: func(_ context.Context, id uuid.UUID) error {
+			deleteCalled = true
+			if id != jobID {
+				t.Errorf("expected delete for job %s, got %s", jobID, id)
+			}
+			return nil
+		},
+		upsertTagsFn: func(_ context.Context, id uuid.UUID, tags []domain.Tag) error {
+			upsertCalled = true
+			if id != jobID {
+				t.Errorf("expected upsert for job %s, got %s", jobID, id)
+			}
+			if len(tags) != 2 {
+				t.Errorf("expected 2 tags, got %d", len(tags))
+			}
+			return nil
+		},
+	}
+	svc := newTestServiceFull(jobRepo, nil, nil, tagRepo, nil, nil)
+
+	newTags := []domain.Tag{{Key: "env", Value: "prod"}, {Key: "team", Value: "backend"}}
+	_, _, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{Tags: &newTags})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !deleteCalled {
+		t.Error("expected DeleteTags to be called")
+	}
+	if !upsertCalled {
+		t.Error("expected UpsertTags to be called")
+	}
+}
+
+// --- DeleteJob tests ---
+
+func TestDeleteJob_HappyPath(t *testing.T) {
+	jobID := uuid.New()
+	var capturedID uuid.UUID
+	var capturedNS domain.Namespace
+	jobRepo := &mockJobRepo{
+		deleteJobFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) error {
+			capturedID = id
+			capturedNS = ns
+			return nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	err := svc.DeleteJob(ctxWithNS("t1"), jobID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedID != jobID {
+		t.Errorf("expected job ID %s, got %s", jobID, capturedID)
+	}
+	if capturedNS != "t1" {
+		t.Errorf("expected namespace 't1', got %q", capturedNS)
+	}
+}
+
+func TestDeleteJob_NoNamespace(t *testing.T) {
+	svc := newTestService(nil)
+
+	err := svc.DeleteJob(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+// --- GetJob tests ---
+
+func TestGetJob_HappyPath(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "t1", Name: "my-job", ScheduleID: schedID, Enabled: true,
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+	}
+	tagRepo := &mockTagRepo{
+		getTagsFn: func(_ context.Context, id uuid.UUID) ([]domain.Tag, error) {
+			return []domain.Tag{{Key: "env", Value: "prod"}}, nil
+		},
+	}
+	execRepo := &mockExecutionRepo{
+		getRecentExecutionsFn: func(_ context.Context, id uuid.UUID, limit int) ([]domain.Execution, error) {
+			return []domain.Execution{
+				{ID: uuid.New(), JobID: jobID, Status: domain.ExecutionStatusDelivered},
+			}, nil
+		},
+	}
+	svc := newTestServiceFull(jobRepo, nil, execRepo, tagRepo, nil, nil)
+
+	job, sched, tags, execs, err := svc.GetJob(ctxWithNS("t1"), jobID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.Name != "my-job" {
+		t.Errorf("expected name 'my-job', got %q", job.Name)
+	}
+	if sched.CronExpression != "*/5 * * * *" {
+		t.Errorf("expected cron '*/5 * * * *', got %q", sched.CronExpression)
+	}
+	if len(tags) != 1 {
+		t.Errorf("expected 1 tag, got %d", len(tags))
+	}
+	if len(execs) != 1 {
+		t.Errorf("expected 1 execution, got %d", len(execs))
+	}
+}
+
+func TestGetJob_NoNamespace(t *testing.T) {
+	svc := newTestService(nil)
+
+	_, _, _, _, err := svc.GetJob(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+// --- GetNextRunTime tests ---
+
+func TestGetNextRunTime_HappyPath(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "t1", ScheduleID: schedID, Enabled: true,
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	nextRun, runs, sched, err := svc.GetNextRunTime(ctxWithNS("t1"), jobID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runs) != 5 {
+		t.Errorf("expected 5 run times, got %d", len(runs))
+	}
+	if nextRun.IsZero() {
+		t.Error("expected non-zero next run time")
+	}
+	if nextRun != runs[0] {
+		t.Error("expected first run to match nextRun")
+	}
+	if sched.CronExpression != "*/5 * * * *" {
+		t.Errorf("expected cron '*/5 * * * *', got %q", sched.CronExpression)
+	}
+	// Verify runs are in ascending order.
+	for i := 1; i < len(runs); i++ {
+		if !runs[i].After(runs[i-1]) {
+			t.Errorf("expected runs[%d] > runs[%d]", i, i-1)
+		}
+	}
+}
+
+func TestGetNextRunTime_NoNamespace(t *testing.T) {
+	svc := newTestService(nil)
+
+	_, _, _, err := svc.GetNextRunTime(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+func TestGetNextRunTime_NotFound(t *testing.T) {
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	_, _, _, err := svc.GetNextRunTime(ctxWithNS("t1"), uuid.New())
+	if !errors.Is(err, domain.ErrJobNotFound) {
+		t.Errorf("expected ErrJobNotFound, got %v", err)
+	}
+}
+
+// --- parseNaturalLanguage tests ---
+
+func TestParseNaturalLanguage(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantCron  string
+		wantError bool
+	}{
+		{"every 5 minutes", "every 5 minutes", "*/5 * * * *", false},
+		{"every 2 hours", "every 2 hours", "0 */2 * * *", false},
+		{"every hour", "every hour", "0 * * * *", false},
+		{"hourly", "hourly", "0 * * * *", false},
+		{"daily at 9am", "daily at 9am", "0 9 * * *", false},
+		{"daily at 2:30pm", "daily at 2:30pm", "30 14 * * *", false},
+		{"every weekday at 9:00 am", "every weekday at 9:00 am", "0 9 * * 1-5", false},
+		{"every monday at 14:00", "every monday at 14:00", "0 14 * * 1", false},
+		{"every saturday at 12pm", "every saturday at 12pm", "0 12 * * 6", false},
+		{"every 0 minutes - error", "every 0 minutes", "", true},
+		{"every 60 minutes - error", "every 60 minutes", "", true},
+		{"every 0 hours - error", "every 0 hours", "", true},
+		{"every 24 hours - error", "every 24 hours", "", true},
+		{"something invalid - error", "something invalid", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cronExpr, _, err := parseNaturalLanguage(tt.input)
+			if tt.wantError {
+				if err == nil {
+					t.Errorf("expected error for input %q, got nil", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error for input %q: %v", tt.input, err)
+			}
+			if cronExpr != tt.wantCron {
+				t.Errorf("input %q: expected cron %q, got %q", tt.input, tt.wantCron, cronExpr)
+			}
+		})
+	}
+}
+
+// --- parseTime tests ---
+
+func TestParseTime(t *testing.T) {
+	tests := []struct {
+		name       string
+		hourStr    string
+		minuteStr  string
+		ampm       string
+		wantHour   int
+		wantMinute int
+	}{
+		{"9am", "9", "", "am", 9, 0},
+		{"9pm", "9", "", "pm", 21, 0},
+		{"12am is midnight", "12", "", "am", 0, 0},
+		{"12pm is noon", "12", "", "pm", 12, 0},
+		{"3:30pm", "3", "30", "pm", 15, 30},
+		{"14:00 24h", "14", "00", "", 14, 0},
+		{"0:00 24h", "0", "00", "", 0, 0},
+		{"25:00 invalid hour", "25", "00", "", -1, 0},
+		{"abc invalid", "abc", "", "", -1, 0},
+		{"9:60 invalid minute", "9", "60", "", -1, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotHour, gotMinute := parseTime(tt.hourStr, tt.minuteStr, tt.ampm)
+			if gotHour != tt.wantHour {
+				t.Errorf("expected hour %d, got %d", tt.wantHour, gotHour)
+			}
+			if gotMinute != tt.wantMinute {
+				t.Errorf("expected minute %d, got %d", tt.wantMinute, gotMinute)
+			}
+		})
+	}
+}
+
+// --- CreateJob error-path tests ---
+
+func TestCreateJob_InsertJobError(t *testing.T) {
+	insertErr := errors.New("db write failed")
+	jobRepo := &mockJobRepo{
+		insertJobFn: func(_ context.Context, _ domain.Job, _ domain.Schedule) error {
+			return insertErr
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	_, _, err := svc.CreateJob(ctxWithNS("t1"), CreateJobInput{
+		Name:           "my-job",
+		CronExpression: "*/5 * * * *",
+		Timezone:       "UTC",
+		WebhookURL:     "https://example.com/hook",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, insertErr) {
+		t.Errorf("expected wrapped insertErr, got %v", err)
+	}
+}
+
+func TestCreateJob_UpsertTagsError(t *testing.T) {
+	upsertErr := errors.New("tag write failed")
+	tagRepo := &mockTagRepo{
+		upsertTagsFn: func(_ context.Context, _ uuid.UUID, _ []domain.Tag) error {
+			return upsertErr
+		},
+	}
+	svc := newTestServiceFull(&mockJobRepo{}, nil, nil, tagRepo, nil, nil)
+
+	_, _, err := svc.CreateJob(ctxWithNS("t1"), CreateJobInput{
+		Name:           "my-job",
+		CronExpression: "*/5 * * * *",
+		Timezone:       "UTC",
+		WebhookURL:     "https://example.com/hook",
+		Tags:           []domain.Tag{{Key: "env", Value: "prod"}},
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, upsertErr) {
+		t.Errorf("expected wrapped upsertErr, got %v", err)
+	}
+}
+
+func TestCreateJob_WithCustomTimeout(t *testing.T) {
+	jobRepo := &mockJobRepo{}
+	svc := newTestService(jobRepo)
+
+	job, _, err := svc.CreateJob(ctxWithNS("t1"), CreateJobInput{
+		Name:           "my-job",
+		CronExpression: "*/5 * * * *",
+		Timezone:       "UTC",
+		WebhookURL:     "https://example.com/hook",
+		Timeout:        60 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.Delivery.Timeout != 60*time.Second {
+		t.Errorf("expected timeout 60s, got %v", job.Delivery.Timeout)
+	}
+}
+
+// --- PauseJob / ResumeJob / TriggerNow no-namespace tests ---
+
+func TestPauseJob_NoNamespace(t *testing.T) {
+	svc := newTestService(nil)
+
+	_, err := svc.PauseJob(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+func TestResumeJob_NoNamespace(t *testing.T) {
+	svc := newTestService(nil)
+
+	_, err := svc.ResumeJob(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+func TestTriggerNow_NoNamespace(t *testing.T) {
+	svc := newTestService(nil)
+
+	_, err := svc.TriggerNow(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+// --- PauseJob / ResumeJob / TriggerNow namespace-mismatch tests ---
+
+func TestPauseJob_NamespaceMismatch(t *testing.T) {
+	jobID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A", Enabled: true}, domain.Schedule{}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	_, err := svc.PauseJob(ctxWithNS("tenant-B"), jobID)
+	if !errors.Is(err, domain.ErrJobNotFound) {
+		t.Errorf("expected ErrJobNotFound for namespace mismatch, got %v", err)
+	}
+}
+
+func TestResumeJob_NamespaceMismatch(t *testing.T) {
+	jobID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A", Enabled: false}, domain.Schedule{}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	_, err := svc.ResumeJob(ctxWithNS("tenant-B"), jobID)
+	if !errors.Is(err, domain.ErrJobNotFound) {
+		t.Errorf("expected ErrJobNotFound for namespace mismatch, got %v", err)
+	}
+}
+
+func TestTriggerNow_NamespaceMismatch(t *testing.T) {
+	jobID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error) {
+			if ns != "tenant-A" {
+				return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+			}
+			return domain.Job{ID: jobID, Namespace: "tenant-A", Enabled: true}, domain.Schedule{}, nil
+		},
+	}
+	svc := newTestServiceFull(jobRepo, nil, &mockExecutionRepo{}, nil, nil, nil)
+
+	_, err := svc.TriggerNow(ctxWithNS("tenant-B"), jobID)
+	if !errors.Is(err, domain.ErrJobNotFound) {
+		t.Errorf("expected ErrJobNotFound for namespace mismatch, got %v", err)
+	}
+}
