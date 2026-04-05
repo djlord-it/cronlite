@@ -23,6 +23,6 @@ linters-settings:
 issues:
   exclude-dirs:
     - vendor
-  exclude-generated-strict: true
+  exclude-generated: strict
   max-issues-per-linter: 50
   max-same-issues: 5
