@@ -16,6 +16,10 @@ on:
     # catch regressions without burning CI minutes nightly.
     - cron: "0 3 * * 0"
 
+concurrency:
+  group: ha-soak
+  cancel-in-progress: false
+
 jobs:
   ha-soak:
     runs-on: ubuntu-latest
@@ -59,7 +63,7 @@ jobs:
             > ha_artifacts/receiver_stats.json 2>/dev/null || true
 
       - name: Upload artifacts
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ha-soak-artifacts
