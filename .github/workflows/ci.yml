@@ -35,7 +35,7 @@ jobs:
           git diff --exit-code internal/api/server.gen.go || (echo "Generated code is out of date. Run 'go generate ./internal/api/...' and commit." && exit 1)
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           install-mode: goinstall
