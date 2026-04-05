@@ -119,6 +119,25 @@ func (e *Elector) runOnce(ctx context.Context) string {
 	}
 	defer conn.Close()
 
+	// Set Postgres session-level TCP keepalive on the dedicated connection.
+	// These are a correctness floor for crash failover detection, not a tuning knob.
+	// idle=5s, interval=5s, count=3 → Postgres detects a dead TCP peer within ~20s.
+	// Each SET is a separate call for proxy/driver compatibility.
+	keepaliveOK := true
+	for _, stmt := range []string{
+		"SET tcp_keepalives_idle = 5",
+		"SET tcp_keepalives_interval = 5",
+		"SET tcp_keepalives_count = 3",
+	} {
+		if _, err = conn.ExecContext(ctx, stmt); err != nil {
+			log.Printf("leader: %s failed: %v (continuing)", stmt, err)
+			keepaliveOK = false
+		}
+	}
+	if keepaliveOK {
+		log.Println("leader: TCP keepalive configured on dedicated connection (idle=5s, interval=5s, count=3)")
+	}
+
 	// Non-blocking lock attempt.
 	var acquired bool
 	err = conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", e.lockKey).Scan(&acquired)

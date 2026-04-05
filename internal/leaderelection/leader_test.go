@@ -70,10 +70,17 @@ func newMockDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	return db, mock
 }
 
+func expectTCPKeepalive(mock sqlmock.Sqlmock) {
+	mock.ExpectExec("SET tcp_keepalives_idle").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET tcp_keepalives_interval").WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("SET tcp_keepalives_count").WillReturnResult(sqlmock.NewResult(0, 0))
+}
+
 func TestElector_AcquiresLock_CallsBothCallbacks(t *testing.T) {
 	db, mock := newMockDB(t)
 	defer db.Close()
 
+	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WithArgs(int64(728379)).WillReturnRows(rows)
 
@@ -118,6 +125,7 @@ func TestElector_LockHeldByAnother(t *testing.T) {
 	db, mock := newMockDB(t)
 	defer db.Close()
 
+	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(false)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WithArgs(int64(728379)).WillReturnRows(rows)
 
@@ -167,6 +175,7 @@ func TestElector_QueryFailure_EmitsErrorMetric(t *testing.T) {
 	db, mock := newMockDB(t)
 	defer db.Close()
 
+	expectTCPKeepalive(mock)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").
 		WithArgs(int64(728379)).
 		WillReturnError(errors.New("connection reset"))
@@ -193,6 +202,7 @@ func TestElector_PingFailure_ReturnsConnLost(t *testing.T) {
 	db, mock := newMockDB(t)
 	defer db.Close()
 
+	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WithArgs(int64(728379)).WillReturnRows(rows)
 	// First ping fails immediately — simulates dead connection.
@@ -219,6 +229,7 @@ func TestElector_ContextCancellation_ReturnsShutdown(t *testing.T) {
 	db, mock := newMockDB(t)
 	defer db.Close()
 
+	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WithArgs(int64(728379)).WillReturnRows(rows)
 	// No pings expected — heartbeat interval is long, context cancels first.
@@ -242,6 +253,7 @@ func TestElector_MetricsRecorded_FullSequence(t *testing.T) {
 	db, mock := newMockDB(t)
 	defer db.Close()
 
+	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WithArgs(int64(728379)).WillReturnRows(rows)
 
@@ -277,6 +289,7 @@ func TestElector_OnDemotedPanic_Recovered(t *testing.T) {
 	db, mock := newMockDB(t)
 	defer db.Close()
 
+	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WithArgs(int64(728379)).WillReturnRows(rows)
 
