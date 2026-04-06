@@ -82,6 +82,9 @@ type Config struct {
 	IPRateLimit int `json:"ip_rate_limit"`
 	// NamespaceRateLimit: per-namespace request rate (req/sec). Applied after auth.
 	NamespaceRateLimit int `json:"namespace_rate_limit"`
+
+	// CloudflareOnly: when true, reject requests not from Cloudflare edge IPs.
+	CloudflareOnly bool `json:"cloudflare_only"`
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -98,6 +101,7 @@ func Load() Config {
 		HTTPShutdownTimeoutStr:    os.Getenv("HTTP_SHUTDOWN_TIMEOUT"),
 		DispatcherDrainTimeoutStr: os.Getenv("DISPATCHER_DRAIN_TIMEOUT"),
 		MetricsEnabled:            os.Getenv("METRICS_ENABLED") == "true",
+		CloudflareOnly:            os.Getenv("CLOUDFLARE_ONLY") == "true",
 		MetricsPath:               os.Getenv("METRICS_PATH"),
 		ReconcileEnabled:          os.Getenv("RECONCILE_ENABLED") == "true",
 		ReconcileIntervalStr:          os.Getenv("RECONCILE_INTERVAL"),
@@ -360,6 +364,7 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		MaxFiresPerTick          int    `json:"max_fires_per_tick"`
 		IPRateLimit              int    `json:"ip_rate_limit"`
 		NamespaceRateLimit       int    `json:"namespace_rate_limit"`
+		CloudflareOnly           bool   `json:"cloudflare_only"`
 	}{
 		DatabaseURL:            maskSecret(c.DatabaseURL),
 		RedisAddr:              maskSecret(c.RedisAddr),
@@ -391,6 +396,7 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		MaxFiresPerTick:         c.MaxFiresPerTick,
 		IPRateLimit:             c.IPRateLimit,
 		NamespaceRateLimit:      c.NamespaceRateLimit,
+		CloudflareOnly:          c.CloudflareOnly,
 	}
 	return json.MarshalIndent(masked, "", "  ")
 }

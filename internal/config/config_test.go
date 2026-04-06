@@ -317,6 +317,38 @@ func TestMaskedJSON_ExcludesAPIKey(t *testing.T) {
 	}
 }
 
+func TestLoad_CloudflareOnlyDefault(t *testing.T) {
+	os.Unsetenv("CLOUDFLARE_ONLY")
+	cfg := Load()
+	if cfg.CloudflareOnly {
+		t.Error("expected CloudflareOnly=false by default")
+	}
+}
+
+func TestLoad_CloudflareOnlyEnabled(t *testing.T) {
+	os.Setenv("CLOUDFLARE_ONLY", "true")
+	defer os.Unsetenv("CLOUDFLARE_ONLY")
+	cfg := Load()
+	if !cfg.CloudflareOnly {
+		t.Error("expected CloudflareOnly=true when CLOUDFLARE_ONLY=true")
+	}
+}
+
+func TestMaskedJSON_IncludesCloudflareOnly(t *testing.T) {
+	os.Setenv("CLOUDFLARE_ONLY", "true")
+	defer os.Unsetenv("CLOUDFLARE_ONLY")
+
+	cfg := Load()
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatalf("MaskedJSON failed: %v", err)
+	}
+
+	if !containsString(string(data), `"cloudflare_only": true`) {
+		t.Error("MaskedJSON missing or incorrect cloudflare_only field")
+	}
+}
+
 func containsString(s, substr string) bool {
 	for i := 0; i <= len(s)-len(substr); i++ {
 		if s[i:i+len(substr)] == substr {
