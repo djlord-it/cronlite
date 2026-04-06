@@ -14,8 +14,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/djlord-it/easy-cron/internal/dispatcher"
-	"github.com/djlord-it/easy-cron/internal/domain"
+	"github.com/djlord-it/cronlite/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/domain"
 )
 
 // SafetyMargin is the buffer added on top of the dispatcher's maximum retry

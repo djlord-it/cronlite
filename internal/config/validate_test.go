@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/djlord-it/easy-cron/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/dispatcher"
 )
 
 func TestValidate_ValidConfig(t *testing.T) {
 	cfg := Config{
-		DatabaseURL:     "postgres://localhost/easycron",
+		DatabaseURL:     "postgres://localhost/cronlite",
 		TickIntervalStr: "30s",
 	}
 
@@ -49,7 +49,7 @@ func TestValidate_InvalidTickInterval(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := Config{
-				DatabaseURL:     "postgres://localhost/easycron",
+				DatabaseURL:     "postgres://localhost/cronlite",
 				TickIntervalStr: tt.interval,
 			}
 

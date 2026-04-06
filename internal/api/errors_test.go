@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
+	"github.com/djlord-it/cronlite/internal/domain"
 )
 
 func TestMapDomainError(t *testing.T) {

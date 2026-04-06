@@ -26,16 +26,16 @@ RUN set -e; \
     if [ "$RACE_ENABLED" = "1" ]; then \
       CGO_ENABLED=1 GOOS=linux go build -race \
         -ldflags="-X main.version=${VERSION} -X main.commit=${COMMIT}" \
-        -o /easycron ./cmd/easycron; \
+        -o /cronlite ./cmd/cronlite; \
     else \
       CGO_ENABLED=0 GOOS=linux go build \
         -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
-        -o /easycron ./cmd/easycron; \
+        -o /cronlite ./cmd/cronlite; \
     fi
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
-    -o /easycron-mcp ./cmd/easycron-mcp
+    -o /cronlite-mcp ./cmd/cronlite-mcp
 
 # Runtime stage
 FROM alpine:3.19
@@ -44,21 +44,21 @@ FROM alpine:3.19
 RUN apk add --no-cache ca-certificates tzdata
 
 # Create non-root user
-RUN addgroup -g 1000 easycron && \
-    adduser -u 1000 -G easycron -s /bin/sh -D easycron
+RUN addgroup -g 1000 cronlite && \
+    adduser -u 1000 -G cronlite -s /bin/sh -D cronlite
 
 WORKDIR /app
 
 # Copy binary from builder
-COPY --from=builder /easycron /usr/local/bin/easycron
-COPY --from=builder /easycron-mcp /usr/local/bin/easycron-mcp
+COPY --from=builder /cronlite /usr/local/bin/cronlite
+COPY --from=builder /cronlite-mcp /usr/local/bin/cronlite-mcp
 
 # Copy schema for reference (optional, useful for migrations)
 COPY schema/ /app/schema/
 
-USER easycron
+USER cronlite
 
 EXPOSE 8080
 
-ENTRYPOINT ["easycron"]
+ENTRYPOINT ["cronlite"]
 CMD ["serve"]

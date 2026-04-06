@@ -18,21 +18,21 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/djlord-it/easy-cron/internal/analytics"
-	"github.com/djlord-it/easy-cron/internal/api"
-	"github.com/djlord-it/easy-cron/internal/circuitbreaker"
-	"github.com/djlord-it/easy-cron/internal/config"
-	"github.com/djlord-it/easy-cron/internal/cron"
-	"github.com/djlord-it/easy-cron/internal/dispatcher"
-	"github.com/djlord-it/easy-cron/internal/domain"
-	"github.com/djlord-it/easy-cron/internal/leaderelection"
-	mcpsrv "github.com/djlord-it/easy-cron/internal/mcp"
-	"github.com/djlord-it/easy-cron/internal/metrics"
-	"github.com/djlord-it/easy-cron/internal/reconciler"
-	"github.com/djlord-it/easy-cron/internal/scheduler"
-	"github.com/djlord-it/easy-cron/internal/service"
-	"github.com/djlord-it/easy-cron/internal/store/postgres"
-	"github.com/djlord-it/easy-cron/internal/transport/channel"
+	"github.com/djlord-it/cronlite/internal/analytics"
+	"github.com/djlord-it/cronlite/internal/api"
+	"github.com/djlord-it/cronlite/internal/circuitbreaker"
+	"github.com/djlord-it/cronlite/internal/config"
+	"github.com/djlord-it/cronlite/internal/cron"
+	"github.com/djlord-it/cronlite/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/leaderelection"
+	mcpsrv "github.com/djlord-it/cronlite/internal/mcp"
+	"github.com/djlord-it/cronlite/internal/metrics"
+	"github.com/djlord-it/cronlite/internal/reconciler"
+	"github.com/djlord-it/cronlite/internal/scheduler"
+	"github.com/djlord-it/cronlite/internal/service"
+	"github.com/djlord-it/cronlite/internal/store/postgres"
+	"github.com/djlord-it/cronlite/internal/transport/channel"
 
 	_ "github.com/lib/pq"
 )
@@ -99,17 +99,17 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println(`easycron - distributed cron job scheduler
+	fmt.Println(`cronlite - distributed cron job scheduler
 
 Usage:
-  easycron <command>
+  cronlite <command>
 
 Commands:
   serve        Start the scheduler and dispatcher
   validate     Validate configuration (no connections made)
   config       Print effective configuration as JSON (secrets masked)
   version      Print version information
-  create-key   Create a new API key  (usage: easycron create-key <namespace> <label>)
+  create-key   Create a new API key  (usage: cronlite create-key <namespace> <label>)
 
 Environment Variables:
   DATABASE_URL              PostgreSQL connection string (required)
@@ -185,7 +185,7 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 	go func() {
 		defer lr.wg.Done()
 		if err := lr.sched.Run(schedCtx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("easycron: leader scheduler stopped with error: %v", err)
+			log.Printf("cronlite: leader scheduler stopped with error: %v", err)
 		}
 	}()
 
@@ -213,12 +213,12 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 			defer lr.wg.Done()
 			recon.Run(reconCtx)
 		}()
-		log.Printf("easycron: reconciler started (interval=%s, threshold=%s, requeue_threshold=%s, batch=%d)",
+		log.Printf("cronlite: reconciler started (interval=%s, threshold=%s, requeue_threshold=%s, batch=%d)",
 			lr.cfg.ReconcileInterval, lr.cfg.ReconcileThreshold, lr.cfg.ReconcileRequeueThreshold, lr.cfg.ReconcileBatchSize)
 	}
 
 	lr.running = true
-	log.Println("easycron: leader duties started (scheduler + reconciler)")
+	log.Println("cronlite: leader duties started (scheduler + reconciler)")
 }
 
 func (lr *leaderRuntime) stop() {
@@ -241,7 +241,7 @@ func (lr *leaderRuntime) stop() {
 
 	// Wait outside the lock so Run goroutines can return without deadlock.
 	lr.wg.Wait()
-	log.Println("easycron: leader duties stopped (scheduler + reconciler)")
+	log.Println("cronlite: leader duties stopped (scheduler + reconciler)")
 }
 
 func runServe() int {
@@ -266,7 +266,7 @@ func runServe() int {
 	db.SetConnMaxLifetime(cfg.DBConnMaxLifetime)
 	db.SetConnMaxIdleTime(cfg.DBConnMaxIdleTime)
 
-	log.Printf("easycron: db pool configured (max_open=%d, max_idle=%d, max_lifetime=%s, max_idle_time=%s)",
+	log.Printf("cronlite: db pool configured (max_open=%d, max_idle=%d, max_lifetime=%s, max_idle_time=%s)",
 		cfg.DBMaxOpenConns, cfg.DBMaxIdleConns, cfg.DBConnMaxLifetime, cfg.DBConnMaxIdleTime)
 
 	if err := db.Ping(); err != nil {
@@ -289,9 +289,9 @@ func runServe() int {
 
 	if cfg.MetricsEnabled {
 		metricsSink = metrics.NewPrometheusSink(prometheus.DefaultRegisterer)
-		log.Printf("easycron: metrics enabled (path=%s)", cfg.MetricsPath)
+		log.Printf("cronlite: metrics enabled (path=%s)", cfg.MetricsPath)
 	} else {
-		log.Println("easycron: METRICS_ENABLED not set; metrics disabled")
+		log.Println("cronlite: METRICS_ENABLED not set; metrics disabled")
 	}
 
 	// Dispatch mode: "channel" uses an in-memory EventBus, "db" uses NopEmitter
@@ -303,7 +303,7 @@ func runServe() int {
 
 	if cfg.DispatchMode == "db" {
 		emitter = channel.NopEmitter{}
-		log.Printf("easycron: dispatch mode=db (workers=%d, poll_interval=%s)",
+		log.Printf("cronlite: dispatch mode=db (workers=%d, poll_interval=%s)",
 			cfg.DispatcherWorkers, cfg.DBPollInterval)
 	} else {
 		var busOpts []channel.Option
@@ -313,7 +313,7 @@ func runServe() int {
 		bus := channel.NewEventBus(cfg.EventBusBufferSize, busOpts...)
 		emitter = bus
 		dispatchCh = bus.Channel()
-		log.Printf("easycron: dispatch mode=channel (buffer=%d)", cfg.EventBusBufferSize)
+		log.Printf("cronlite: dispatch mode=channel (buffer=%d)", cfg.EventBusBufferSize)
 	}
 
 	sched := scheduler.New(
@@ -341,18 +341,18 @@ func runServe() int {
 		})
 		sink := analytics.NewRedisSink(redisClient)
 		disp = disp.WithAnalytics(sink)
-		log.Printf("easycron: analytics enabled (redis=%s)", cfg.RedisAddr)
+		log.Printf("cronlite: analytics enabled (redis=%s)", cfg.RedisAddr)
 	} else {
-		log.Println("easycron: REDIS_ADDR not set; analytics disabled")
+		log.Println("cronlite: REDIS_ADDR not set; analytics disabled")
 	}
 
 	if cfg.CircuitBreakerThreshold > 0 {
 		cb := circuitbreaker.New(cfg.CircuitBreakerThreshold, cfg.CircuitBreakerCooldown)
 		disp = disp.WithCircuitBreaker(cb)
-		log.Printf("easycron: circuit breaker enabled (threshold=%d, cooldown=%s)",
+		log.Printf("cronlite: circuit breaker enabled (threshold=%d, cooldown=%s)",
 			cfg.CircuitBreakerThreshold, cfg.CircuitBreakerCooldown)
 	} else {
-		log.Println("easycron: circuit breaker disabled (threshold=0)")
+		log.Println("cronlite: circuit breaker disabled (threshold=0)")
 	}
 
 	// ── Service layer ─────────────────────────────────────────────────────────
@@ -371,12 +371,12 @@ func runServe() int {
 	rootHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, rootHandler)            // sets namespace in ctx
 	rootHandler = api.RateLimitMiddleware(cfg.IPRateLimit, rootHandler)                 // per-IP, before auth
 	if cfg.APIKey != "" {
-		log.Println("easycron: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
-		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'easycron create-key' and remove API_KEY.")
+		log.Println("cronlite: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
+		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'cronlite create-key' and remove API_KEY.")
 	} else {
 		log.Println("WARNING [P0]: API_KEY not set — API endpoints are unauthenticated. Set API_KEY for production.")
 	}
-	log.Printf("easycron: rate limits: %d req/s per IP, %d req/s per namespace", cfg.IPRateLimit, cfg.NamespaceRateLimit)
+	log.Printf("cronlite: rate limits: %d req/s per IP, %d req/s per namespace", cfg.IPRateLimit, cfg.NamespaceRateLimit)
 
 	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
 	mcpServer := mcpsrv.NewServer(jobService)
@@ -401,9 +401,9 @@ func runServe() int {
 	}
 
 	go func() {
-		log.Printf("easycron: http server listening on %s", cfg.HTTPAddr)
+		log.Printf("cronlite: http server listening on %s", cfg.HTTPAddr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("easycron: http server error: %v", err)
+			log.Printf("cronlite: http server error: %v", err)
 		}
 	}()
 
@@ -454,15 +454,15 @@ func runServe() int {
 		}()
 
 		shutdown = func() {
-			log.Println("easycron: stopping leader election...")
+			log.Println("cronlite: stopping leader election...")
 			cancelApp()
 			electorWg.Wait()
-			log.Println("easycron: leader election stopped")
+			log.Println("cronlite: leader election stopped")
 		}
 
-		log.Printf("easycron: leader election enabled (lock_key=%d, retry=%s, heartbeat=%s)",
+		log.Printf("cronlite: leader election enabled (lock_key=%d, retry=%s, heartbeat=%s)",
 			cfg.LeaderLockKey, cfg.LeaderRetryInterval, cfg.LeaderHeartbeatInterval)
-		log.Printf("easycron: IMPORTANT: if multiple EasyCron clusters share this Postgres instance, each must use a distinct LEADER_LOCK_KEY (current: %d) or they will silently compete for the same lock", cfg.LeaderLockKey)
+		log.Printf("cronlite: IMPORTANT: if multiple CronLite clusters share this Postgres instance, each must use a distinct LEADER_LOCK_KEY (current: %d) or they will silently compete for the same lock", cfg.LeaderLockKey)
 	} else {
 		// Channel mode: no leader election needed.
 		schedulerCtx, cancelScheduler := context.WithCancel(context.Background())
@@ -472,7 +472,7 @@ func runServe() int {
 		go func() {
 			defer schedulerWg.Done()
 			if err := sched.Run(schedulerCtx); err != nil && !errors.Is(err, context.Canceled) {
-				log.Printf("easycron: scheduler stopped with error: %v", err)
+				log.Printf("cronlite: scheduler stopped with error: %v", err)
 			}
 		}()
 
@@ -500,54 +500,54 @@ func runServe() int {
 				defer reconcilerWg.Done()
 				recon.Run(reconcilerCtx)
 			}()
-			log.Printf("easycron: reconciler enabled (interval=%s, threshold=%s, requeue_threshold=%s, batch=%d)",
+			log.Printf("cronlite: reconciler enabled (interval=%s, threshold=%s, requeue_threshold=%s, batch=%d)",
 				cfg.ReconcileInterval, cfg.ReconcileThreshold, cfg.ReconcileRequeueThreshold, cfg.ReconcileBatchSize)
 		} else {
-			log.Println("easycron: RECONCILE_ENABLED not set; reconciler disabled")
+			log.Println("cronlite: RECONCILE_ENABLED not set; reconciler disabled")
 		}
 
 		shutdown = func() {
-			log.Println("easycron: stopping scheduler...")
+			log.Println("cronlite: stopping scheduler...")
 			cancelScheduler()
 			schedulerWg.Wait()
-			log.Println("easycron: scheduler stopped")
+			log.Println("cronlite: scheduler stopped")
 
 			if cancelReconciler != nil {
-				log.Println("easycron: stopping reconciler...")
+				log.Println("cronlite: stopping reconciler...")
 				cancelReconciler()
 				reconcilerWg.Wait()
-				log.Println("easycron: reconciler stopped")
+				log.Println("cronlite: reconciler stopped")
 			}
 		}
 	}
 
-	log.Printf("easycron: started (tick=%s, http=%s, dispatch_mode=%s)", cfg.TickInterval, cfg.HTTPAddr, cfg.DispatchMode)
+	log.Printf("cronlite: started (tick=%s, http=%s, dispatch_mode=%s)", cfg.TickInterval, cfg.HTTPAddr, cfg.DispatchMode)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	received := <-sig
 
-	log.Printf("easycron: received signal %v, shutting down", received)
+	log.Printf("cronlite: received signal %v, shutting down", received)
 
 	// Shutdown order: scheduler/reconciler first, then dispatcher (drains buffered
 	// events), then HTTP server. This ensures no new events are emitted while the
 	// dispatcher finishes in-flight work.
 	shutdown()
 
-	log.Println("easycron: stopping dispatcher (draining events)...")
+	log.Println("cronlite: stopping dispatcher (draining events)...")
 	cancelDispatcher()
 	dispatcherWg.Wait()
-	log.Println("easycron: dispatcher stopped")
+	log.Println("cronlite: dispatcher stopped")
 
-	log.Println("easycron: stopping http server...")
+	log.Println("cronlite: stopping http server...")
 	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), cfg.HTTPShutdownTimeout)
 	defer httpShutdownCancel()
 	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
-		log.Printf("easycron: http server shutdown error: %v", err)
+		log.Printf("cronlite: http server shutdown error: %v", err)
 	}
-	log.Println("easycron: http server stopped")
+	log.Println("cronlite: http server stopped")
 
-	log.Println("easycron: stopped")
+	log.Println("cronlite: stopped")
 	return exitSuccess
 }
 
@@ -577,14 +577,14 @@ func runConfig() int {
 }
 
 func runVersion() int {
-	fmt.Printf("easycron version %s (commit: %s)\n", version, commit)
+	fmt.Printf("cronlite version %s (commit: %s)\n", version, commit)
 	return exitSuccess
 }
 
 func runCreateKey() int {
 	args := os.Args[2:]
 	if len(args) != 2 {
-		fmt.Fprintf(os.Stderr, "usage: easycron create-key <namespace> <label>\n")
+		fmt.Fprintf(os.Stderr, "usage: cronlite create-key <namespace> <label>\n")
 		return exitRuntimeError
 	}
 	namespace := args[0]

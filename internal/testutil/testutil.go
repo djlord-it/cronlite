@@ -1,4 +1,4 @@
-// Package testutil provides shared test helpers for easycron.
+// Package testutil provides shared test helpers for cronlite.
 package testutil
 
 import (

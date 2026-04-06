@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/djlord-it/easy-cron/internal/config"
+	"github.com/djlord-it/cronlite/internal/config"
 )
 
 // captureLogOutput calls logConfigWarnings with the given config and returns

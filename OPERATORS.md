@@ -1,6 +1,6 @@
-# EasyCron Operator Guide
+# CronLite Operator Guide
 
-Operational contract: what EasyCron guarantees, how it fails, and how to run it.
+Operational contract: what CronLite guarantees, how it fails, and how to run it.
 
 ## Important Notes
 
@@ -63,14 +63,14 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 - [ ] `DISPATCHER_WORKERS` set to 2-4 for production workloads
 - [ ] Postgres TCP keepalive tuned: `tcp_keepalives_idle=10`, `tcp_keepalives_interval=5`, `tcp_keepalives_count=3`
 - [ ] Prometheus scraping `/metrics` endpoint on all instances
-- [ ] Alerts configured: EasyCronNoLeader, EasyCronSplitBrain, EasyCronOrphanedExecutions, EasyCronBufferSaturation, EasyCronReconcilerDisabled, EasyCronCircuitBreakerActive
-- [ ] Webhook handlers are idempotent (use `X-EasyCron-Execution-ID` for dedup)
+- [ ] Alerts configured: CronLiteNoLeader, CronLiteSplitBrain, CronLiteOrphanedExecutions, CronLiteBufferSaturation, CronLiteReconcilerDisabled, CronLiteCircuitBreakerActive
+- [ ] Webhook handlers are idempotent (use `X-CronLite-Execution-ID` for dedup)
 - [ ] Startup logs reviewed — no `WARNING [P0]` or `WARNING [P1]` lines present
 - [ ] Health check configured at `/health?verbose=true` for load balancer
-- [ ] Graceful shutdown timeout in orchestrator ≥ 45s (covers 40s EasyCron drain)
+- [ ] Graceful shutdown timeout in orchestrator ≥ 45s (covers 40s CronLite drain)
 - [ ] `DATABASE_URL` uses `sslmode=require` or stricter
 - [ ] Circuit breaker enabled (`CIRCUIT_BREAKER_THRESHOLD=5`) with monitoring for `circuit_open` outcomes
-- [ ] At least one API key provisioned (`easycron create-key <namespace> <label>`) before exposing API traffic
+- [ ] At least one API key provisioned (`cronlite create-key <namespace> <label>`) before exposing API traffic
 
 ## Configuration Reference
 
@@ -122,7 +122,7 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 - Automatic retry with bounded backoff — up to 4 attempts (0s → 30s → 2m → 10m)
 - Crash recovery — orphaned and in-progress executions are automatically detected and re-dispatched by the reconciler
 - Per-URL circuit breaker — protects downstream services from retry storms; open circuit defers (not fails) executions for reconciler recovery
-- Stable execution identity — the same `X-EasyCron-Execution-ID` is preserved across retries and re-emits, enabling simple client-side deduplication
+- Stable execution identity — the same `X-CronLite-Execution-ID` is preserved across retries and re-emits, enabling simple client-side deduplication
 - Terminal state immutability — `delivered` and `failed` never change once set
 
 **Operations**
@@ -133,7 +133,7 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 
 **Your responsibilities:**
 1. Use `DISPATCH_MODE=db` and `RECONCILE_ENABLED=true` in production for full crash recovery
-2. Design idempotent webhook handlers (use `X-EasyCron-Execution-ID` for dedup)
+2. Design idempotent webhook handlers (use `X-CronLite-Execution-ID` for dedup)
 3. Monitor metrics (see [Monitoring](#monitoring))
 
 ## Dispatch Modes
@@ -152,7 +152,7 @@ DB mode requires all migrations to be applied. See [Migrations](#migrations).
 Schema migrations live in `schema/` and are numbered sequentially. Apply them in order:
 
 ```bash
-for f in schema/0*.sql; do psql easycron < "$f"; done
+for f in schema/0*.sql; do psql cronlite < "$f"; done
 ```
 
 Current migrations:
@@ -170,11 +170,11 @@ Current releases require all migrations through 006. Skipping migrations may cau
 
 ## Auth Model
 
-EasyCron uses namespace-scoped API keys with SHA-256 hashed storage.
+CronLite uses namespace-scoped API keys with SHA-256 hashed storage.
 
 **Key concepts:**
 - Each API key belongs to a **namespace** — all operations via that key are isolated to its namespace
-- Keys are created with `easycron create-key <namespace> <label>` — the plaintext token (`ec_<64-hex>`) is shown once
+- Keys are created with `cronlite create-key <namespace> <label>` — the plaintext token (`ec_<64-hex>`) is shown once
 - Token format: `ec_` prefix + 64 hex characters (256-bit random)
 
 **Authentication flow:**
@@ -190,7 +190,7 @@ EasyCron uses namespace-scoped API keys with SHA-256 hashed storage.
 
 **`last_used_at` tracking:** Debounced in-memory with background flush every 60 seconds to minimize DB writes under high traffic.
 
-**Legacy compatibility:** The `API_KEY` env var still works as a fallback and maps to the `default` namespace, but now emits rate-limited deprecation warnings in logs. Migrate to namespace-scoped API keys (`easycron create-key`) for production use.
+**Legacy compatibility:** The `API_KEY` env var still works as a fallback and maps to the `default` namespace, but now emits rate-limited deprecation warnings in logs. Migrate to namespace-scoped API keys (`cronlite create-key`) for production use.
 
 ## Execution Lifecycle
 
@@ -226,7 +226,7 @@ CLOSED ──(N consecutive failures)──→ OPEN ──(cooldown)──→ HA
 - Each URL has an independent circuit
 - Set `CIRCUIT_BREAKER_THRESHOLD=0` to disable
 
-> **Forensics note:** When the circuit breaker is open, executions are skipped without any HTTP call — no `delivery_attempts` row is created, and the execution remains in its current state (`emitted` or `in_progress`). The `easycron_dispatcher_delivery_outcomes_total{outcome="circuit_open"}` metric tracks these deferrals. Look for `"circuit open for ... skipping"` in logs.
+> **Forensics note:** When the circuit breaker is open, executions are skipped without any HTTP call — no `delivery_attempts` row is created, and the execution remains in its current state (`emitted` or `in_progress`). The `cronlite_dispatcher_delivery_outcomes_total{outcome="circuit_open"}` metric tracks these deferrals. Look for `"circuit open for ... skipping"` in logs.
 
 ## Failure Modes
 
@@ -269,7 +269,7 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 
 **SSRF protection:** Webhook URLs targeting private/reserved IP ranges are rejected at job creation time. Blocked ranges: RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback (`127.0.0.0/8`), link-local (`169.254.0.0/16`), and IPv6 equivalents.
 
-**Credential masking:** `easycron config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
+**Credential masking:** `cronlite config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
 
 **SSL mode warning:** Startup emits a warning when `DATABASE_URL` uses `sslmode=disable`. Production deployments should use `sslmode=require` or stricter.
 
@@ -279,11 +279,11 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 
 ## MCP Transport
 
-EasyCron exposes an MCP (Model Context Protocol) interface for AI agent integration. Two deployment modes:
+CronLite exposes an MCP (Model Context Protocol) interface for AI agent integration. Two deployment modes:
 
 **Embedded (Streamable HTTP):** Mounted at `/mcp` on every instance. Uses the same auth flow as REST — Bearer token resolves to namespace. No additional configuration needed.
 
-**Standalone (stdio):** The `easycron-mcp` binary proxies MCP tool calls to the REST API over HTTP. Requires `EASYCRON_URL` and `EASYCRON_API_KEY` env vars.
+**Standalone (stdio):** The `cronlite-mcp` binary proxies MCP tool calls to the REST API over HTTP. Requires `CRONLITE_URL` and `CRONLITE_API_KEY` env vars.
 
 **Operational notes:**
 - MCP tools are namespace-scoped (same isolation as REST)
@@ -327,7 +327,7 @@ METRICS_ENABLED=true
 ```bash
 # Required — same on ALL instances
 DISPATCH_MODE=db
-DATABASE_URL=postgres://user:pass@host:5432/easycron?sslmode=require
+DATABASE_URL=postgres://user:pass@host:5432/cronlite?sslmode=require
 LEADER_LOCK_KEY=728379
 RECONCILE_ENABLED=true
 METRICS_ENABLED=true
@@ -363,7 +363,7 @@ The `(job_id, scheduled_at)` unique constraint prevents double-scheduling even d
 
 ### Failover Timing
 
-Advisory lock release depends on Postgres detecting a dead connection. The detection speed depends on TCP keepalive settings on **both** the Postgres server and the OS running EasyCron. Without tuning, Linux defaults (`tcp_keepalive_time=7200`) mean failover could take over 2 hours.
+Advisory lock release depends on Postgres detecting a dead connection. The detection speed depends on TCP keepalive settings on **both** the Postgres server and the OS running CronLite. Without tuning, Linux defaults (`tcp_keepalive_time=7200`) mean failover could take over 2 hours.
 
 **Recommended Postgres settings** (in `postgresql.conf`):
 - `tcp_keepalives_idle = 10` (seconds before first probe)
@@ -394,57 +394,57 @@ Enable with `METRICS_ENABLED=true`.
 
 | Metric | Alert When | Meaning |
 |--------|------------|---------|
-| `easycron_eventbus_buffer_saturation` | > 0.8 | Buffer filling, event loss imminent |
-| `easycron_orphaned_executions` | > 0 | Orphans detected |
-| `easycron_execution_latency_seconds` | p99 > 60s | Slow delivery |
-| `easycron_scheduler_tick_errors_total` | any increase | DB issues |
-| `easycron_dispatcher_delivery_outcomes_total{outcome="failed"}` | sustained increase | Webhooks failing |
-| `easycron_dispatcher_delivery_outcomes_total{outcome="circuit_open"}` | sustained increase | Circuit breaker active |
-| `easycron_leader_is_leader` | `sum() == 0` | No leader (HA mode) |
-| `easycron_leader_is_leader` | `sum() > 1` | Split brain (HA mode) |
+| `cronlite_eventbus_buffer_saturation` | > 0.8 | Buffer filling, event loss imminent |
+| `cronlite_orphaned_executions` | > 0 | Orphans detected |
+| `cronlite_execution_latency_seconds` | p99 > 60s | Slow delivery |
+| `cronlite_scheduler_tick_errors_total` | any increase | DB issues |
+| `cronlite_dispatcher_delivery_outcomes_total{outcome="failed"}` | sustained increase | Webhooks failing |
+| `cronlite_dispatcher_delivery_outcomes_total{outcome="circuit_open"}` | sustained increase | Circuit breaker active |
+| `cronlite_leader_is_leader` | `sum() == 0` | No leader (HA mode) |
+| `cronlite_leader_is_leader` | `sum() > 1` | Split brain (HA mode) |
 
 ### Recommended Alerts
 
 ```yaml
 # Critical
-- alert: EasyCronReconcilerDisabled
-  expr: absent(easycron_orphaned_executions) == 1
+- alert: CronLiteReconcilerDisabled
+  expr: absent(cronlite_orphaned_executions) == 1
   for: 10m
   labels: { severity: critical }
   annotations:
     summary: "Reconciler appears disabled — no orphan metrics reported"
 
-- alert: EasyCronSplitBrain
-  expr: sum(easycron_leader_is_leader) > 1
+- alert: CronLiteSplitBrain
+  expr: sum(cronlite_leader_is_leader) > 1
   for: 10s
   labels: { severity: critical }
   annotations:
-    summary: "Multiple EasyCron instances believe they are leader"
+    summary: "Multiple CronLite instances believe they are leader"
 
-- alert: EasyCronNoLeader
-  expr: sum(easycron_leader_is_leader) == 0
+- alert: CronLiteNoLeader
+  expr: sum(cronlite_leader_is_leader) == 0
   for: 30s
   labels: { severity: critical }
   annotations:
-    summary: "No EasyCron instance holds the leader lock"
+    summary: "No CronLite instance holds the leader lock"
 
-- alert: EasyCronOrphanedExecutions
-  expr: easycron_orphaned_executions > 0
+- alert: CronLiteOrphanedExecutions
+  expr: cronlite_orphaned_executions > 0
   for: 5m
   labels: { severity: critical }
   annotations:
     summary: "Orphaned executions detected"
 
 # Warning
-- alert: EasyCronBufferSaturation
-  expr: easycron_eventbus_buffer_saturation > 0.8
+- alert: CronLiteBufferSaturation
+  expr: cronlite_eventbus_buffer_saturation > 0.8
   for: 2m
   labels: { severity: warning }
   annotations:
     summary: "Event bus buffer above 80% capacity"
 
-- alert: EasyCronCircuitBreakerActive
-  expr: increase(easycron_dispatcher_delivery_outcomes_total{outcome="circuit_open"}[5m]) > 0
+- alert: CronLiteCircuitBreakerActive
+  expr: increase(cronlite_dispatcher_delivery_outcomes_total{outcome="circuit_open"}[5m]) > 0
   for: 1m
   labels: { severity: warning }
   annotations:
@@ -455,18 +455,18 @@ Enable with `METRICS_ENABLED=true`.
 
 ```promql
 # Losing executions?
-increase(easycron_eventbus_emit_errors_total[1h])
-easycron_orphaned_executions
+increase(cronlite_eventbus_emit_errors_total[1h])
+cronlite_orphaned_executions
 
 # System saturated?
-easycron_eventbus_buffer_saturation
+cronlite_eventbus_buffer_saturation
 
 # Delivery latency?
-histogram_quantile(0.99, rate(easycron_execution_latency_seconds_bucket[5m]))
+histogram_quantile(0.99, rate(cronlite_execution_latency_seconds_bucket[5m]))
 
 # Webhook success rate?
-sum(rate(easycron_dispatcher_delivery_outcomes_total{outcome="success"}[5m])) /
-sum(rate(easycron_dispatcher_delivery_outcomes_total[5m]))
+sum(rate(cronlite_dispatcher_delivery_outcomes_total{outcome="success"}[5m])) /
+sum(rate(cronlite_dispatcher_delivery_outcomes_total[5m]))
 ```
 
 ### Log Signals
@@ -507,17 +507,17 @@ leader: released advisory lock 728379              # Lost leadership
 
 ```ini
 [Unit]
-Description=EasyCron Scheduler
+Description=CronLite Scheduler
 After=network.target postgresql.service
 
 [Service]
 Type=simple
-User=easycron
-Environment=DATABASE_URL=postgres://localhost/easycron
+User=cronlite
+Environment=DATABASE_URL=postgres://localhost/cronlite
 Environment=HTTP_ADDR=:8080
 Environment=RECONCILE_ENABLED=true
 Environment=METRICS_ENABLED=true
-ExecStart=/usr/local/bin/easycron serve
+ExecStart=/usr/local/bin/cronlite serve
 Restart=on-failure
 RestartSec=5
 
@@ -526,5 +526,5 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-systemctl daemon-reload && systemctl enable --now easycron
+systemctl daemon-reload && systemctl enable --now cronlite
 ```

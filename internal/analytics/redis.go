@@ -7,7 +7,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
+	"github.com/djlord-it/cronlite/internal/domain"
 )
 
 // RedisSink writes execution counts to Redis.

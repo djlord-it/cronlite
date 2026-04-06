@@ -39,11 +39,11 @@ jobs:
 
           for GOOS in linux darwin; do
             for GOARCH in amd64 arm64; do
-              OUTPUT="dist/easycron-${GOOS}-${GOARCH}"
+              OUTPUT="dist/cronlite-${GOOS}-${GOARCH}"
               echo "Building ${OUTPUT}..."
               CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build \
                 -ldflags="${LDFLAGS}" \
-                -o "${OUTPUT}" ./cmd/easycron
+                -o "${OUTPUT}" ./cmd/cronlite
             done
           done
 

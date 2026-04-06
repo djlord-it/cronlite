@@ -1,9 +1,9 @@
-// NOTICE: This file is DEAD CODE and is NOT used by `easycron serve`.
+// NOTICE: This file is DEAD CODE and is NOT used by `cronlite serve`.
 //
 // This is a standalone worker stub that was created for experimentation.
 // It uses stub implementations that do nothing and has no database connection.
 //
-// DO NOT USE IN PRODUCTION. Use `easycron serve` instead.
+// DO NOT USE IN PRODUCTION. Use `cronlite serve` instead.
 //
 // This file may be removed in a future release.
 
@@ -21,18 +21,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/djlord-it/easy-cron/internal/analytics"
-	"github.com/djlord-it/easy-cron/internal/dispatcher"
-	"github.com/djlord-it/easy-cron/internal/domain"
-	"github.com/djlord-it/easy-cron/internal/scheduler"
-	"github.com/djlord-it/easy-cron/internal/transport/channel"
+	"github.com/djlord-it/cronlite/internal/analytics"
+	"github.com/djlord-it/cronlite/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/scheduler"
+	"github.com/djlord-it/cronlite/internal/transport/channel"
 )
 
 func main() {
 	// DEAD CODE WARNING: This worker uses stub implementations.
 	// It exists for reference only and should not be run.
 	log.Println("worker: FATAL - this binary is a stub and should not be used")
-	log.Println("worker: use 'easycron serve' instead")
+	log.Println("worker: use 'cronlite serve' instead")
 	os.Exit(1)
 
 	// The code below is unreachable but retained for reference.

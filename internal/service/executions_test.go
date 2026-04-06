@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
+	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/google/uuid"
 )
 

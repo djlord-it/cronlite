@@ -97,7 +97,7 @@ func TestPrometheusSink_TickStarted(t *testing.T) {
 	sink.TickStarted()
 	sink.TickStarted()
 
-	val := getCounterValue(t, reg, "easycron_scheduler_ticks_total")
+	val := getCounterValue(t, reg, "cronlite_scheduler_ticks_total")
 	if val != 2 {
 		t.Errorf("ticks_total = %v, want 2", val)
 	}
@@ -108,14 +108,14 @@ func TestPrometheusSink_TickCompleted_WithError(t *testing.T) {
 
 	// No error
 	sink.TickCompleted(100*time.Millisecond, 5, nil)
-	errCount := getCounterValue(t, reg, "easycron_scheduler_tick_errors_total")
+	errCount := getCounterValue(t, reg, "cronlite_scheduler_tick_errors_total")
 	if errCount != 0 {
 		t.Errorf("tick_errors_total = %v after success, want 0", errCount)
 	}
 
 	// With error
 	sink.TickCompleted(100*time.Millisecond, 0, errors.New("db error"))
-	errCount = getCounterValue(t, reg, "easycron_scheduler_tick_errors_total")
+	errCount = getCounterValue(t, reg, "cronlite_scheduler_tick_errors_total")
 	if errCount != 1 {
 		t.Errorf("tick_errors_total = %v after error, want 1", errCount)
 	}
@@ -127,13 +127,13 @@ func TestPrometheusSink_DeliveryAttemptLabels(t *testing.T) {
 	sink.DeliveryAttemptCompleted(1, "2xx", 100*time.Millisecond)
 	sink.DeliveryAttemptCompleted(2, "5xx", 200*time.Millisecond)
 
-	val1 := getCounterVecValue(t, reg, "easycron_dispatcher_delivery_attempts_total",
+	val1 := getCounterVecValue(t, reg, "cronlite_dispatcher_delivery_attempts_total",
 		map[string]string{"attempt": "1", "status_class": "2xx"})
 	if val1 != 1 {
 		t.Errorf("attempt=1,status=2xx = %v, want 1", val1)
 	}
 
-	val2 := getCounterVecValue(t, reg, "easycron_dispatcher_delivery_attempts_total",
+	val2 := getCounterVecValue(t, reg, "cronlite_dispatcher_delivery_attempts_total",
 		map[string]string{"attempt": "2", "status_class": "5xx"})
 	if val2 != 1 {
 		t.Errorf("attempt=2,status=5xx = %v, want 1", val2)
@@ -147,13 +147,13 @@ func TestPrometheusSink_DeliveryOutcome(t *testing.T) {
 	sink.DeliveryOutcome(OutcomeFailed)
 	sink.DeliveryOutcome(OutcomeSuccess)
 
-	successVal := getCounterVecValue(t, reg, "easycron_dispatcher_delivery_outcomes_total",
+	successVal := getCounterVecValue(t, reg, "cronlite_dispatcher_delivery_outcomes_total",
 		map[string]string{"outcome": "success"})
 	if successVal != 2 {
 		t.Errorf("outcome=success = %v, want 2", successVal)
 	}
 
-	failedVal := getCounterVecValue(t, reg, "easycron_dispatcher_delivery_outcomes_total",
+	failedVal := getCounterVecValue(t, reg, "cronlite_dispatcher_delivery_outcomes_total",
 		map[string]string{"outcome": "failed"})
 	if failedVal != 1 {
 		t.Errorf("outcome=failed = %v, want 1", failedVal)
@@ -167,7 +167,7 @@ func TestPrometheusSink_EventsInFlight(t *testing.T) {
 	sink.EventsInFlightIncr()
 	sink.EventsInFlightDecr()
 
-	val := getGaugeValue(t, reg, "easycron_dispatcher_events_in_flight")
+	val := getGaugeValue(t, reg, "cronlite_dispatcher_events_in_flight")
 	if val != 1 {
 		t.Errorf("events_in_flight = %v, want 1", val)
 	}
@@ -180,17 +180,17 @@ func TestPrometheusSink_BufferMetrics(t *testing.T) {
 	sink.BufferSizeUpdate(42)
 	sink.BufferSaturationUpdate(0.42)
 
-	capVal := getGaugeValue(t, reg, "easycron_eventbus_buffer_capacity")
+	capVal := getGaugeValue(t, reg, "cronlite_eventbus_buffer_capacity")
 	if capVal != 100 {
 		t.Errorf("buffer_capacity = %v, want 100", capVal)
 	}
 
-	sizeVal := getGaugeValue(t, reg, "easycron_eventbus_buffer_size")
+	sizeVal := getGaugeValue(t, reg, "cronlite_eventbus_buffer_size")
 	if sizeVal != 42 {
 		t.Errorf("buffer_size = %v, want 42", sizeVal)
 	}
 
-	satVal := getGaugeValue(t, reg, "easycron_eventbus_buffer_saturation")
+	satVal := getGaugeValue(t, reg, "cronlite_eventbus_buffer_saturation")
 	if satVal != 0.42 {
 		t.Errorf("buffer_saturation = %v, want 0.42", satVal)
 	}

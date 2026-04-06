@@ -11,10 +11,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 
-	"github.com/djlord-it/easy-cron/internal/api"
-	"github.com/djlord-it/easy-cron/internal/dispatcher"
-	"github.com/djlord-it/easy-cron/internal/domain"
-	"github.com/djlord-it/easy-cron/internal/scheduler"
+	"github.com/djlord-it/cronlite/internal/api"
+	"github.com/djlord-it/cronlite/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/scheduler"
 )
 
 // Store implements scheduler.Store and dispatcher.Store using PostgreSQL.

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# ─── HA Test Harness for EasyCron ───────────────────────────────────────
+# ─── HA Test Harness for CronLite ───────────────────────────────────────
 # Validates: single-leader election, failover, rolling overlap,
 #            no double-scheduling during transitions.
 # ────────────────────────────────────────────────────────────────────────
 
-COMPOSE="docker compose -f docker-compose.ha-test.yml -p easycron-ha-test"
-INSTANCES=("easycron_1" "easycron_2" "easycron_3")
+COMPOSE="docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test"
+INSTANCES=("cronlite_1" "cronlite_2" "cronlite_3")
 PORTS=("8081" "8082" "8083")
 API_BASES=("http://localhost:8081" "http://localhost:8082" "http://localhost:8083")
 WEBHOOK_URL="http://localhost:9090"
@@ -47,14 +47,14 @@ webhook_count() {
     echo "$raw" | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])" 2>/dev/null || echo "0"
 }
 
-# Detect leader via Prometheus metric easycron_leader_is_leader == 1.
+# Detect leader via Prometheus metric cronlite_leader_is_leader == 1.
 # Falls back to log grep if metric is unavailable.
 detect_leader_by_metrics() {
     local leaders=()
     for i in 0 1 2; do
         local raw val
         raw=$(curl -sf -H "${AUTH_HEADER}" "http://localhost:${PORTS[$i]}/metrics" 2>/dev/null) || continue
-        val=$(echo "$raw" | grep '^easycron_leader_is_leader ' | awk '{print $2}') || continue
+        val=$(echo "$raw" | grep '^cronlite_leader_is_leader ' | awk '{print $2}') || continue
         if [[ "$val" == "1" ]]; then
             leaders+=("${INSTANCES[$i]}")
         fi
@@ -186,7 +186,7 @@ wait_for_api_ready() {
 # ── Step 0: Build and start ─────────────────────────────────────────────
 
 echo "═══════════════════════════════════════════════════════════════"
-echo " EasyCron HA Test Harness"
+echo " CronLite HA Test Harness"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 echo "Step 0: Starting infrastructure..."
@@ -200,7 +200,7 @@ echo ""
 echo "Step 1: Waiting for all instances to be healthy..."
 
 if wait_for_healthy 90; then
-    pass "All 3 EasyCron instances are healthy"
+    pass "All 3 CronLite instances are healthy"
 else
     fail "Not all instances became healthy within 90s"
     echo "Aborting."

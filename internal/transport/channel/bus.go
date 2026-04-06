@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
+	"github.com/djlord-it/cronlite/internal/domain"
 )
 
 // ErrBufferFull is returned when the event buffer is full and emit times out.

@@ -1,6 +1,6 @@
 openapi: "3.0.3"
 info:
-  title: EasyCron Agent Platform API
+  title: CronLite Agent Platform API
   version: "1.0.0"
   description: |
     Cron-as-a-service with first-class AI agent interfaces.

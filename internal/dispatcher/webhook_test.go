@@ -79,19 +79,19 @@ func TestHTTPWebhookSender_RequestHeaders(t *testing.T) {
 		t.Errorf("Content-Type = %q, want application/json", ct)
 	}
 
-	// X-EasyCron-Event-ID
-	if id := gotHeaders.Get("X-EasyCron-Event-ID"); id != "attempt-123" {
-		t.Errorf("X-EasyCron-Event-ID = %q, want attempt-123", id)
+	// X-CronLite-Event-ID
+	if id := gotHeaders.Get("X-CronLite-Event-ID"); id != "attempt-123" {
+		t.Errorf("X-CronLite-Event-ID = %q, want attempt-123", id)
 	}
 
-	// X-EasyCron-Execution-ID
-	if id := gotHeaders.Get("X-EasyCron-Execution-ID"); id != "exec-456" {
-		t.Errorf("X-EasyCron-Execution-ID = %q, want exec-456", id)
+	// X-CronLite-Execution-ID
+	if id := gotHeaders.Get("X-CronLite-Execution-ID"); id != "exec-456" {
+		t.Errorf("X-CronLite-Execution-ID = %q, want exec-456", id)
 	}
 
-	// X-EasyCron-Signature should be non-empty
-	if sig := gotHeaders.Get("X-EasyCron-Signature"); sig == "" {
-		t.Error("X-EasyCron-Signature should not be empty")
+	// X-CronLite-Signature should be non-empty
+	if sig := gotHeaders.Get("X-CronLite-Signature"); sig == "" {
+		t.Error("X-CronLite-Signature should not be empty")
 	}
 }
 
@@ -138,7 +138,7 @@ func TestHTTPWebhookSender_SignatureCorrect(t *testing.T) {
 	var gotBody []byte
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotSignature = r.Header.Get("X-EasyCron-Signature")
+		gotSignature = r.Header.Get("X-CronLite-Signature")
 		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 	}))

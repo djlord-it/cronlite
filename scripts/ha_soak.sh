@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# ─── HA Soak Test for EasyCron ──────────────────────────────────────────
+# ─── HA Soak Test for CronLite ──────────────────────────────────────────
 # Extended-duration test that validates horizontal scaling correctness
 # over time. Samples deliveries periodically and asserts monotonic
 # increase with no double-scheduling spikes.
@@ -35,8 +35,8 @@ SAMPLE_INTERVAL=60  # seconds between delivery samples
 
 # ── Constants ───────────────────────────────────────────────────────────
 
-COMPOSE="docker compose -f docker-compose.ha-test.yml -p easycron-ha-test"
-INSTANCES=("easycron_1" "easycron_2" "easycron_3")
+COMPOSE="docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test"
+INSTANCES=("cronlite_1" "cronlite_2" "cronlite_3")
 PORTS=("8081" "8082" "8083")
 WEBHOOK_URL="http://localhost:9090"
 API_BASE="http://localhost:8081"
@@ -105,7 +105,7 @@ detect_leader_by_metrics() {
     for i in 0 1 2; do
         local raw val
         raw=$(curl -sf "http://localhost:${PORTS[$i]}/metrics" 2>/dev/null) || continue
-        val=$(echo "$raw" | grep '^easycron_leader_is_leader ' | awk '{print $2}') || continue
+        val=$(echo "$raw" | grep '^cronlite_leader_is_leader ' | awk '{print $2}') || continue
         if [[ "$val" == "1" ]]; then
             leaders+=("${INSTANCES[$i]}")
         fi
@@ -196,7 +196,7 @@ assert_single_leader() {
 # ── Banner ──────────────────────────────────────────────────────────────
 
 echo "═══════════════════════════════════════════════════════════════"
-echo " EasyCron HA Soak Test"
+echo " CronLite HA Soak Test"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 info "Duration:            ${HA_DURATION} (${DURATION_SECS}s)"

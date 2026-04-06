@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
+	"github.com/djlord-it/cronlite/internal/domain"
 )
 
 // httpError holds the HTTP status code and machine-readable error code
