@@ -355,21 +355,40 @@ func runServe() int {
 		log.Println("easycron: circuit breaker disabled (threshold=0)")
 	}
 
+	// ── Cloudflare IP validation (opt-in) ────────────────────────────────────
+	var cfCache *api.RangeCache
+	if cfg.CloudflareOnly {
+		cfCache = api.NewCloudflareRangeCache()
+		if cfCache.Stale() {
+			log.Fatalf("cloudflare: CLOUDFLARE_ONLY=true but could not fetch live IP ranges at startup")
+		}
+		cfRefreshCtx, cancelCFRefresh := context.WithCancel(context.Background())
+		defer cancelCFRefresh()
+		cfCache.StartRefresh(cfRefreshCtx)
+		log.Println("easycron: Cloudflare-only mode enabled")
+	}
+
 	// ── Service layer ─────────────────────────────────────────────────────────
 	svcParser := cron.NewParser()
 	jobService := service.NewJobService(store, store, store, store, store, store, svcParser)
 
 	// ── REST transport (oapi-codegen strict handler) ──────────────────────────
 	serverImpl := api.NewServerImpl(jobService).WithHealthChecker(db)
+	if cfCache != nil {
+		serverImpl = serverImpl.WithCloudflareCache(cfCache)
+	}
 	strictHandler := api.NewStrictHandler(serverImpl, nil)
 	apiRouter := api.Handler(strictHandler)
 
 	// Middleware chain (outermost executes first):
-	//   IP rate limit → Auth → Namespace rate limit → Router
+	//   [Cloudflare →] IP rate limit → Auth → Namespace rate limit → Router
 	var rootHandler http.Handler = apiRouter
 	rootHandler = api.NamespaceRateLimitMiddleware(cfg.NamespaceRateLimit, rootHandler) // per-namespace, after auth
 	rootHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, rootHandler)            // sets namespace in ctx
 	rootHandler = api.RateLimitMiddleware(cfg.IPRateLimit, rootHandler)                 // per-IP, before auth
+	if cfCache != nil {
+		rootHandler = api.CloudflareMiddleware(cfCache, rootHandler) // outermost: validates CF edge IP, rewrites RemoteAddr
+	}
 	if cfg.APIKey != "" {
 		log.Println("easycron: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
 		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'easycron create-key' and remove API_KEY.")
