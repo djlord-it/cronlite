@@ -362,9 +362,7 @@ func runServe() int {
 		if cfCache.Stale() {
 			log.Fatalf("cloudflare: CLOUDFLARE_ONLY=true but could not fetch live IP ranges at startup")
 		}
-		cfRefreshCtx, cancelCFRefresh := context.WithCancel(context.Background())
-		defer cancelCFRefresh()
-		cfCache.StartRefresh(cfRefreshCtx)
+		cfCache.StartRefresh(context.Background())
 		log.Println("easycron: Cloudflare-only mode enabled")
 	}
 

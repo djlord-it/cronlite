@@ -245,7 +245,7 @@ func CloudflareMiddleware(cache *RangeCache, next http.Handler) http.Handler {
 func writeCFForbidden(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
-	w.Write([]byte(`{"error":"forbidden"}` + "\n"))
+	_, _ = w.Write([]byte(`{"error":"forbidden"}` + "\n"))
 }
 
 // extractConnectingIP strips the port from a RemoteAddr string.
@@ -253,7 +253,7 @@ func writeCFForbidden(w http.ResponseWriter) {
 func extractConnectingIP(remoteAddr string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
-		return remoteAddr // fallback: return as-is
+		return remoteAddr
 	}
 	return host
 }

@@ -169,7 +169,7 @@ func TestCloudflareMiddleware_MissingCFHeader(t *testing.T) {
 	}
 
 	var body map[string]string
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if body["error"] != "forbidden" {
 		t.Errorf("expected error=forbidden, got %v", body)
 	}
@@ -195,7 +195,7 @@ func TestCloudflareMiddleware_NonCloudflareIP(t *testing.T) {
 	}
 
 	var body map[string]string
-	json.NewDecoder(w.Body).Decode(&body)
+	_ = json.NewDecoder(w.Body).Decode(&body)
 	if body["error"] != "forbidden" {
 		t.Errorf("expected error=forbidden, got %v", body)
 	}
