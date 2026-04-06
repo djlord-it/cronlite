@@ -260,6 +260,18 @@ components:
           format: date-time
           nullable: true
 
+    CloudflareHealth:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          description: "ok or stale"
+        last_updated:
+          type: string
+          format: date-time
+          nullable: true
+
     HealthResponse:
       type: object
       required: [status]
@@ -268,6 +280,8 @@ components:
           type: string
         database:
           type: string
+        cloudflare:
+          $ref: "#/components/schemas/CloudflareHealth"
 
   parameters:
     LimitParam:

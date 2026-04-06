@@ -155,6 +155,14 @@ type CreateJobRequest struct {
 	WebhookUrl            string  `json:"webhook_url"`
 }
 
+// CloudflareHealth defines model for CloudflareHealth.
+type CloudflareHealth struct {
+	LastUpdated *time.Time `json:"last_updated,omitempty"`
+
+	// Status ok or stale
+	Status string `json:"status"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Error struct {
@@ -184,8 +192,9 @@ type ExecutionTriggerType string
 
 // HealthResponse defines model for HealthResponse.
 type HealthResponse struct {
-	Database *string `json:"database,omitempty"`
-	Status   string  `json:"status"`
+	Cloudflare *CloudflareHealth `json:"cloudflare,omitempty"`
+	Database   *string           `json:"database,omitempty"`
+	Status     string            `json:"status"`
 }
 
 // Job defines model for Job.
