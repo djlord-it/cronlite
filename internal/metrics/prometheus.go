@@ -56,104 +56,104 @@ func NewPrometheusSink(reg prometheus.Registerer) *PrometheusSink {
 
 func (s *PrometheusSink) initSchedulerMetrics(reg prometheus.Registerer) {
 	s.ticksTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "easycron_scheduler_ticks_total",
+		Name: "cronlite_scheduler_ticks_total",
 		Help: "Total number of scheduler ticks processed.",
 	})
 	s.tickErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "easycron_scheduler_tick_errors_total",
+		Name: "cronlite_scheduler_tick_errors_total",
 		Help: "Total number of scheduler tick errors.",
 	})
 	s.jobsTriggeredTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "easycron_scheduler_jobs_triggered_total",
+		Name: "cronlite_scheduler_jobs_triggered_total",
 		Help: "Total number of jobs triggered (executions emitted).",
 	})
 	s.tickDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "easycron_scheduler_tick_duration_seconds",
+		Name:    "cronlite_scheduler_tick_duration_seconds",
 		Help:    "Duration of each scheduler tick in seconds.",
 		Buckets: []float64{0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10},
 	})
 	s.tickDrift = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "easycron_scheduler_tick_drift_seconds",
+		Name:    "cronlite_scheduler_tick_drift_seconds",
 		Help:    "Difference between actual tick time and expected interval in seconds.",
 		Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60},
 	})
 
-	s.register(reg, s.ticksTotal, "easycron_scheduler_ticks_total")
-	s.register(reg, s.tickErrorsTotal, "easycron_scheduler_tick_errors_total")
-	s.register(reg, s.jobsTriggeredTotal, "easycron_scheduler_jobs_triggered_total")
-	s.register(reg, s.tickDuration, "easycron_scheduler_tick_duration_seconds")
-	s.register(reg, s.tickDrift, "easycron_scheduler_tick_drift_seconds")
+	s.register(reg, s.ticksTotal, "cronlite_scheduler_ticks_total")
+	s.register(reg, s.tickErrorsTotal, "cronlite_scheduler_tick_errors_total")
+	s.register(reg, s.jobsTriggeredTotal, "cronlite_scheduler_jobs_triggered_total")
+	s.register(reg, s.tickDuration, "cronlite_scheduler_tick_duration_seconds")
+	s.register(reg, s.tickDrift, "cronlite_scheduler_tick_drift_seconds")
 }
 
 func (s *PrometheusSink) initDispatcherMetrics(reg prometheus.Registerer) {
 	s.deliveryAttemptsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "easycron_dispatcher_delivery_attempts_total",
+		Name: "cronlite_dispatcher_delivery_attempts_total",
 		Help: "Total number of webhook delivery attempts.",
 	}, []string{"attempt", "status_class"})
 
 	s.deliveryOutcomesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "easycron_dispatcher_delivery_outcomes_total",
+		Name: "cronlite_dispatcher_delivery_outcomes_total",
 		Help: "Total number of final delivery outcomes per execution.",
 	}, []string{"outcome"})
 
 	s.webhookDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "easycron_dispatcher_webhook_duration_seconds",
+		Name:    "cronlite_dispatcher_webhook_duration_seconds",
 		Help:    "Webhook request latency in seconds (excludes backoff wait).",
 		Buckets: []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30},
 	})
 
 	s.retryAttemptsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "easycron_dispatcher_retry_attempts_total",
+		Name: "cronlite_dispatcher_retry_attempts_total",
 		Help: "Total number of retry attempts (excludes first attempt).",
 	}, []string{"retryable"})
 
 	s.eventsInFlight = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "easycron_dispatcher_events_in_flight",
+		Name: "cronlite_dispatcher_events_in_flight",
 		Help: "Number of events currently being processed.",
 	})
 
-	s.register(reg, s.deliveryAttemptsTotal, "easycron_dispatcher_delivery_attempts_total")
-	s.register(reg, s.deliveryOutcomesTotal, "easycron_dispatcher_delivery_outcomes_total")
-	s.register(reg, s.webhookDuration, "easycron_dispatcher_webhook_duration_seconds")
-	s.register(reg, s.retryAttemptsTotal, "easycron_dispatcher_retry_attempts_total")
-	s.register(reg, s.eventsInFlight, "easycron_dispatcher_events_in_flight")
+	s.register(reg, s.deliveryAttemptsTotal, "cronlite_dispatcher_delivery_attempts_total")
+	s.register(reg, s.deliveryOutcomesTotal, "cronlite_dispatcher_delivery_outcomes_total")
+	s.register(reg, s.webhookDuration, "cronlite_dispatcher_webhook_duration_seconds")
+	s.register(reg, s.retryAttemptsTotal, "cronlite_dispatcher_retry_attempts_total")
+	s.register(reg, s.eventsInFlight, "cronlite_dispatcher_events_in_flight")
 }
 
 func (s *PrometheusSink) initEventBusMetrics(reg prometheus.Registerer) {
 	s.bufferSize = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "easycron_eventbus_buffer_size",
+		Name: "cronlite_eventbus_buffer_size",
 		Help: "Current number of events in the event bus buffer.",
 	})
 	s.bufferCapacity = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "easycron_eventbus_buffer_capacity",
+		Name: "cronlite_eventbus_buffer_capacity",
 		Help: "Total capacity of the event bus buffer.",
 	})
 	s.bufferSaturation = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "easycron_eventbus_buffer_saturation",
+		Name: "cronlite_eventbus_buffer_saturation",
 		Help: "Buffer saturation ratio (0.0-1.0). Above 0.8 indicates risk of event loss.",
 	})
 	s.emitErrorsTotal = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "easycron_eventbus_emit_errors_total",
+		Name: "cronlite_eventbus_emit_errors_total",
 		Help: "Total number of emit errors (buffer full).",
 	})
 
-	s.register(reg, s.bufferSize, "easycron_eventbus_buffer_size")
-	s.register(reg, s.bufferCapacity, "easycron_eventbus_buffer_capacity")
-	s.register(reg, s.bufferSaturation, "easycron_eventbus_buffer_saturation")
-	s.register(reg, s.emitErrorsTotal, "easycron_eventbus_emit_errors_total")
+	s.register(reg, s.bufferSize, "cronlite_eventbus_buffer_size")
+	s.register(reg, s.bufferCapacity, "cronlite_eventbus_buffer_capacity")
+	s.register(reg, s.bufferSaturation, "cronlite_eventbus_buffer_saturation")
+	s.register(reg, s.emitErrorsTotal, "cronlite_eventbus_emit_errors_total")
 
 	s.orphanedExecutions = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "easycron_orphaned_executions",
+		Name: "cronlite_orphaned_executions",
 		Help: "Current count of orphaned executions (status=emitted older than threshold).",
 	})
 	s.executionLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "easycron_execution_latency_seconds",
+		Name:    "cronlite_execution_latency_seconds",
 		Help:    "End-to-end latency from scheduled_at to delivered (successful deliveries only).",
 		Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600, 1800},
 	})
 
-	s.register(reg, s.orphanedExecutions, "easycron_orphaned_executions")
-	s.register(reg, s.executionLatency, "easycron_execution_latency_seconds")
+	s.register(reg, s.orphanedExecutions, "cronlite_orphaned_executions")
+	s.register(reg, s.executionLatency, "cronlite_execution_latency_seconds")
 }
 
 // register attempts to register a collector, logging any errors without propagating them.
@@ -234,21 +234,21 @@ func (s *PrometheusSink) ExecutionLatencyObserve(latencySeconds float64) {
 
 func (s *PrometheusSink) initLeaderMetrics(reg prometheus.Registerer) {
 	s.leaderIsLeader = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "easycron_leader_is_leader",
+		Name: "cronlite_leader_is_leader",
 		Help: "Whether this instance is currently the leader (1=leader, 0=follower).",
 	})
 	s.leaderAcquisitions = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "easycron_leader_acquisitions_total",
+		Name: "cronlite_leader_acquisitions_total",
 		Help: "Total number of times this instance acquired leadership.",
 	})
 	s.leaderLosses = prometheus.NewCounterVec(prometheus.CounterOpts{
-		Name: "easycron_leader_losses_total",
+		Name: "cronlite_leader_losses_total",
 		Help: "Total number of times this instance lost leadership.",
 	}, []string{"reason"})
 
-	s.register(reg, s.leaderIsLeader, "easycron_leader_is_leader")
-	s.register(reg, s.leaderAcquisitions, "easycron_leader_acquisitions_total")
-	s.register(reg, s.leaderLosses, "easycron_leader_losses_total")
+	s.register(reg, s.leaderIsLeader, "cronlite_leader_is_leader")
+	s.register(reg, s.leaderAcquisitions, "cronlite_leader_acquisitions_total")
+	s.register(reg, s.leaderLosses, "cronlite_leader_losses_total")
 }
 
 func (s *PrometheusSink) LeaderStatusChanged(isLeader bool) {

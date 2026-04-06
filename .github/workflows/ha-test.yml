@@ -37,14 +37,14 @@ jobs:
         run: |
           mkdir -p ha_artifacts
 
-          docker compose -f docker-compose.ha-test.yml -p easycron-ha-test ps \
+          docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test ps \
             > ha_artifacts/compose_ps.txt 2>&1 || true
 
-          docker compose -f docker-compose.ha-test.yml -p easycron-ha-test logs --no-color \
+          docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test logs --no-color \
             > ha_artifacts/compose.log 2>&1 || true
 
-          for svc in easycron_1 easycron_2 easycron_3 postgres webhook-receiver; do
-            docker compose -f docker-compose.ha-test.yml -p easycron-ha-test logs --no-color "$svc" \
+          for svc in cronlite_1 cronlite_2 cronlite_3 postgres webhook-receiver; do
+            docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test logs --no-color "$svc" \
               > "ha_artifacts/${svc}.log" 2>&1 || true
           done
 
@@ -62,4 +62,4 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f docker-compose.ha-test.yml -p easycron-ha-test down -v --remove-orphans 2>/dev/null || true
+          docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test down -v --remove-orphans 2>/dev/null || true

@@ -5,8 +5,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
-	"github.com/djlord-it/easy-cron/internal/service"
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/service"
 )
 
 // NewServer creates a new MCP server with all Phase 1 tools registered.
@@ -14,7 +14,7 @@ import (
 // the context (injected by the auth middleware / HTTPContextFunc).
 func NewServer(svc *service.JobService) *server.MCPServer {
 	s := server.NewMCPServer(
-		"EasyCron",
+		"CronLite",
 		"1.0.0",
 		server.WithToolCapabilities(false),
 		server.WithRecovery(),

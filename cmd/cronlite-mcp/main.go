@@ -1,11 +1,11 @@
 // Package main implements a thin MCP stdio client that proxies tool calls
-// to the EasyCron REST API. It is a separate binary intended to be used by
+// to the CronLite REST API. It is a separate binary intended to be used by
 // AI agents (e.g. Claude Desktop) that communicate over stdin/stdout.
 //
 // Environment variables:
 //
-//	EASYCRON_URL     - Base URL of the EasyCron server (default: http://localhost:8080)
-//	EASYCRON_API_KEY - Bearer token for authentication (required)
+//	CRONLITE_URL     - Base URL of the CronLite server (default: http://localhost:8080)
+//	CRONLITE_API_KEY - Bearer token for authentication (required)
 package main
 
 import (
@@ -24,19 +24,19 @@ import (
 )
 
 func main() {
-	baseURL := os.Getenv("EASYCRON_URL")
+	baseURL := os.Getenv("CRONLITE_URL")
 	if baseURL == "" {
 		baseURL = "http://localhost:8080"
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 
-	apiKey := os.Getenv("EASYCRON_API_KEY")
+	apiKey := os.Getenv("CRONLITE_API_KEY")
 	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "EASYCRON_API_KEY is required")
+		fmt.Fprintln(os.Stderr, "CRONLITE_API_KEY is required")
 		os.Exit(1)
 	}
 
-	s := server.NewMCPServer("EasyCron", "1.0.0",
+	s := server.NewMCPServer("CronLite", "1.0.0",
 		server.WithToolCapabilities(false),
 	)
 
@@ -50,7 +50,7 @@ func main() {
 }
 
 // registerProxyTools registers all 10 Phase 1 tools. Each handler proxies the
-// call to the EasyCron REST API and returns the response as tool result text.
+// call to the CronLite REST API and returns the response as tool result text.
 func registerProxyTools(s *server.MCPServer, baseURL, apiKey string, client *http.Client) {
 	// create-job → POST /jobs
 	s.AddTool(

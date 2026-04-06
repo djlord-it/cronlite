@@ -1,38 +1,38 @@
-# EasyCron
+# CronLite
 
 **Schedule HTTP webhooks with cron expressions. No SDK, no queue, no complexity.**
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/djlord-it/easy-cron)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/djlord-it/cronlite)
 
-EasyCron is a self-hosted cron-as-a-service with namespace-scoped API keys and MCP support. POST a job with a cron expression and a webhook URL — EasyCron fires HTTP callbacks on schedule with HMAC-signed payloads, automatic retries, and Prometheus metrics.
+CronLite is a self-hosted cron-as-a-service with namespace-scoped API keys and MCP support. POST a job with a cron expression and a webhook URL — CronLite fires HTTP callbacks on schedule with HMAC-signed payloads, automatic retries, and Prometheus metrics.
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/djlord-it/easy-cron.git
-cd easy-cron
+git clone https://github.com/djlord-it/cronlite.git
+cd cronlite
 docker compose up -d
 ```
 
 Bootstrap an API key:
 
 ```bash
-docker compose exec easycron easycron create-key default local-dev
+docker compose exec cronlite cronlite create-key default local-dev
 ```
 
 Copy the printed token and export it:
 
 ```bash
-export EASYCRON_API_KEY="ec_..."
+export CRONLITE_API_KEY="ec_..."
 ```
 
 Create a job:
 
 ```bash
 curl -X POST http://localhost:8080/jobs \
-  -H "Authorization: Bearer ${EASYCRON_API_KEY}" \
+  -H "Authorization: Bearer ${CRONLITE_API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "test-job",
@@ -46,7 +46,7 @@ curl -X POST http://localhost:8080/jobs \
 Check executions:
 
 ```bash
-curl -H "Authorization: Bearer ${EASYCRON_API_KEY}" \
+curl -H "Authorization: Bearer ${CRONLITE_API_KEY}" \
   http://localhost:8080/jobs/{job_id}/executions
 ```
 
@@ -54,12 +54,12 @@ curl -H "Authorization: Bearer ${EASYCRON_API_KEY}" \
 <summary>Manual setup (without Docker)</summary>
 
 ```bash
-go build -o easycron ./cmd/easycron
-createdb easycron
-for f in schema/0*.sql; do psql easycron < "$f"; done
-export DATABASE_URL="postgres://localhost/easycron?sslmode=disable"
-./easycron create-key default local-dev
-./easycron serve
+go build -o cronlite ./cmd/cronlite
+createdb cronlite
+for f in schema/0*.sql; do psql cronlite < "$f"; done
+export DATABASE_URL="postgres://localhost/cronlite?sslmode=disable"
+./cronlite create-key default local-dev
+./cronlite serve
 ```
 </details>
 
@@ -117,16 +117,16 @@ The full OpenAPI 3.0 spec is at [`api/openapi.yaml`](api/openapi.yaml) and can b
 Each fired job sends a POST with HMAC-signed payload:
 
 ```
-X-EasyCron-Event-ID: <attempt-uuid>
-X-EasyCron-Execution-ID: <execution-uuid>
-X-EasyCron-Signature: <hmac-sha256-hex>
+X-CronLite-Event-ID: <attempt-uuid>
+X-CronLite-Execution-ID: <execution-uuid>
+X-CronLite-Signature: <hmac-sha256-hex>
 ```
 
 **Retries:** 4 attempts with backoff (immediate → 30s → 2m → 10m). Retryable: 5xx, 429, network errors. Non-retryable: 4xx.
 
 **Circuit breaker:** Per-URL circuit breaker protects downstream services from retry storms. See the [Operator Guide](OPERATORS.md#circuit-breaker) for full behavior and tuning.
 
-Use `X-EasyCron-Execution-ID` for idempotency in your handler.
+Use `X-CronLite-Execution-ID` for idempotency in your handler.
 
 <details>
 <summary>Signature verification (Go)</summary>
@@ -155,28 +155,28 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 | Command | Description |
 |---------|-------------|
-| `easycron serve` | Start server |
-| `easycron validate` | Validate config (exit 0/2) |
-| `easycron config` | Print effective config (secrets masked) |
-| `easycron version` | Print version |
-| `easycron create-key <namespace> <label>` | Create namespace API key and print plaintext token once |
+| `cronlite serve` | Start server |
+| `cronlite validate` | Validate config (exit 0/2) |
+| `cronlite config` | Print effective config (secrets masked) |
+| `cronlite version` | Print version |
+| `cronlite create-key <namespace> <label>` | Create namespace API key and print plaintext token once |
 
 ## MCP (Model Context Protocol)
 
-EasyCron exposes an MCP interface so AI agents can manage cron jobs programmatically. Two deployment options:
+CronLite exposes an MCP interface so AI agents can manage cron jobs programmatically. Two deployment options:
 
 ### Embedded Server (Streamable HTTP)
 
-Every EasyCron instance serves MCP at `/mcp`. No extra binary needed — just point your MCP client at the running server.
+Every CronLite instance serves MCP at `/mcp`. No extra binary needed — just point your MCP client at the running server.
 
 ### Standalone Stdio Proxy
 
 For MCP clients that require stdio transport (e.g., Claude Desktop):
 
 ```bash
-EASYCRON_URL=http://localhost:8080 \
-EASYCRON_API_KEY=$EASYCRON_API_KEY \
-go run ./cmd/easycron-mcp
+CRONLITE_URL=http://localhost:8080 \
+CRONLITE_API_KEY=$CRONLITE_API_KEY \
+go run ./cmd/cronlite-mcp
 ```
 
 <details>
@@ -185,11 +185,11 @@ go run ./cmd/easycron-mcp
 ```json
 {
   "mcpServers": {
-    "easycron": {
-      "command": "/path/to/easycron-mcp",
+    "cronlite": {
+      "command": "/path/to/cronlite-mcp",
       "env": {
-        "EASYCRON_URL": "http://localhost:8080",
-        "EASYCRON_API_KEY": "ec_..."
+        "CRONLITE_URL": "http://localhost:8080",
+        "CRONLITE_API_KEY": "ec_..."
       }
     }
   }
@@ -219,12 +219,12 @@ All tools are namespace-scoped via the API key used for authentication.
 - **Namespace isolation**: API keys are scoped to namespaces — each key can only access its own jobs and executions
 - **SSRF protection**: Webhook URLs targeting private/reserved IP ranges (RFC 1918, loopback, link-local) are rejected at creation time
 - **Rate limiting**: Two-layer rate limiting — per-IP (default 10 req/sec, before auth) and per-namespace (default 100 req/sec, after auth) on all endpoints except `/health`
-- **Credential safety**: `DATABASE_URL` and `REDIS_ADDR` credentials are masked in `easycron config` output; startup warns when `sslmode=disable`
+- **Credential safety**: `DATABASE_URL` and `REDIS_ADDR` credentials are masked in `cronlite config` output; startup warns when `sslmode=disable`
 - **Error sanitization**: Database error details are never exposed in API responses
 
 ## Configuration
 
-All configuration is via environment variables. Run `./easycron --help` for defaults. See the [Operator Guide](OPERATORS.md#configuration-reference) for the full reference and production recommendations.
+All configuration is via environment variables. Run `./cronlite --help` for defaults. See the [Operator Guide](OPERATORS.md#configuration-reference) for the full reference and production recommendations.
 
 ## License
 

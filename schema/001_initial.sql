@@ -1,5 +1,5 @@
 -- 001_initial.sql
--- PostgreSQL schema for easy-cron
+-- PostgreSQL schema for cronlite
 
 CREATE TABLE schedules (
     id UUID PRIMARY KEY,

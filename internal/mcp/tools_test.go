@@ -9,9 +9,9 @@ import (
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/djlord-it/easy-cron/internal/cron"
-	"github.com/djlord-it/easy-cron/internal/domain"
-	"github.com/djlord-it/easy-cron/internal/service"
+	"github.com/djlord-it/cronlite/internal/cron"
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/service"
 	"github.com/google/uuid"
 )
 

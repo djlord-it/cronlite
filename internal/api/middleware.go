@@ -12,8 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
-	"github.com/djlord-it/easy-cron/internal/service"
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/service"
 )
 
 // AuthMiddleware returns an http.Handler that requires a valid API key
@@ -93,7 +93,7 @@ func MultiKeyAuthMiddleware(
 			now := time.Now().Unix()
 			if last := lastLegacyWarn.Load(); now-last >= 60 {
 				if lastLegacyWarn.CompareAndSwap(last, now) {
-					log.Printf("DEPRECATED: legacy API_KEY used for %s %s — migrate to multi-key auth via 'easycron create-key'", r.Method, r.URL.Path)
+					log.Printf("DEPRECATED: legacy API_KEY used for %s %s — migrate to multi-key auth via 'cronlite create-key'", r.Method, r.URL.Path)
 				}
 			}
 			ctx := domain.NamespaceToContext(r.Context(), domain.Namespace("default"))

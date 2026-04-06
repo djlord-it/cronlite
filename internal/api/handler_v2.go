@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
-	"github.com/djlord-it/easy-cron/internal/service"
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/service"
 )
 
 // ServerImpl implements StrictServerInterface by delegating to the service layer.

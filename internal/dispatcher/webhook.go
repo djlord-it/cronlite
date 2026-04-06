@@ -40,7 +40,7 @@ func NewHTTPWebhookSender() *HTTPWebhookSender {
 }
 
 // Send posts the webhook payload with HMAC signature.
-// Headers: X-EasyCron-Event-ID (attempt), X-EasyCron-Execution-ID, X-EasyCron-Signature
+// Headers: X-CronLite-Event-ID (attempt), X-CronLite-Execution-ID, X-CronLite-Signature
 func (s *HTTPWebhookSender) Send(ctx context.Context, req WebhookRequest) WebhookResult {
 	start := time.Now()
 
@@ -64,9 +64,9 @@ func (s *HTTPWebhookSender) Send(ctx context.Context, req WebhookRequest) Webhoo
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-EasyCron-Event-ID", req.AttemptID)
-	httpReq.Header.Set("X-EasyCron-Execution-ID", req.Payload.ExecutionID)
-	httpReq.Header.Set("X-EasyCron-Signature", signature)
+	httpReq.Header.Set("X-CronLite-Event-ID", req.AttemptID)
+	httpReq.Header.Set("X-CronLite-Execution-ID", req.Payload.ExecutionID)
+	httpReq.Header.Set("X-CronLite-Signature", signature)
 
 	resp, err := s.client.Do(httpReq)
 	if err != nil {

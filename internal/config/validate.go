@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/djlord-it/easy-cron/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/dispatcher"
 )
 
 // ValidationError represents a configuration validation error.

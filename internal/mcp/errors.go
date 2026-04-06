@@ -5,7 +5,7 @@ import (
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
+	"github.com/djlord-it/cronlite/internal/domain"
 )
 
 // toolError maps domain errors to MCP CallToolResult error responses.
@@ -29,7 +29,7 @@ func toolError(err error) (*mcpgo.CallToolResult, error) {
 	case errors.Is(err, domain.ErrScheduleParseFailure):
 		return mcpgo.NewToolResultError("Could not parse schedule. Try a different phrasing or use a cron expression directly (e.g. \"*/5 * * * *\")."), nil
 	case errors.Is(err, domain.ErrNamespaceRequired):
-		return mcpgo.NewToolResultError("Authentication required. Set EASYCRON_API_KEY or provide a Bearer token."), nil
+		return mcpgo.NewToolResultError("Authentication required. Set CRONLITE_API_KEY or provide a Bearer token."), nil
 	case errors.Is(err, domain.ErrNamespaceMismatch):
 		return mcpgo.NewToolResultError("Job not found. The job may belong to a different namespace."), nil
 	case errors.Is(err, domain.ErrDuplicateExecution):

@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/djlord-it/easy-cron/internal/domain"
-	"github.com/djlord-it/easy-cron/internal/service"
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/service"
 )
 
 // AuthMiddleware wraps an http.Handler and extracts the Bearer token from
@@ -46,7 +46,7 @@ func AuthMiddleware(keyRepo domain.APIKeyRepository, fallbackKey string, next ht
 			now := time.Now().Unix()
 			if last := lastLegacyWarn.Load(); now-last >= 60 {
 				if lastLegacyWarn.CompareAndSwap(last, now) {
-					log.Printf("DEPRECATED: legacy API_KEY used for MCP — migrate to multi-key auth via 'easycron create-key'")
+					log.Printf("DEPRECATED: legacy API_KEY used for MCP — migrate to multi-key auth via 'cronlite create-key'")
 				}
 			}
 			ctx := domain.NamespaceToContext(r.Context(), domain.Namespace("default"))

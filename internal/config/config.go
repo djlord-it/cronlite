@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Config holds all configuration for the easycron application.
+// Config holds all configuration for the cronlite application.
 // Values are loaded from environment variables; see printUsage() for the full list.
 type Config struct {
 	DatabaseURL string `json:"database_url"`

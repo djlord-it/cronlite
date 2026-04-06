@@ -1,6 +1,6 @@
 # Database Schema
 
-This directory contains the PostgreSQL schema for EasyCron.
+This directory contains the PostgreSQL schema for CronLite.
 
 ## Applying the Schema
 

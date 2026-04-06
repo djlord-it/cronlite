@@ -1,4 +1,4 @@
-module github.com/djlord-it/easy-cron
+module github.com/djlord-it/cronlite
 
 go 1.25
 
