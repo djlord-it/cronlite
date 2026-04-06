@@ -416,6 +416,110 @@ func TestGetHealth_VerboseNoChecker(t *testing.T) {
 	}
 }
 
+func TestGetHealth_VerboseCloudflareOK(t *testing.T) {
+	now := time.Now().UTC()
+	cache := &RangeCache{stale: false, lastUpdated: now}
+
+	srv := newTestServer(nil, nil, nil, nil, nil, nil)
+	srv.WithHealthChecker(&mockHealthCheckerV2{pingErr: nil})
+	srv.WithCloudflareCache(cache)
+	ctx := context.Background()
+
+	resp, err := srv.GetHealth(ctx, GetHealthRequestObject{
+		Params: GetHealthParams{Verbose: boolPtr(true)},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := resp.(GetHealth200JSONResponse)
+	if !ok {
+		t.Fatalf("expected GetHealth200JSONResponse, got %T", resp)
+	}
+	if got.Status != "ok" {
+		t.Errorf("expected status=ok, got %s", got.Status)
+	}
+	if got.Cloudflare == nil {
+		t.Fatal("expected cloudflare field to be present")
+	}
+	if got.Cloudflare.Status != "ok" {
+		t.Errorf("expected cloudflare.status=ok, got %s", got.Cloudflare.Status)
+	}
+	if got.Cloudflare.LastUpdated == nil {
+		t.Fatal("expected cloudflare.last_updated to be present")
+	}
+}
+
+func TestGetHealth_VerboseCloudflareStale(t *testing.T) {
+	lastUpdated := time.Now().Add(-48 * time.Hour).UTC()
+	cache := &RangeCache{stale: true, lastUpdated: lastUpdated}
+
+	srv := newTestServer(nil, nil, nil, nil, nil, nil)
+	srv.WithHealthChecker(&mockHealthCheckerV2{pingErr: nil})
+	srv.WithCloudflareCache(cache)
+	ctx := context.Background()
+
+	resp, err := srv.GetHealth(ctx, GetHealthRequestObject{
+		Params: GetHealthParams{Verbose: boolPtr(true)},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := resp.(GetHealth200JSONResponse)
+	if !ok {
+		t.Fatalf("expected GetHealth200JSONResponse, got %T", resp)
+	}
+	if got.Status != "degraded" {
+		t.Errorf("expected status=degraded, got %s", got.Status)
+	}
+	if got.Cloudflare == nil {
+		t.Fatal("expected cloudflare field to be present")
+	}
+	if got.Cloudflare.Status != "stale" {
+		t.Errorf("expected cloudflare.status=stale, got %s", got.Cloudflare.Status)
+	}
+}
+
+func TestGetHealth_VerboseCloudflareZeroLastUpdated(t *testing.T) {
+	cache := &RangeCache{stale: true}
+
+	srv := newTestServer(nil, nil, nil, nil, nil, nil)
+	srv.WithHealthChecker(&mockHealthCheckerV2{pingErr: nil})
+	srv.WithCloudflareCache(cache)
+	ctx := context.Background()
+
+	resp, err := srv.GetHealth(ctx, GetHealthRequestObject{
+		Params: GetHealthParams{Verbose: boolPtr(true)},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := resp.(GetHealth200JSONResponse)
+	if got.Cloudflare.LastUpdated != nil {
+		t.Errorf("expected nil LastUpdated for zero time, got %v", got.Cloudflare.LastUpdated)
+	}
+}
+
+func TestGetHealth_VerboseNoCloudflareCache(t *testing.T) {
+	srv := newTestServer(nil, nil, nil, nil, nil, nil)
+	srv.WithHealthChecker(&mockHealthCheckerV2{pingErr: nil})
+	ctx := context.Background()
+
+	resp, err := srv.GetHealth(ctx, GetHealthRequestObject{
+		Params: GetHealthParams{Verbose: boolPtr(true)},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := resp.(GetHealth200JSONResponse)
+	if got.Cloudflare != nil {
+		t.Error("expected cloudflare field to be nil when no cache set")
+	}
+}
+
 // ── CreateJob Tests ──────────────────────────────────────────────────────────
 
 func TestCreateJob_HappyPath(t *testing.T) {

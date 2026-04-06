@@ -12,8 +12,9 @@ import (
 
 // ServerImpl implements StrictServerInterface by delegating to the service layer.
 type ServerImpl struct {
-	svc *service.JobService
-	db  HealthChecker // optional, for verbose health checks
+	svc     *service.JobService
+	db      HealthChecker // optional, for verbose health checks
+	cfCache *RangeCache   // optional, for verbose health checks
 }
 
 // NewServerImpl creates a new ServerImpl backed by the given service.
@@ -27,6 +28,12 @@ func (s *ServerImpl) WithHealthChecker(db HealthChecker) *ServerImpl {
 	return s
 }
 
+// WithCloudflareCache sets the Cloudflare range cache for verbose /health responses.
+func (s *ServerImpl) WithCloudflareCache(c *RangeCache) *ServerImpl {
+	s.cfCache = c
+	return s
+}
+
 // Compile-time assertion.
 var _ StrictServerInterface = (*ServerImpl)(nil)
 
@@ -35,22 +42,40 @@ var _ StrictServerInterface = (*ServerImpl)(nil)
 func (s *ServerImpl) GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error) {
 	verbose := request.Params.Verbose != nil && *request.Params.Verbose
 
-	if !verbose || s.db == nil {
+	if !verbose || (s.db == nil && s.cfCache == nil) {
 		return GetHealth200JSONResponse(HealthResponse{Status: "ok"}), nil
 	}
 
-	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
 	resp := HealthResponse{Status: "ok"}
-	if err := s.db.PingContext(pingCtx); err != nil {
-		resp.Status = "degraded"
-		dbStatus := "unhealthy"
-		resp.Database = &dbStatus
-		log.Printf("api: health check database unhealthy: %v", err)
-	} else {
-		dbStatus := "healthy"
-		resp.Database = &dbStatus
+
+	// Database health.
+	if s.db != nil {
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+
+		if err := s.db.PingContext(pingCtx); err != nil {
+			resp.Status = "degraded"
+			dbStatus := "unhealthy"
+			resp.Database = &dbStatus
+			log.Printf("api: health check database unhealthy: %v", err)
+		} else {
+			dbStatus := "healthy"
+			resp.Database = &dbStatus
+		}
+	}
+
+	// Cloudflare range cache health.
+	if s.cfCache != nil {
+		stale, lastUpdated := s.cfCache.HealthStatus()
+		cfHealth := &CloudflareHealth{Status: "ok"}
+		if stale {
+			cfHealth.Status = "stale"
+			resp.Status = "degraded"
+		}
+		if !lastUpdated.IsZero() {
+			cfHealth.LastUpdated = &lastUpdated
+		}
+		resp.Cloudflare = cfHealth
 	}
 
 	return GetHealth200JSONResponse(resp), nil
