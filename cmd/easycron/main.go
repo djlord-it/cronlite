@@ -360,7 +360,8 @@ func runServe() int {
 	if cfg.CloudflareOnly {
 		cfCache = api.NewCloudflareRangeCache()
 		if cfCache.Stale() {
-			log.Fatalf("cloudflare: CLOUDFLARE_ONLY=true but could not fetch live IP ranges at startup")
+			log.Printf("cloudflare: CLOUDFLARE_ONLY=true but could not fetch live IP ranges at startup")
+			return exitRuntimeError
 		}
 		cfCache.StartRefresh(context.Background())
 		log.Println("easycron: Cloudflare-only mode enabled")
