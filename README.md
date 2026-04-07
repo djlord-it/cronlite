@@ -3,7 +3,7 @@
 **Schedule HTTP webhooks with cron expressions. No SDK, no queue, no complexity.**
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/djlord-it/cronlite)
 
 CronLite is a self-hosted cron-as-a-service with namespace-scoped API keys and MCP support. POST a job with a cron expression and a webhook URL — CronLite fires HTTP callbacks on schedule with HMAC-signed payloads, automatic retries, and Prometheus metrics.
@@ -228,4 +228,4 @@ All configuration is via environment variables. Run `./cronlite --help` for defa
 
 ## License
 
-[Apache 2.0](LICENSE)
+[AGPL-3.0](LICENSE)
