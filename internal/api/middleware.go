@@ -65,7 +65,7 @@ func MultiKeyAuthMiddleware(
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Exempt paths: /mcp has its own auth middleware (see internal/mcp/auth.go)
 		// that performs the same token validation independently.
-		if r.URL.Path == "/health" || r.URL.Path == "/metrics" || strings.HasPrefix(r.URL.Path, "/mcp") {
+		if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/mcp") {
 			next.ServeHTTP(w, r)
 			return
 		}

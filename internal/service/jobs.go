@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -60,6 +62,9 @@ func (s *JobService) CreateJob(ctx context.Context, input CreateJobInput) (domai
 	// Validate timezone.
 	if _, err := time.LoadLocation(input.Timezone); err != nil {
 		return domain.Job{}, domain.Schedule{}, domain.ErrInvalidTimezone
+	}
+	if err := validateWebhookURL(input.WebhookURL); err != nil {
+		return domain.Job{}, domain.Schedule{}, domain.ErrInvalidWebhookURL
 	}
 
 	// Default timeout.
@@ -165,6 +170,9 @@ func (s *JobService) UpdateJob(ctx context.Context, id uuid.UUID, input UpdateJo
 		job.Name = *input.Name
 	}
 	if input.WebhookURL != nil {
+		if err := validateWebhookURL(*input.WebhookURL); err != nil {
+			return domain.Job{}, domain.Schedule{}, domain.ErrInvalidWebhookURL
+		}
 		job.Delivery.WebhookURL = *input.WebhookURL
 	}
 	if input.Secret != nil {
@@ -390,6 +398,32 @@ func computeNextRuns(sched interface{ Next(time.Time) time.Time }, n int) []time
 		cursor = next
 	}
 	return runs
+}
+
+func validateWebhookURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("scheme must be http or https")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("host is required")
+	}
+
+	host := u.Hostname()
+	if host == "metadata.google.internal" || host == "localhost" {
+		return fmt.Errorf("forbidden host")
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("forbidden ip")
+		}
+	}
+
+	return nil
 }
 
 // Natural language patterns.

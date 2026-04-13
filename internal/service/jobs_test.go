@@ -121,6 +121,8 @@ type mockExecutionRepo struct {
 	insertExecutionFn       func(ctx context.Context, exec domain.Execution) error
 	getExecutionFn          func(ctx context.Context, id uuid.UUID) (domain.Execution, error)
 	listExecutionsFn        func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
+	listPendingAckFn        func(ctx context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error)
+	ackExecutionFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
 	getRecentExecutionsFn   func(ctx context.Context, jobID uuid.UUID, limit int) ([]domain.Execution, error)
 	updateExecutionStatusFn func(ctx context.Context, id uuid.UUID, status domain.ExecutionStatus) error
 	dequeueExecutionFn      func(ctx context.Context) (*domain.Execution, error)
@@ -150,6 +152,20 @@ func (m *mockExecutionRepo) ListExecutions(ctx context.Context, filter domain.Ex
 		return m.listExecutionsFn(ctx, filter)
 	}
 	return nil, nil
+}
+
+func (m *mockExecutionRepo) ListPendingAck(ctx context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error) {
+	if m.listPendingAckFn != nil {
+		return m.listPendingAckFn(ctx, ns, jobID, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockExecutionRepo) AckExecution(ctx context.Context, id uuid.UUID, ns domain.Namespace) error {
+	if m.ackExecutionFn != nil {
+		return m.ackExecutionFn(ctx, id, ns)
+	}
+	return nil
 }
 
 func (m *mockExecutionRepo) GetRecentExecutions(ctx context.Context, jobID uuid.UUID, limit int) ([]domain.Execution, error) {
@@ -215,11 +231,11 @@ func (m *mockTagRepo) DeleteTags(ctx context.Context, jobID uuid.UUID) error {
 }
 
 type mockAPIKeyRepo struct {
-	insertAPIKeyFn    func(ctx context.Context, key domain.APIKey) error
-	getKeyByHashFn    func(ctx context.Context, tokenHash string) (domain.APIKey, error)
-	listKeysFn        func(ctx context.Context, ns domain.Namespace, params domain.ListParams) ([]domain.APIKey, error)
-	deleteKeyFn       func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
-	updateLastUsedFn  func(ctx context.Context, ids []uuid.UUID) error
+	insertAPIKeyFn   func(ctx context.Context, key domain.APIKey) error
+	getKeyByHashFn   func(ctx context.Context, tokenHash string) (domain.APIKey, error)
+	listKeysFn       func(ctx context.Context, ns domain.Namespace, params domain.ListParams) ([]domain.APIKey, error)
+	deleteKeyFn      func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
+	updateLastUsedFn func(ctx context.Context, ids []uuid.UUID) error
 }
 
 func (m *mockAPIKeyRepo) InsertAPIKey(ctx context.Context, key domain.APIKey) error {
@@ -393,6 +409,21 @@ func TestCreateJob_InvalidCron(t *testing.T) {
 
 	if !errors.Is(err, domain.ErrInvalidCronExpression) {
 		t.Errorf("expected ErrInvalidCronExpression, got %v", err)
+	}
+}
+
+func TestCreateJob_InvalidWebhookURL(t *testing.T) {
+	svc := newTestService(nil)
+
+	_, _, err := svc.CreateJob(ctxWithNS("t1"), CreateJobInput{
+		Name:           "bad-webhook",
+		CronExpression: "*/5 * * * *",
+		Timezone:       "UTC",
+		WebhookURL:     "http://127.0.0.1/hook",
+	})
+
+	if !errors.Is(err, domain.ErrInvalidWebhookURL) {
+		t.Errorf("expected ErrInvalidWebhookURL, got %v", err)
 	}
 }
 
@@ -704,6 +735,26 @@ func TestUpdateJob_InvalidNewCron(t *testing.T) {
 	_, _, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{CronExpression: &badCron})
 	if !errors.Is(err, domain.ErrInvalidCronExpression) {
 		t.Errorf("expected ErrInvalidCronExpression, got %v", err)
+	}
+}
+
+func TestUpdateJob_InvalidWebhookURL(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "t1", Name: "my-job", ScheduleID: schedID, Enabled: true,
+				Delivery: domain.DeliveryConfig{WebhookURL: "https://example.com", Timeout: 30 * time.Second},
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	badURL := "http://localhost/hook"
+	_, _, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{WebhookURL: &badURL})
+	if !errors.Is(err, domain.ErrInvalidWebhookURL) {
+		t.Errorf("expected ErrInvalidWebhookURL, got %v", err)
 	}
 }
 
