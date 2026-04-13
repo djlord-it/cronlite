@@ -5,15 +5,7 @@ import (
 	"net"
 	"net/url"
 	"time"
-
-	"github.com/robfig/cron/v3"
 )
-
-func validateCron(expr string) error {
-	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	_, err := parser.Parse(expr)
-	return err
-}
 
 func validateTimezone(tz string) error {
 	_, err := time.LoadLocation(tz)
