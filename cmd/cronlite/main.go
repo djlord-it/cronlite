@@ -359,17 +359,28 @@ func runServe() int {
 	svcParser := cron.NewParser()
 	jobService := service.NewJobService(store, store, store, store, store, store, svcParser)
 
+	if cfg.DispatchMode == "channel" {
+		jobService = jobService.WithEmitter(emitter)
+	}
+
 	// ── REST transport (oapi-codegen strict handler) ──────────────────────────
 	serverImpl := api.NewServerImpl(jobService).WithHealthChecker(db)
 	strictHandler := api.NewStrictHandler(serverImpl, nil)
 	apiRouter := api.Handler(strictHandler)
 
+	// App-level context cancelled on shutdown — used for background goroutines
+	// like the auth middleware's lastUsedTracker.
+	appCtx, cancelApp := context.WithCancel(context.Background())
+	defer cancelApp()
+
 	// Middleware chain (outermost executes first):
-	//   IP rate limit → Auth → Namespace rate limit → Router
-	var rootHandler http.Handler = apiRouter
+	//   IP rate limit → Auth → Namespace rate limit → Body size limit → Router
+	rootHandler := apiRouter
+	rootHandler = api.BodySizeLimitMiddleware(rootHandler)                              // body size limit, innermost
 	rootHandler = api.NamespaceRateLimitMiddleware(cfg.NamespaceRateLimit, rootHandler) // per-namespace, after auth
-	rootHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, rootHandler)            // sets namespace in ctx
+	rootHandler = api.MultiKeyAuthMiddleware(appCtx, store, cfg.APIKey, rootHandler)    // sets namespace in ctx
 	rootHandler = api.RateLimitMiddleware(cfg.IPRateLimit, rootHandler)                 // per-IP, before auth
+	rootHandler = api.CORSMiddleware(cfg.CORSOrigins, rootHandler)                      // CORS, outermost
 	if cfg.APIKey != "" {
 		log.Println("cronlite: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
 		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'cronlite create-key' and remove API_KEY.")
@@ -387,7 +398,7 @@ func runServe() int {
 	if cfg.MetricsEnabled {
 		metricsHandler := http.Handler(promhttp.Handler())
 		if cfg.APIKey != "" {
-			metricsHandler = api.MultiKeyAuthMiddleware(store, cfg.APIKey, metricsHandler)
+			metricsHandler = api.MultiKeyAuthMiddleware(appCtx, store, cfg.APIKey, metricsHandler)
 		}
 		httpMux.Handle(cfg.MetricsPath, metricsHandler)
 	}
@@ -426,7 +437,7 @@ func runServe() int {
 
 	if cfg.DispatchMode == "db" {
 		// Scheduler and reconciler run only on the leader instance.
-		appCtx, cancelApp := context.WithCancel(context.Background())
+		leaderCtx, cancelLeader := context.WithCancel(context.Background())
 
 		lr := &leaderRuntime{
 			sched:       sched,
@@ -439,7 +450,7 @@ func runServe() int {
 		elector := leaderelection.New(
 			db, cfg.LeaderLockKey,
 			cfg.LeaderRetryInterval, cfg.LeaderHeartbeatInterval,
-			func(leaderCtx context.Context) { lr.start(leaderCtx) },
+			func(electedCtx context.Context) { lr.start(electedCtx) },
 			func() { lr.stop() },
 		)
 		if metricsSink != nil {
@@ -450,12 +461,12 @@ func runServe() int {
 		electorWg.Add(1)
 		go func() {
 			defer electorWg.Done()
-			elector.Run(appCtx)
+			elector.Run(leaderCtx)
 		}()
 
 		shutdown = func() {
 			log.Println("cronlite: stopping leader election...")
-			cancelApp()
+			cancelLeader()
 			electorWg.Wait()
 			log.Println("cronlite: leader election stopped")
 		}

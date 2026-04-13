@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -142,7 +143,7 @@ func (s *JobService) ListJobs(ctx context.Context, filter domain.JobFilter) ([]d
 	}
 
 	filter.Namespace = ns
-	filter.ListParams = filter.ListParams.WithDefaults()
+	filter.ListParams = filter.WithDefaults()
 
 	return s.jobs.ListJobs(ctx, filter)
 }
@@ -307,6 +308,25 @@ func (s *JobService) TriggerNow(ctx context.Context, jobID uuid.UUID) (domain.Ex
 
 	if err := s.executions.InsertExecution(ctx, exec); err != nil {
 		return domain.Execution{}, fmt.Errorf("insert execution: %w", err)
+	}
+
+	// Emit to dispatch pipeline for immediate delivery.
+	// Best-effort: if emit fails, the reconciler will pick it up.
+	// Use a detached context so the emit survives client disconnect.
+	if s.emitter != nil {
+		event := domain.TriggerEvent{
+			ExecutionID: exec.ID,
+			JobID:       exec.JobID,
+			Namespace:   exec.Namespace,
+			ScheduledAt: exec.ScheduledAt,
+			FiredAt:     exec.FiredAt,
+			CreatedAt:   exec.CreatedAt,
+		}
+		emitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.emitter.Emit(emitCtx, event); err != nil {
+			log.Printf("service: trigger emit failed (reconciler will recover): %v", err)
+		}
 	}
 
 	return exec, nil

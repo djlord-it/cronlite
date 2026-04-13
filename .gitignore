@@ -32,3 +32,11 @@ go.work.sum
 .idea/
 dist/
 docs/
+
+# Python
+__pycache__/
+*.pyc
+
+# Playground artifacts
+playground/.env
+playground/reports/

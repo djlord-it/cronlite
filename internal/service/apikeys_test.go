@@ -184,7 +184,7 @@ func TestHashToken(t *testing.T) {
 			t.Errorf("expected hash length 64, got %d", len(hash))
 		}
 		for _, c := range hash {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			if c < '0' || (c > '9' && c < 'a') || c > 'f' {
 				t.Errorf("expected hex character, got %c", c)
 				break
 			}
