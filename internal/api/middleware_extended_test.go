@@ -239,7 +239,7 @@ func TestMultiKeyAuth_HealthBypass(t *testing.T) {
 	}
 }
 
-func TestMultiKeyAuth_MetricsBypass(t *testing.T) {
+func TestMultiKeyAuth_MetricsRequiresAuth(t *testing.T) {
 	repo := &mockAPIKeyRepo{}
 
 	called := false
@@ -255,11 +255,11 @@ func TestMultiKeyAuth_MetricsBypass(t *testing.T) {
 
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", w.Code)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", w.Code)
 	}
-	if !called {
-		t.Error("expected next handler to be called for /metrics")
+	if called {
+		t.Error("did not expect next handler to be called for /metrics without auth")
 	}
 }
 

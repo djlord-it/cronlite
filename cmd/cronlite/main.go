@@ -391,7 +391,8 @@ func runServe() int {
 
 	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
 	mcpServer := mcpsrv.NewServer(jobService)
-	mcpHandler := mcpsrv.MountHTTP(mcpServer, store, cfg.APIKey)
+	mcpHandler := mcpsrv.MountHTTP(mcpServer, store, cfg.APIKey, cfg.NamespaceRateLimit)
+	mcpHandler = api.RateLimitMiddleware(cfg.IPRateLimit, mcpHandler)
 	log.Printf("mcp: SSE transport mounted at /mcp")
 
 	httpMux := http.NewServeMux()

@@ -5,9 +5,21 @@ import (
 
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/djlord-it/cronlite/internal/api"
 	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/djlord-it/cronlite/internal/service"
 )
+
+const maxRequestBodySize = 1 << 20
+
+func bodySizeLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // NewServer creates a new MCP server with all Phase 1 tools registered.
 // The tools delegate to the service layer, which requires a namespace in
@@ -25,14 +37,24 @@ func NewServer(svc *service.JobService) *server.MCPServer {
 
 // MountHTTP creates a StreamableHTTPServer that handles /mcp requests and
 // wraps it with auth middleware to resolve Bearer tokens to namespaces.
+// It also applies body-size and per-namespace rate limiting.
 // The returned http.Handler should be mounted at "/mcp" on the main mux.
-func MountHTTP(mcpServer *server.MCPServer, keyRepo domain.APIKeyRepository, fallbackKey string) http.Handler {
+func MountHTTP(
+	mcpServer *server.MCPServer,
+	keyRepo domain.APIKeyRepository,
+	fallbackKey string,
+	namespaceRateLimit int,
+) http.Handler {
 	httpServer := server.NewStreamableHTTPServer(mcpServer,
 		server.WithEndpointPath("/mcp"),
 		server.WithHTTPContextFunc(httpContextFunc(keyRepo, fallbackKey)),
 	)
+
+	limited := bodySizeLimitMiddleware(httpServer)
+	limited = api.NamespaceRateLimitMiddleware(namespaceRateLimit, limited)
+
 	// Wrap with auth middleware for the initial HTTP connection.
 	// The HTTPContextFunc injects the namespace into the MCP context,
 	// while the middleware rejects unauthenticated requests entirely.
-	return AuthMiddleware(keyRepo, fallbackKey, httpServer)
+	return AuthMiddleware(keyRepo, fallbackKey, limited)
 }
