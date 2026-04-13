@@ -458,6 +458,22 @@ func (s *Store) GetExecution(ctx context.Context, id uuid.UUID) (domain.Executio
 	return exec, nil
 }
 
+// GetExecutionScoped returns an execution by ID filtered by namespace at the SQL level.
+// This provides defense-in-depth for API-facing operations.
+func (s *Store) GetExecutionScoped(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	exec, err := scanSingleExecution(s.db.QueryRowContext(ctx, queryGetExecutionScoped, id, string(ns)))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return domain.Execution{}, domain.ErrExecutionNotFound
+		}
+		return domain.Execution{}, err
+	}
+	return exec, nil
+}
+
 // GetRecentExecutions returns the most recent executions for a job.
 func (s *Store) GetRecentExecutions(ctx context.Context, jobID uuid.UUID, limit int) ([]domain.Execution, error) {
 	ctx, cancel := s.withTimeout(ctx)

@@ -113,6 +113,7 @@ func (m *mockScheduleRepo) UpdateSchedule(ctx context.Context, schedule domain.S
 type mockExecutionRepo struct {
 	insertExecutionFn       func(ctx context.Context, exec domain.Execution) error
 	getExecutionFn          func(ctx context.Context, id uuid.UUID) (domain.Execution, error)
+	getExecutionScopedFn    func(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error)
 	listExecutionsFn        func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
 	getRecentExecutionsFn   func(ctx context.Context, jobID uuid.UUID, limit int) ([]domain.Execution, error)
 	updateExecutionStatusFn func(ctx context.Context, id uuid.UUID, status domain.ExecutionStatus) error
@@ -133,6 +134,13 @@ func (m *mockExecutionRepo) GetExecution(ctx context.Context, id uuid.UUID) (dom
 		return m.getExecutionFn(ctx, id)
 	}
 	return domain.Execution{}, nil
+}
+
+func (m *mockExecutionRepo) GetExecutionScoped(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error) {
+	if m.getExecutionScopedFn != nil {
+		return m.getExecutionScopedFn(ctx, id, ns)
+	}
+	return domain.Execution{}, domain.ErrExecutionNotFound
 }
 
 func (m *mockExecutionRepo) ListExecutions(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error) {

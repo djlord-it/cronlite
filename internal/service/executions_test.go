@@ -51,11 +51,11 @@ func TestGetExecution_HappyPath(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
 	execRepo := &mockExecutionRepo{
-		getExecutionFn: func(_ context.Context, id uuid.UUID) (domain.Execution, error) {
+		getExecutionScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error) {
 			return domain.Execution{
 				ID:        execID,
 				JobID:     jobID,
-				Namespace: "t1",
+				Namespace: ns,
 				Status:    domain.ExecutionStatusDelivered,
 			}, nil
 		},
@@ -98,8 +98,8 @@ func TestGetExecution_NoNamespace(t *testing.T) {
 
 func TestGetExecution_NotFound(t *testing.T) {
 	execRepo := &mockExecutionRepo{
-		getExecutionFn: func(_ context.Context, id uuid.UUID) (domain.Execution, error) {
-			return domain.Execution{}, errors.New("not found")
+		getExecutionScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error) {
+			return domain.Execution{}, domain.ErrExecutionNotFound
 		},
 	}
 	svc := newTestServiceFull(nil, nil, execRepo, nil, nil, nil)
@@ -113,7 +113,12 @@ func TestGetExecution_NotFound(t *testing.T) {
 func TestGetExecution_NamespaceMismatch(t *testing.T) {
 	execID := uuid.New()
 	execRepo := &mockExecutionRepo{
-		getExecutionFn: func(_ context.Context, id uuid.UUID) (domain.Execution, error) {
+		getExecutionScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error) {
+			// Simulate SQL-level namespace filtering: execution belongs to tenant-A,
+			// but query filters by tenant-B, so no rows returned.
+			if ns != "tenant-A" {
+				return domain.Execution{}, domain.ErrExecutionNotFound
+			}
 			return domain.Execution{
 				ID:        execID,
 				JobID:     uuid.New(),
