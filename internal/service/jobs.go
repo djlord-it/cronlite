@@ -143,7 +143,7 @@ func (s *JobService) ListJobs(ctx context.Context, filter domain.JobFilter) ([]d
 	}
 
 	filter.Namespace = ns
-	filter.ListParams = filter.ListParams.WithDefaults()
+	filter.ListParams = filter.WithDefaults()
 
 	return s.jobs.ListJobs(ctx, filter)
 }

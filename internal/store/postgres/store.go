@@ -244,7 +244,7 @@ func (s *Store) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	filter.ListParams = filter.ListParams.WithDefaults()
+	filter.ListParams = filter.WithDefaults()
 
 	// Build dynamic WHERE clause
 	var conditions []string
@@ -494,7 +494,7 @@ func (s *Store) ListExecutions(ctx context.Context, filter domain.ExecutionFilte
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	filter.ListParams = filter.ListParams.WithDefaults()
+	filter.ListParams = filter.WithDefaults()
 
 	var conditions []string
 	var args []interface{}
