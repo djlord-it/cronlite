@@ -374,8 +374,9 @@ func runServe() int {
 	defer cancelApp()
 
 	// Middleware chain (outermost executes first):
-	//   IP rate limit → Auth → Namespace rate limit → Router
+	//   IP rate limit → Auth → Namespace rate limit → Body size limit → Router
 	var rootHandler http.Handler = apiRouter
+	rootHandler = api.BodySizeLimitMiddleware(rootHandler)                                       // body size limit, innermost
 	rootHandler = api.NamespaceRateLimitMiddleware(cfg.NamespaceRateLimit, rootHandler)         // per-namespace, after auth
 	rootHandler = api.MultiKeyAuthMiddleware(appCtx, store, cfg.APIKey, rootHandler)            // sets namespace in ctx
 	rootHandler = api.RateLimitMiddleware(cfg.IPRateLimit, rootHandler)                         // per-IP, before auth

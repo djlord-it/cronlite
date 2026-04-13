@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-04-05T04-12-29",
+  "target": "http://localhost:8091",
+  "total_duration_sec": 60.16,
+  "summary": {
+    "total_assertions": 0,
+    "passed": 0,
+    "critical_failures": 0,
+    "warnings": 0,
+    "overall_pass": true
+  },
+  "scorecard": [
+    {
+      "category": "Time Behavior",
+      "score_pct": null,
+      "status": "N/A"
+    },
+    {
+      "category": "Throughput / Capacity",
+      "score_pct": null,
+      "status": "N/A"
+    },
+    {
+      "category": "Resource Utilization",
+      "score_pct": null,
+      "status": "N/A"
+    },
+    {
+      "category": "Availability",
+      "score_pct": null,
+      "status": "N/A"
+    },
+    {
+      "category": "Fault Tolerance",
+      "score_pct": null,
+      "status": "N/A"
+    },
+    {
+      "category": "Recoverability",
+      "score_pct": null,
+      "status": "N/A"
+    },
+    {
+      "category": "Maturity",
+      "score_pct": null,
+      "status": "N/A"
+    }
+  ],
+  "phase_results": {
+    "setup": {
+      "phase": "setup",
+      "duration_sec": 60.16165508300037,
+      "success": false,
+      "error": "CronLite did not become healthy within 60s",
+      "summary": {}
+    }
+  },
+  "critical_failures": [],
+  "warnings": []
+}

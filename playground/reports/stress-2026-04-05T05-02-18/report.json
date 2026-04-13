@@ -1,0 +1,226 @@
+{
+  "timestamp": "2026-04-05T05-02-18",
+  "target": "http://localhost:8091",
+  "total_duration_sec": 2937.88,
+  "summary": {
+    "total_assertions": 10,
+    "passed": 8,
+    "critical_failures": 2,
+    "warnings": 0,
+    "overall_pass": false
+  },
+  "scorecard": [
+    {
+      "category": "Time Behavior",
+      "score_pct": 100.0,
+      "status": "PASS",
+      "passed": 3,
+      "total": 3
+    },
+    {
+      "category": "Throughput / Capacity",
+      "score_pct": 0.0,
+      "status": "FAIL",
+      "passed": 0,
+      "total": 1
+    },
+    {
+      "category": "Resource Utilization",
+      "score_pct": 100.0,
+      "status": "PASS",
+      "passed": 3,
+      "total": 3
+    },
+    {
+      "category": "Availability",
+      "score_pct": null,
+      "status": "N/A"
+    },
+    {
+      "category": "Fault Tolerance",
+      "score_pct": 50.0,
+      "status": "FAIL",
+      "passed": 1,
+      "total": 2
+    },
+    {
+      "category": "Recoverability",
+      "score_pct": null,
+      "status": "N/A"
+    },
+    {
+      "category": "Maturity",
+      "score_pct": 100.0,
+      "status": "PASS",
+      "passed": 1,
+      "total": 1
+    }
+  ],
+  "phase_results": {
+    "setup": {
+      "phase": "setup",
+      "duration_sec": 5.651009041997895,
+      "success": true,
+      "error": null,
+      "summary": {
+        "baseline_containers": 3,
+        "cleaned_jobs": 1000
+      }
+    },
+    "ramp": {
+      "phase": "ramp",
+      "duration_sec": 240.70465520900325,
+      "success": true,
+      "error": null,
+      "summary": {
+        "jobs_created": 1000,
+        "trigger_burst_ok": 500,
+        "trigger_burst_elapsed_sec": 0.61
+      }
+    },
+    "sustain": {
+      "phase": "sustain",
+      "duration_sec": 300.7077944999983,
+      "success": true,
+      "error": null,
+      "summary": {
+        "read_count": 105925,
+        "write_count": 3253,
+        "error_count": 0,
+        "error_rate_pct": 0.0,
+        "latency": {
+          "count": 110816,
+          "min": 1.152332995843608,
+          "max": 88.87187499931315,
+          "mean": 5.739336946812351,
+          "p50": 4.3044170015491545,
+          "p95": 14.99754200631287,
+          "p99": 24.8724580014823
+        }
+      }
+    },
+    "chaos": {
+      "phase": "chaos",
+      "duration_sec": 572.3311242499985,
+      "success": true,
+      "error": null,
+      "summary": {
+        "failover_time_sec": 1.2768360000045504,
+        "deliveries_resumed": true,
+        "backlog_recovered": 0
+      }
+    },
+    "soak": {
+      "phase": "soak",
+      "duration_sec": 1814.343198292001,
+      "success": true,
+      "error": null,
+      "summary": {
+        "samples": 58,
+        "delivery_rates": [
+          0.0,
+          5215.614188443631,
+          1350.7995828833061,
+          1930.981740322804,
+          0.0,
+          1351.7881163534223,
+          0.0,
+          1903.4705809387033,
+          0.0,
+          1351.4305435287947,
+          0.0,
+          1931.1557900900762,
+          0.0,
+          1352.1974808764583,
+          0.0,
+          1893.2921082646822,
+          0.0,
+          1351.6165991942387,
+          0.0,
+          1930.8197889142368,
+          0.0,
+          1352.3132283418915,
+          0.0,
+          1893.025021921858,
+          0.0,
+          1351.7079904586287,
+          0.0,
+          1930.7793428649486,
+          1351.7627100106768,
+          0.0,
+          1931.485804388206,
+          0.0,
+          1311.4373003488122,
+          0.0,
+          1930.4842747694609,
+          0.0,
+          1350.6097345880903,
+          0.0,
+          1931.3384762163046,
+          0.0,
+          1311.4666701238727,
+          0.0,
+          1931.738396346727,
+          0.0,
+          1351.8418688696115,
+          0.0,
+          1930.18146790092,
+          0.0,
+          1311.2578103180635,
+          0.0,
+          1931.5386980054795,
+          1352.0187238887672,
+          0.0,
+          1930.3218427159381,
+          0.0,
+          1324.8842607325237,
+          0.0,
+          1930.8648037394416
+        ],
+        "latency": {
+          "count": 3618,
+          "min": 1.2344580027274787,
+          "max": 32.18245800235309,
+          "mean": 3.8489782938217356,
+          "p50": 3.815541997028049,
+          "p95": 5.604208003205713,
+          "p99": 6.986374995904043
+        }
+      }
+    },
+    "teardown": {
+      "phase": "teardown",
+      "duration_sec": 1.976916125000571,
+      "success": true,
+      "error": null,
+      "summary": {
+        "deleted": 0,
+        "errors": 1000,
+        "delete_rate_per_sec": 0.0
+      }
+    }
+  },
+  "critical_failures": [
+    {
+      "name": "delivery_resume_after_failover",
+      "category": "fault_tolerance",
+      "phase": "chaos",
+      "expected": "< 15.0",
+      "actual": 451.16243091600336,
+      "passed": false,
+      "severity": "critical",
+      "context": ""
+    },
+    {
+      "name": "soak_delivery_rate_stability",
+      "category": "throughput",
+      "phase": "soak",
+      "expected": "< 10.0",
+      "actual": 108.94853881480178,
+      "passed": false,
+      "severity": "critical",
+      "context": "mean=935/min, std_dev=1018, samples=58"
+    }
+  ],
+  "warnings": []
+}

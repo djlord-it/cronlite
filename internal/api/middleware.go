@@ -16,6 +16,19 @@ import (
 	"github.com/djlord-it/cronlite/internal/service"
 )
 
+// maxRequestBodySize is the maximum allowed request body size (1MB).
+const maxRequestBodySize = 1 << 20
+
+// BodySizeLimitMiddleware limits request body size to prevent DoS via large payloads.
+func BodySizeLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // AuthMiddleware returns an http.Handler that requires a valid API key
 // in the Authorization header (Bearer token) for all endpoints except /health.
 // If apiKey is empty, authentication is disabled (pass-through).

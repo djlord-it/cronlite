@@ -1,0 +1,782 @@
+[
+  {
+    "timestamp": 41047.477863041,
+    "wall_clock": "2026-04-05T04:11:29.722373+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 7.260833001055289,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41047.478162916,
+    "wall_clock": "2026-04-05T04:11:29.722669+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41049.484191875,
+    "wall_clock": "2026-04-05T04:11:31.728703+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.69870899542002,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41049.484222375,
+    "wall_clock": "2026-04-05T04:11:31.728731+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41051.489996541,
+    "wall_clock": "2026-04-05T04:11:33.734510+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.5376249981927685,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41051.49003325,
+    "wall_clock": "2026-04-05T04:11:33.734544+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41053.49510075,
+    "wall_clock": "2026-04-05T04:11:35.739617+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.82595799601404,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41053.495135833,
+    "wall_clock": "2026-04-05T04:11:35.739648+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41055.49984925,
+    "wall_clock": "2026-04-05T04:11:37.744367+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.4737500027404167,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41055.499878541,
+    "wall_clock": "2026-04-05T04:11:37.744393+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41057.504337416,
+    "wall_clock": "2026-04-05T04:11:39.748857+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.265667000960093,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41057.504367875,
+    "wall_clock": "2026-04-05T04:11:39.748885+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41059.50837025,
+    "wall_clock": "2026-04-05T04:11:41.752891+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.6981250013923272,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41059.508435833,
+    "wall_clock": "2026-04-05T04:11:41.752955+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41061.513222583,
+    "wall_clock": "2026-04-05T04:11:43.757748+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.5443330052657984,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41061.513261125,
+    "wall_clock": "2026-04-05T04:11:43.757782+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41063.519009583,
+    "wall_clock": "2026-04-05T04:11:45.763540+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.715917006251402,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41063.519088458,
+    "wall_clock": "2026-04-05T04:11:45.763612+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41065.5243615,
+    "wall_clock": "2026-04-05T04:11:47.768891+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.001749999588355,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41065.524402583,
+    "wall_clock": "2026-04-05T04:11:47.768928+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41067.531485375,
+    "wall_clock": "2026-04-05T04:11:49.776016+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 5.822374994750135,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41067.531524958,
+    "wall_clock": "2026-04-05T04:11:49.776052+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41069.53627975,
+    "wall_clock": "2026-04-05T04:11:51.780812+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.518875004374422,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41069.5363165,
+    "wall_clock": "2026-04-05T04:11:51.780846+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41071.540606083,
+    "wall_clock": "2026-04-05T04:11:53.785141+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.1352919977507554,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41071.540647708,
+    "wall_clock": "2026-04-05T04:11:53.785179+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41073.543892875,
+    "wall_clock": "2026-04-05T04:11:55.788429+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 2.109875000314787,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41073.543915958,
+    "wall_clock": "2026-04-05T04:11:55.788449+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41075.549786416,
+    "wall_clock": "2026-04-05T04:11:57.794328+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.583125002682209,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41075.549846458,
+    "wall_clock": "2026-04-05T04:11:57.794382+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41077.556610916,
+    "wall_clock": "2026-04-05T04:11:59.801161+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.953625000780448,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41077.556671333,
+    "wall_clock": "2026-04-05T04:11:59.801209+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41079.5615435,
+    "wall_clock": "2026-04-05T04:12:01.806089+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.576458002498839,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41079.561585291,
+    "wall_clock": "2026-04-05T04:12:01.806125+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41081.567680291,
+    "wall_clock": "2026-04-05T04:12:03.812226+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.796416993485764,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41081.567728541,
+    "wall_clock": "2026-04-05T04:12:03.812270+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41083.572757083,
+    "wall_clock": "2026-04-05T04:12:05.817305+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.778625003178604,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41083.572792708,
+    "wall_clock": "2026-04-05T04:12:05.817336+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41085.578974333,
+    "wall_clock": "2026-04-05T04:12:07.823527+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.923125001369044,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41085.579029916,
+    "wall_clock": "2026-04-05T04:12:07.823576+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41087.584375083,
+    "wall_clock": "2026-04-05T04:12:09.828927+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.079582999111153,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41087.58441475,
+    "wall_clock": "2026-04-05T04:12:09.828963+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41089.588951125,
+    "wall_clock": "2026-04-05T04:12:11.833506+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.6615830031223595,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41089.588998416,
+    "wall_clock": "2026-04-05T04:12:11.833549+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41091.594535,
+    "wall_clock": "2026-04-05T04:12:13.839092+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.2388750007376075,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41091.594577666,
+    "wall_clock": "2026-04-05T04:12:13.839130+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41093.59951025,
+    "wall_clock": "2026-04-05T04:12:15.844069+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.9140000008046627,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41093.599548041,
+    "wall_clock": "2026-04-05T04:12:15.844102+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41095.605541291,
+    "wall_clock": "2026-04-05T04:12:17.850102+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.756249996717088,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41095.6055765,
+    "wall_clock": "2026-04-05T04:12:17.850133+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41097.610256291,
+    "wall_clock": "2026-04-05T04:12:19.854819+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.479582999716513,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41097.610294833,
+    "wall_clock": "2026-04-05T04:12:19.854853+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41099.614745333,
+    "wall_clock": "2026-04-05T04:12:21.859310+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 3.2254580000881106,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41099.614795875,
+    "wall_clock": "2026-04-05T04:12:21.859356+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41101.620437916,
+    "wall_clock": "2026-04-05T04:12:23.865005+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.634624994650949,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41101.620481958,
+    "wall_clock": "2026-04-05T04:12:23.865045+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41103.625813208,
+    "wall_clock": "2026-04-05T04:12:25.870381+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.134750000957865,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41103.625849625,
+    "wall_clock": "2026-04-05T04:12:25.870415+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41105.631609375,
+    "wall_clock": "2026-04-05T04:12:27.876180+00:00",
+    "phase": "",
+    "category": "time_behavior",
+    "metric": "api_latency_ms",
+    "value": 4.5523750013671815,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  },
+  {
+    "timestamp": 41105.6316525,
+    "wall_clock": "2026-04-05T04:12:27.876219+00:00",
+    "phase": "",
+    "category": "maturity",
+    "metric": "api_error",
+    "value": 1,
+    "tags": {
+      "method": "GET",
+      "path": "/health",
+      "error": "ConnectError"
+    }
+  }
+]
