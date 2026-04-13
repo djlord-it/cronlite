@@ -10,6 +10,17 @@ import (
 	"github.com/djlord-it/cronlite/internal/service"
 )
 
+const maxRequestBodySize = 1 << 20
+
+func bodySizeLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // NewServer creates a new MCP server with all Phase 1 tools registered.
 // The tools delegate to the service layer, which requires a namespace in
 // the context (injected by the auth middleware / HTTPContextFunc).
@@ -39,7 +50,7 @@ func MountHTTP(
 		server.WithHTTPContextFunc(httpContextFunc(keyRepo, fallbackKey)),
 	)
 
-	limited := api.BodySizeLimitMiddleware(httpServer)
+	limited := bodySizeLimitMiddleware(httpServer)
 	limited = api.NamespaceRateLimitMiddleware(namespaceRateLimit, limited)
 
 	// Wrap with auth middleware for the initial HTTP connection.
