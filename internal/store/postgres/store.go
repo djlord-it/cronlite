@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 
-	"github.com/djlord-it/cronlite/internal/api"
 	"github.com/djlord-it/cronlite/internal/dispatcher"
 	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/djlord-it/cronlite/internal/scheduler"
@@ -1061,7 +1060,6 @@ func searchString(s, substr string) bool {
 var (
 	_ scheduler.Store  = (*Store)(nil)
 	_ dispatcher.Store = (*Store)(nil)
-	_ api.Store        = (*Store)(nil)
 
 	_ domain.JobRepository             = (*Store)(nil)
 	_ domain.ScheduleRepository        = (*Store)(nil)
