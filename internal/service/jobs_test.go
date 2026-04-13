@@ -1165,3 +1165,89 @@ func TestTriggerNow_NamespaceMismatch(t *testing.T) {
 		t.Errorf("expected ErrJobNotFound for namespace mismatch, got %v", err)
 	}
 }
+
+// --- mockEmitter for TriggerNow emit tests ---
+
+type mockEmitter struct {
+	emitFn    func(ctx context.Context, event domain.TriggerEvent) error
+	lastEvent domain.TriggerEvent
+	called    bool
+}
+
+func (m *mockEmitter) Emit(ctx context.Context, event domain.TriggerEvent) error {
+	m.called = true
+	m.lastEvent = event
+	if m.emitFn != nil {
+		return m.emitFn(ctx, event)
+	}
+	return nil
+}
+
+func TestTriggerNow_EmitsEvent(t *testing.T) {
+	jobID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID:        jobID,
+				Namespace: "t1",
+				Enabled:   true,
+			}, domain.Schedule{}, nil
+		},
+	}
+	execRepo := &mockExecutionRepo{}
+	emitter := &mockEmitter{}
+	svc := newTestServiceFull(jobRepo, nil, execRepo, nil, nil, nil).WithEmitter(emitter)
+
+	exec, err := svc.TriggerNow(ctxWithNS("t1"), jobID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !emitter.called {
+		t.Fatal("expected Emit to be called")
+	}
+	if emitter.lastEvent.ExecutionID != exec.ID {
+		t.Errorf("expected emitted ExecutionID %s, got %s", exec.ID, emitter.lastEvent.ExecutionID)
+	}
+	if emitter.lastEvent.JobID != jobID {
+		t.Errorf("expected emitted JobID %s, got %s", jobID, emitter.lastEvent.JobID)
+	}
+	if emitter.lastEvent.Namespace != "t1" {
+		t.Errorf("expected emitted Namespace 't1', got %q", emitter.lastEvent.Namespace)
+	}
+}
+
+func TestTriggerNow_EmitFailureIsNonFatal(t *testing.T) {
+	jobID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID:        jobID,
+				Namespace: "t1",
+				Enabled:   true,
+			}, domain.Schedule{}, nil
+		},
+	}
+	execRepo := &mockExecutionRepo{}
+	emitter := &mockEmitter{
+		emitFn: func(_ context.Context, _ domain.TriggerEvent) error {
+			return errors.New("emit failed")
+		},
+	}
+	svc := newTestServiceFull(jobRepo, nil, execRepo, nil, nil, nil).WithEmitter(emitter)
+
+	exec, err := svc.TriggerNow(ctxWithNS("t1"), jobID)
+	if err != nil {
+		t.Fatalf("TriggerNow should succeed even when Emit fails, got: %v", err)
+	}
+	if !emitter.called {
+		t.Error("expected Emit to be called even though it fails")
+	}
+	if exec.ID == uuid.Nil {
+		t.Error("expected a valid execution ID")
+	}
+	// Verify the execution was still inserted into the repo.
+	if execRepo.lastInsertedExec.ID != exec.ID {
+		t.Error("expected execution to be inserted into repo despite emit failure")
+	}
+}

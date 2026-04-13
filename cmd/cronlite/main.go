@@ -359,6 +359,10 @@ func runServe() int {
 	svcParser := cron.NewParser()
 	jobService := service.NewJobService(store, store, store, store, store, store, svcParser)
 
+	if cfg.DispatchMode == "channel" {
+		jobService = jobService.WithEmitter(emitter)
+	}
+
 	// ── REST transport (oapi-codegen strict handler) ──────────────────────────
 	serverImpl := api.NewServerImpl(jobService).WithHealthChecker(db)
 	strictHandler := api.NewStrictHandler(serverImpl, nil)
