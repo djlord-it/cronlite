@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      COVERAGE_THRESHOLD: "25"
+      COVERAGE_THRESHOLD: "40"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
