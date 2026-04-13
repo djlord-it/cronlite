@@ -380,6 +380,7 @@ func runServe() int {
 	rootHandler = api.NamespaceRateLimitMiddleware(cfg.NamespaceRateLimit, rootHandler)         // per-namespace, after auth
 	rootHandler = api.MultiKeyAuthMiddleware(appCtx, store, cfg.APIKey, rootHandler)            // sets namespace in ctx
 	rootHandler = api.RateLimitMiddleware(cfg.IPRateLimit, rootHandler)                         // per-IP, before auth
+	rootHandler = api.CORSMiddleware(cfg.CORSOrigins, rootHandler)                             // CORS, outermost
 	if cfg.APIKey != "" {
 		log.Println("cronlite: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
 		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'cronlite create-key' and remove API_KEY.")

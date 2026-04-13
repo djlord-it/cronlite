@@ -82,6 +82,9 @@ type Config struct {
 	IPRateLimit int `json:"ip_rate_limit"`
 	// NamespaceRateLimit: per-namespace request rate (req/sec). Applied after auth.
 	NamespaceRateLimit int `json:"namespace_rate_limit"`
+
+	// CORSOrigins: comma-separated allowed origins (empty = disabled, * = all).
+	CORSOrigins string `json:"cors_origins,omitempty"`
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -201,6 +204,8 @@ func Load() Config {
 	if cfg.NamespaceRateLimit == 0 {
 		cfg.NamespaceRateLimit = 100
 	}
+
+	cfg.CORSOrigins = os.Getenv("CORS_ORIGINS")
 
 	if maxOpenStr := os.Getenv("DB_MAX_OPEN_CONNS"); maxOpenStr != "" {
 		if n, err := parseInt(maxOpenStr); err == nil && n > 0 {

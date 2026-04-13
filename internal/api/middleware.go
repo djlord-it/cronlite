@@ -257,6 +257,51 @@ func (l *ipRateLimiter) allow(ip string) bool {
 	return true
 }
 
+// CORSMiddleware adds CORS headers. If allowedOrigins is empty, CORS
+// headers are not set (pass-through). Supports preflight OPTIONS requests.
+func CORSMiddleware(allowedOrigins string, next http.Handler) http.Handler {
+	if allowedOrigins == "" {
+		return next
+	}
+
+	origins := strings.Split(allowedOrigins, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
+	}
+
+	allowed := make(map[string]bool, len(origins))
+	allowAll := false
+	for _, o := range origins {
+		if o == "*" {
+			allowAll = true
+		}
+		allowed[o] = true
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if allowAll || allowed[origin] {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			w.Header().Set("Vary", "Origin")
+		}
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // NamespaceRateLimitMiddleware limits requests per namespace using a token bucket.
 // ratePerSecond is the sustained request rate per namespace.
 // Requests without a namespace in context (exempt paths) pass through.
