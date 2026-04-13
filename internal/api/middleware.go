@@ -53,11 +53,12 @@ func AuthMiddleware(apiKey string, next http.Handler) http.Handler {
 //   - If neither matches, 401 is returned.
 //   - last_used_at is tracked with in-process debounce (dirty map + background flush).
 func MultiKeyAuthMiddleware(
+	ctx context.Context,
 	keyRepo domain.APIKeyRepository,
 	fallbackKey string,
 	next http.Handler,
 ) http.Handler {
-	tracker := newLastUsedTracker(keyRepo)
+	tracker := newLastUsedTracker(ctx, keyRepo)
 
 	// Rate-limited deprecation log: at most once per 60 seconds.
 	var lastLegacyWarn atomic.Int64
@@ -114,13 +115,13 @@ type lastUsedTracker struct {
 	stopCh chan struct{}
 }
 
-func newLastUsedTracker(repo domain.APIKeyRepository) *lastUsedTracker {
+func newLastUsedTracker(ctx context.Context, repo domain.APIKeyRepository) *lastUsedTracker {
 	t := &lastUsedTracker{
 		dirty:  make(map[uuid.UUID]struct{}),
 		repo:   repo,
 		stopCh: make(chan struct{}),
 	}
-	go t.flushLoop()
+	go t.flushLoop(ctx)
 	return t
 }
 
@@ -130,7 +131,7 @@ func (t *lastUsedTracker) markUsed(id uuid.UUID) {
 	t.mu.Unlock()
 }
 
-func (t *lastUsedTracker) flushLoop() {
+func (t *lastUsedTracker) flushLoop(ctx context.Context) {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
@@ -138,6 +139,9 @@ func (t *lastUsedTracker) flushLoop() {
 		select {
 		case <-ticker.C:
 			t.flush()
+		case <-ctx.Done():
+			t.flush()
+			return
 		case <-t.stopCh:
 			t.flush()
 			return
