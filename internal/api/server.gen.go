@@ -282,6 +282,12 @@ type ListAPIKeysParams struct {
 	Offset *OffsetParam `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// ListPendingAckParams defines parameters for ListPendingAck.
+type ListPendingAckParams struct {
+	Limit *LimitParam         `form:"limit,omitempty" json:"limit,omitempty"`
+	JobId *openapi_types.UUID `form:"job_id,omitempty" json:"job_id,omitempty"`
+}
+
 // GetHealthParams defines parameters for GetHealth.
 type GetHealthParams struct {
 	Verbose *bool `form:"verbose,omitempty" json:"verbose,omitempty"`
@@ -339,9 +345,15 @@ type ServerInterface interface {
 	// Revoke an API key
 	// (DELETE /api-keys/{id})
 	DeleteAPIKey(w http.ResponseWriter, r *http.Request, id APIKeyId)
+	// List unacknowledged completed/failed executions
+	// (GET /executions/pending-ack)
+	ListPendingAck(w http.ResponseWriter, r *http.Request, params ListPendingAckParams)
 	// Get execution detail with delivery attempts
 	// (GET /executions/{id})
 	GetExecution(w http.ResponseWriter, r *http.Request, id ExecutionId)
+	// Acknowledge an execution result
+	// (POST /executions/{id}/ack)
+	AckExecution(w http.ResponseWriter, r *http.Request, id ExecutionId)
 	// Health check
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request, params GetHealthParams)
@@ -481,6 +493,47 @@ func (siw *ServerInterfaceWrapper) DeleteAPIKey(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListPendingAck operation middleware
+func (siw *ServerInterfaceWrapper) ListPendingAck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPendingAckParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "job_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "job_id", r.URL.Query(), &params.JobId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "job_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPendingAck(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetExecution operation middleware
 func (siw *ServerInterfaceWrapper) GetExecution(w http.ResponseWriter, r *http.Request) {
 
@@ -503,6 +556,37 @@ func (siw *ServerInterfaceWrapper) GetExecution(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetExecution(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AckExecution operation middleware
+func (siw *ServerInterfaceWrapper) AckExecution(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id ExecutionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AckExecution(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1066,7 +1150,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("GET "+options.BaseURL+"/api-keys", wrapper.ListAPIKeys)
 	m.HandleFunc("POST "+options.BaseURL+"/api-keys", wrapper.CreateAPIKey)
 	m.HandleFunc("DELETE "+options.BaseURL+"/api-keys/{id}", wrapper.DeleteAPIKey)
+	m.HandleFunc("GET "+options.BaseURL+"/executions/pending-ack", wrapper.ListPendingAck)
 	m.HandleFunc("GET "+options.BaseURL+"/executions/{id}", wrapper.GetExecution)
+	m.HandleFunc("POST "+options.BaseURL+"/executions/{id}/ack", wrapper.AckExecution)
 	m.HandleFunc("GET "+options.BaseURL+"/health", wrapper.GetHealth)
 	m.HandleFunc("GET "+options.BaseURL+"/jobs", wrapper.ListJobs)
 	m.HandleFunc("POST "+options.BaseURL+"/jobs", wrapper.CreateJob)
@@ -1144,6 +1230,25 @@ func (response DeleteAPIKey404JSONResponse) VisitDeleteAPIKeyResponse(w http.Res
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListPendingAckRequestObject struct {
+	Params ListPendingAckParams
+}
+
+type ListPendingAckResponseObject interface {
+	VisitListPendingAckResponse(w http.ResponseWriter) error
+}
+
+type ListPendingAck200JSONResponse struct {
+	Executions []Execution `json:"executions"`
+}
+
+func (response ListPendingAck200JSONResponse) VisitListPendingAckResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type GetExecutionRequestObject struct {
 	Id ExecutionId `json:"id"`
 }
@@ -1164,6 +1269,31 @@ func (response GetExecution200JSONResponse) VisitGetExecutionResponse(w http.Res
 type GetExecution404JSONResponse Error
 
 func (response GetExecution404JSONResponse) VisitGetExecutionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AckExecutionRequestObject struct {
+	Id ExecutionId `json:"id"`
+}
+
+type AckExecutionResponseObject interface {
+	VisitAckExecutionResponse(w http.ResponseWriter) error
+}
+
+type AckExecution204Response struct {
+}
+
+func (response AckExecution204Response) VisitAckExecutionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AckExecution404JSONResponse Error
+
+func (response AckExecution404JSONResponse) VisitAckExecutionResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
 
@@ -1489,9 +1619,15 @@ type StrictServerInterface interface {
 	// Revoke an API key
 	// (DELETE /api-keys/{id})
 	DeleteAPIKey(ctx context.Context, request DeleteAPIKeyRequestObject) (DeleteAPIKeyResponseObject, error)
+	// List unacknowledged completed/failed executions
+	// (GET /executions/pending-ack)
+	ListPendingAck(ctx context.Context, request ListPendingAckRequestObject) (ListPendingAckResponseObject, error)
 	// Get execution detail with delivery attempts
 	// (GET /executions/{id})
 	GetExecution(ctx context.Context, request GetExecutionRequestObject) (GetExecutionResponseObject, error)
+	// Acknowledge an execution result
+	// (POST /executions/{id}/ack)
+	AckExecution(ctx context.Context, request AckExecutionRequestObject) (AckExecutionResponseObject, error)
 	// Health check
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -1642,6 +1778,32 @@ func (sh *strictHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request, id
 	}
 }
 
+// ListPendingAck operation middleware
+func (sh *strictHandler) ListPendingAck(w http.ResponseWriter, r *http.Request, params ListPendingAckParams) {
+	var request ListPendingAckRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPendingAck(ctx, request.(ListPendingAckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPendingAck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPendingAckResponseObject); ok {
+		if err := validResponse.VisitListPendingAckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetExecution operation middleware
 func (sh *strictHandler) GetExecution(w http.ResponseWriter, r *http.Request, id ExecutionId) {
 	var request GetExecutionRequestObject
@@ -1661,6 +1823,32 @@ func (sh *strictHandler) GetExecution(w http.ResponseWriter, r *http.Request, id
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetExecutionResponseObject); ok {
 		if err := validResponse.VisitGetExecutionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AckExecution operation middleware
+func (sh *strictHandler) AckExecution(w http.ResponseWriter, r *http.Request, id ExecutionId) {
+	var request AckExecutionRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AckExecution(ctx, request.(AckExecutionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AckExecution")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AckExecutionResponseObject); ok {
+		if err := validResponse.VisitAckExecutionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2001,43 +2189,45 @@ func (sh *strictHandler) ResolveSchedule(w http.ResponseWriter, r *http.Request)
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
+	"AAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file
