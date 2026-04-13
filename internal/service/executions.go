@@ -17,7 +17,7 @@ func (s *JobService) ListExecutions(ctx context.Context, filter domain.Execution
 	}
 
 	filter.Namespace = ns
-	filter.ListParams = filter.ListParams.WithDefaults()
+	filter.ListParams = filter.WithDefaults()
 
 	return s.executions.ListExecutions(ctx, filter)
 }
@@ -29,11 +29,8 @@ func (s *JobService) GetExecution(ctx context.Context, id uuid.UUID) (domain.Exe
 		return domain.Execution{}, nil, domain.ErrNamespaceRequired
 	}
 
-	exec, err := s.executions.GetExecution(ctx, id)
+	exec, err := s.executions.GetExecutionScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Execution{}, nil, domain.ErrExecutionNotFound
-	}
-	if exec.Namespace != ns {
 		return domain.Execution{}, nil, domain.ErrExecutionNotFound
 	}
 

@@ -68,7 +68,7 @@ func TestMultiKeyAuth_ValidDBKey(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/jobs", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
@@ -107,7 +107,7 @@ func TestMultiKeyAuth_DisabledKey_FallbackMatch(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "test-token", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "test-token", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/jobs", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
@@ -136,7 +136,7 @@ func TestMultiKeyAuth_NoDBMatch_FallbackMatch(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "test-token", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "test-token", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/jobs", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
@@ -163,7 +163,7 @@ func TestMultiKeyAuth_NoMatch(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "other", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "other", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/jobs", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
@@ -183,7 +183,7 @@ func TestMultiKeyAuth_NoBearerPrefix(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/jobs", nil)
 	req.Header.Set("Authorization", "Basic test-token")
@@ -203,7 +203,7 @@ func TestMultiKeyAuth_NoAuthHeader(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/jobs", nil)
 	w := httptest.NewRecorder()
@@ -224,7 +224,7 @@ func TestMultiKeyAuth_HealthBypass(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
@@ -248,7 +248,7 @@ func TestMultiKeyAuth_MetricsRequiresAuth(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
@@ -272,7 +272,7 @@ func TestMultiKeyAuth_MCPBypass(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := MultiKeyAuthMiddleware(repo, "", next)
+	handler := MultiKeyAuthMiddleware(context.Background(), repo, "", next)
 
 	req := httptest.NewRequest(http.MethodGet, "/mcp/sse", nil)
 	w := httptest.NewRecorder()

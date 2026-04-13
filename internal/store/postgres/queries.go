@@ -117,6 +117,12 @@ FROM executions
 WHERE id = $1
 `
 
+const queryGetExecutionScoped = `
+SELECT id, job_id, namespace, trigger_type, scheduled_at, fired_at, status, acknowledged_at, created_at
+FROM executions
+WHERE id = $1 AND namespace = $2
+`
+
 const queryGetRecentExecutions = `
 SELECT id, job_id, namespace, trigger_type, scheduled_at, fired_at, status, acknowledged_at, created_at
 FROM executions

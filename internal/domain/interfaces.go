@@ -33,6 +33,9 @@ type ScheduleRepository interface {
 type ExecutionRepository interface {
 	InsertExecution(ctx context.Context, exec Execution) error
 	GetExecution(ctx context.Context, id uuid.UUID) (Execution, error)
+	// GetExecutionScoped retrieves an execution by ID filtered by namespace at the SQL level.
+	// Used by the service layer for API-facing operations (defense-in-depth).
+	GetExecutionScoped(ctx context.Context, id uuid.UUID, ns Namespace) (Execution, error)
 	ListExecutions(ctx context.Context, filter ExecutionFilter) ([]Execution, error)
 	GetRecentExecutions(ctx context.Context, jobID uuid.UUID, limit int) ([]Execution, error)
 	UpdateExecutionStatus(ctx context.Context, id uuid.UUID, status ExecutionStatus) error
