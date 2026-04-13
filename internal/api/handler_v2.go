@@ -352,16 +352,6 @@ func (s *ServerImpl) GetExecution(ctx context.Context, request GetExecutionReque
 	return GetExecution200JSONResponse(domainExecutionToAPI(exec)), nil
 }
 
-func (s *ServerImpl) ListPendingAck(_ context.Context, _ ListPendingAckRequestObject) (ListPendingAckResponseObject, error) {
-	// Phase 3 — not yet implemented.
-	return ListPendingAck200JSONResponse{Executions: []Execution{}}, nil
-}
-
-func (s *ServerImpl) AckExecution(_ context.Context, _ AckExecutionRequestObject) (AckExecutionResponseObject, error) {
-	// Phase 3 — not yet implemented.
-	return AckExecution204Response{}, nil
-}
-
 // ── API Keys ──────────────────────────────────────────────────────────────────
 
 func (s *ServerImpl) CreateAPIKey(ctx context.Context, request CreateAPIKeyRequestObject) (CreateAPIKeyResponseObject, error) {

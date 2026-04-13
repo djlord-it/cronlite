@@ -1060,40 +1060,6 @@ func TestGetExecution_NotFound(t *testing.T) {
 	}
 }
 
-// ── Stub Tests ───────────────────────────────────────────────────────────────
-
-func TestListPendingAck_ReturnsEmpty(t *testing.T) {
-	srv := newTestServer(nil, nil, nil, nil, nil, nil)
-	ctx := context.Background()
-
-	resp, err := srv.ListPendingAck(ctx, ListPendingAckRequestObject{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	got, ok := resp.(ListPendingAck200JSONResponse)
-	if !ok {
-		t.Fatalf("expected ListPendingAck200JSONResponse, got %T", resp)
-	}
-	if len(got.Executions) != 0 {
-		t.Fatalf("expected empty executions, got %d", len(got.Executions))
-	}
-}
-
-func TestAckExecution_Returns204(t *testing.T) {
-	srv := newTestServer(nil, nil, nil, nil, nil, nil)
-	ctx := context.Background()
-
-	resp, err := srv.AckExecution(ctx, AckExecutionRequestObject{Id: uuid.New()})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if _, ok := resp.(AckExecution204Response); !ok {
-		t.Fatalf("expected AckExecution204Response, got %T", resp)
-	}
-}
-
 // ── API Key Tests ────────────────────────────────────────────────────────────
 
 func TestCreateAPIKey_HappyPath(t *testing.T) {
