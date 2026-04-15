@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.25-alpine3.23 AS builder
 
 ARG RACE_ENABLED=0
 
@@ -38,10 +38,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /cronlite-mcp ./cmd/cronlite-mcp
 
 # Runtime stage
-FROM alpine:3.19
+FROM alpine:3.23
 
-# Install ca-certificates for HTTPS webhook calls
-RUN apk add --no-cache ca-certificates tzdata
+# Refresh base packages so Trivy sees the latest security fixes from the
+# selected Alpine branch, then install runtime dependencies.
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata
 
 # Create non-root user
 RUN addgroup -g 1000 cronlite && \

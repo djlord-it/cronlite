@@ -41,6 +41,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          pull: true
           load: true
           tags: cronlite:scan
           cache-from: type=gha
