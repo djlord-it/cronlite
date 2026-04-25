@@ -352,11 +352,29 @@ func (s *ServerImpl) GetExecution(ctx context.Context, request GetExecutionReque
 	return GetExecution200JSONResponse(domainExecutionToAPI(exec)), nil
 }
 
-func (s *ServerImpl) ListPendingAck(_ context.Context, _ ListPendingAckRequestObject) (ListPendingAckResponseObject, error) {
-	return ListPendingAck200JSONResponse{Executions: []Execution{}}, nil
+func (s *ServerImpl) ListPendingAck(ctx context.Context, request ListPendingAckRequestObject) (ListPendingAckResponseObject, error) {
+	params := request.Params
+	limit := 0
+	if params.Limit != nil {
+		limit = *params.Limit
+	}
+
+	execs, err := s.svc.ListPendingAck(ctx, params.JobId, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	return ListPendingAck200JSONResponse{Executions: domainExecutionsToAPI(execs)}, nil
 }
 
-func (s *ServerImpl) AckExecution(_ context.Context, _ AckExecutionRequestObject) (AckExecutionResponseObject, error) {
+func (s *ServerImpl) AckExecution(ctx context.Context, request AckExecutionRequestObject) (AckExecutionResponseObject, error) {
+	if err := s.svc.AckExecution(ctx, request.Id); err != nil {
+		he := mapDomainError(err)
+		if he.Status == 404 {
+			return AckExecution404JSONResponse(newErrorResponse(he)), nil
+		}
+		return nil, err
+	}
 	return AckExecution204Response{}, nil
 }
 

@@ -131,6 +131,15 @@ ORDER BY created_at DESC
 LIMIT $2
 `
 
+const queryAckExecution = `
+UPDATE executions
+SET acknowledged_at = NOW()
+WHERE id = $1
+  AND namespace = $2
+  AND acknowledged_at IS NULL
+  AND status IN ('delivered', 'failed')
+`
+
 const queryGetExecutionStatus = `
 SELECT status FROM executions WHERE id = $1
 `

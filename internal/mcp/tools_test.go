@@ -115,6 +115,8 @@ type mockExecutionRepo struct {
 	getExecutionFn          func(ctx context.Context, id uuid.UUID) (domain.Execution, error)
 	getExecutionScopedFn    func(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error)
 	listExecutionsFn        func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
+	listPendingAckFn        func(ctx context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error)
+	ackExecutionFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
 	getRecentExecutionsFn   func(ctx context.Context, jobID uuid.UUID, limit int) ([]domain.Execution, error)
 	updateExecutionStatusFn func(ctx context.Context, id uuid.UUID, status domain.ExecutionStatus) error
 	dequeueExecutionFn      func(ctx context.Context) (*domain.Execution, error)
@@ -148,6 +150,20 @@ func (m *mockExecutionRepo) ListExecutions(ctx context.Context, filter domain.Ex
 		return m.listExecutionsFn(ctx, filter)
 	}
 	return nil, nil
+}
+
+func (m *mockExecutionRepo) ListPendingAck(ctx context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error) {
+	if m.listPendingAckFn != nil {
+		return m.listPendingAckFn(ctx, ns, jobID, limit)
+	}
+	return nil, nil
+}
+
+func (m *mockExecutionRepo) AckExecution(ctx context.Context, id uuid.UUID, ns domain.Namespace) error {
+	if m.ackExecutionFn != nil {
+		return m.ackExecutionFn(ctx, id, ns)
+	}
+	return nil
 }
 
 func (m *mockExecutionRepo) GetRecentExecutions(ctx context.Context, jobID uuid.UUID, limit int) ([]domain.Execution, error) {

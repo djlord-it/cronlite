@@ -47,6 +47,102 @@ func TestListExecutions_NoNamespace(t *testing.T) {
 	}
 }
 
+func TestListPendingAck_HappyPath(t *testing.T) {
+	jobID := uuid.New()
+	var capturedNS domain.Namespace
+	var capturedJobID *uuid.UUID
+	var capturedLimit int
+	execRepo := &mockExecutionRepo{
+		listPendingAckFn: func(_ context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error) {
+			capturedNS = ns
+			capturedJobID = jobID
+			capturedLimit = limit
+			return []domain.Execution{
+				{ID: uuid.New(), JobID: *jobID, Namespace: ns, Status: domain.ExecutionStatusDelivered},
+			}, nil
+		},
+	}
+	svc := newTestServiceFull(nil, nil, execRepo, nil, nil, nil)
+
+	execs, err := svc.ListPendingAck(ctxWithNS("t1"), &jobID, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(execs) != 1 {
+		t.Fatalf("expected 1 execution, got %d", len(execs))
+	}
+	if capturedNS != "t1" {
+		t.Errorf("expected namespace 't1', got %q", capturedNS)
+	}
+	if capturedJobID == nil || *capturedJobID != jobID {
+		t.Errorf("expected job ID %s, got %v", jobID, capturedJobID)
+	}
+	if capturedLimit != 10 {
+		t.Errorf("expected limit 10, got %d", capturedLimit)
+	}
+}
+
+func TestListPendingAck_DefaultsLimit(t *testing.T) {
+	var capturedLimit int
+	execRepo := &mockExecutionRepo{
+		listPendingAckFn: func(_ context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error) {
+			capturedLimit = limit
+			return nil, nil
+		},
+	}
+	svc := newTestServiceFull(nil, nil, execRepo, nil, nil, nil)
+
+	_, err := svc.ListPendingAck(ctxWithNS("t1"), nil, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedLimit != 100 {
+		t.Errorf("expected default limit 100, got %d", capturedLimit)
+	}
+}
+
+func TestListPendingAck_NoNamespace(t *testing.T) {
+	svc := newTestServiceFull(nil, nil, nil, nil, nil, nil)
+
+	_, err := svc.ListPendingAck(context.Background(), nil, 10)
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+func TestAckExecution_HappyPath(t *testing.T) {
+	execID := uuid.New()
+	var capturedID uuid.UUID
+	var capturedNS domain.Namespace
+	execRepo := &mockExecutionRepo{
+		ackExecutionFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) error {
+			capturedID = id
+			capturedNS = ns
+			return nil
+		},
+	}
+	svc := newTestServiceFull(nil, nil, execRepo, nil, nil, nil)
+
+	if err := svc.AckExecution(ctxWithNS("t1"), execID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedID != execID {
+		t.Errorf("expected execution ID %s, got %s", execID, capturedID)
+	}
+	if capturedNS != "t1" {
+		t.Errorf("expected namespace 't1', got %q", capturedNS)
+	}
+}
+
+func TestAckExecution_NoNamespace(t *testing.T) {
+	svc := newTestServiceFull(nil, nil, nil, nil, nil, nil)
+
+	err := svc.AckExecution(context.Background(), uuid.New())
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
 func TestGetExecution_HappyPath(t *testing.T) {
 	execID := uuid.New()
 	jobID := uuid.New()
