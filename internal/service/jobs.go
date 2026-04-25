@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/webhookurl"
 	"github.com/google/uuid"
 )
 
@@ -421,29 +420,7 @@ func computeNextRuns(sched interface{ Next(time.Time) time.Time }, n int) []time
 }
 
 func validateWebhookURL(rawURL string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return err
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("scheme must be http or https")
-	}
-	if u.Host == "" {
-		return fmt.Errorf("host is required")
-	}
-
-	host := u.Hostname()
-	if host == "metadata.google.internal" || host == "localhost" {
-		return fmt.Errorf("forbidden host")
-	}
-
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return fmt.Errorf("forbidden ip")
-		}
-	}
-
-	return nil
+	return webhookurl.Validate(rawURL)
 }
 
 // Natural language patterns.
