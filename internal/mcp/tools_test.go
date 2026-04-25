@@ -249,6 +249,17 @@ func (m *mockAttemptRepo) GetAttempts(ctx context.Context, executionID uuid.UUID
 	return nil, nil
 }
 
+type mockEmitter struct {
+	lastEvent domain.TriggerEvent
+	called    bool
+}
+
+func (m *mockEmitter) Emit(ctx context.Context, event domain.TriggerEvent) error {
+	m.called = true
+	m.lastEvent = event
+	return nil
+}
+
 // ── Test helpers ────────────────────────────────────────────────────────────
 
 func newTestService(jr *mockJobRepo, sr *mockScheduleRepo, er *mockExecutionRepo, tr *mockTagRepo) *service.JobService {
@@ -910,6 +921,50 @@ func TestHandleTriggerJob_HappyPath(t *testing.T) {
 	}
 	if !strings.Contains(text, "manual") {
 		t.Errorf("expected trigger_type manual in result, got: %s", text)
+	}
+}
+
+func TestHandleTriggerJob_EmitsEventWhenEmitterAttached(t *testing.T) {
+	job := fixedJob()
+	job.Enabled = true
+	schedule := fixedSchedule()
+
+	jr := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, _ uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return job, schedule, nil
+		},
+	}
+	emitter := &mockEmitter{}
+	svc := newTestService(jr, nil, nil, nil).WithEmitter(emitter)
+	handler := handleTriggerJob(svc)
+
+	req := mcpgo.CallToolRequest{
+		Params: mcpgo.CallToolParams{
+			Name: "trigger-job",
+			Arguments: map[string]any{
+				"id": job.ID.String(),
+			},
+		},
+	}
+
+	result, err := handler(ctxWithNS("t1"), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("expected success, got error: %s", resultText(t, result))
+	}
+	if !emitter.called {
+		t.Fatal("expected MCP manual trigger to emit dispatch event")
+	}
+	if emitter.lastEvent.JobID != job.ID {
+		t.Fatalf("expected emitted job ID %v, got %v", job.ID, emitter.lastEvent.JobID)
+	}
+	if emitter.lastEvent.Namespace != "t1" {
+		t.Fatalf("expected emitted namespace t1, got %q", emitter.lastEvent.Namespace)
+	}
+	if emitter.lastEvent.ExecutionID == uuid.Nil {
+		t.Fatal("expected emitted execution ID")
 	}
 }
 
