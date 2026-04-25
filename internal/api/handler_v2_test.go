@@ -271,6 +271,17 @@ func (m *mockHealthCheckerV2) PingContext(ctx context.Context) error {
 	return m.pingErr
 }
 
+type mockEmitterV2 struct {
+	lastEvent domain.TriggerEvent
+	called    bool
+}
+
+func (m *mockEmitterV2) Emit(ctx context.Context, event domain.TriggerEvent) error {
+	m.called = true
+	m.lastEvent = event
+	return nil
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 func ctxWithNS(ns string) context.Context {
@@ -827,6 +838,42 @@ func TestTriggerJob_HappyPath(t *testing.T) {
 	}
 	if got.TriggerType != ExecutionTriggerTypeManual {
 		t.Fatalf("expected trigger type %q, got %q", ExecutionTriggerTypeManual, got.TriggerType)
+	}
+}
+
+func TestTriggerJob_EmitsEventWhenEmitterAttached(t *testing.T) {
+	jobID := uuid.New()
+	jr := &mockJobRepo{
+		getJobWithScheduleFn: func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return fixedJob(jobID, "t1"), fixedSchedule(uuid.New()), nil
+		},
+	}
+	er := &mockExecRepo{}
+	emitter := &mockEmitterV2{}
+	svc := service.NewJobService(jr, &mockScheduleRepo{}, er, &mockTagRepo{}, &mockAPIKeyRepoV2{}, &mockAttemptRepo{}, cron.NewParser()).
+		WithEmitter(emitter)
+	srv := NewServerImpl(svc)
+
+	resp, err := srv.TriggerJob(ctxWithNS("t1"), TriggerJobRequestObject{Id: jobID})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := resp.(TriggerJob201JSONResponse)
+	if !ok {
+		t.Fatalf("expected TriggerJob201JSONResponse, got %T", resp)
+	}
+	if !emitter.called {
+		t.Fatal("expected manual trigger to emit dispatch event")
+	}
+	if emitter.lastEvent.ExecutionID != got.Id {
+		t.Fatalf("expected emitted execution ID %v, got %v", got.Id, emitter.lastEvent.ExecutionID)
+	}
+	if emitter.lastEvent.JobID != jobID {
+		t.Fatalf("expected emitted job ID %v, got %v", jobID, emitter.lastEvent.JobID)
+	}
+	if emitter.lastEvent.Namespace != "t1" {
+		t.Fatalf("expected emitted namespace t1, got %q", emitter.lastEvent.Namespace)
 	}
 }
 
