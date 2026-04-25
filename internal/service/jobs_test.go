@@ -421,17 +421,32 @@ func TestCreateJob_InvalidCron(t *testing.T) {
 }
 
 func TestCreateJob_InvalidWebhookURL(t *testing.T) {
-	svc := newTestService(nil)
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"loopback ipv4", "http://127.0.0.1/hook"},
+		{"uppercase localhost", "http://LOCALHOST/hook"},
+		{"unspecified ipv4", "http://0.0.0.0/hook"},
+		{"unspecified ipv6", "http://[::]/hook"},
+		{"ipv6 link-local with zone", "http://[fe80::1%25eth0]/hook"},
+	}
 
-	_, _, err := svc.CreateJob(ctxWithNS("t1"), CreateJobInput{
-		Name:           "bad-webhook",
-		CronExpression: "*/5 * * * *",
-		Timezone:       "UTC",
-		WebhookURL:     "http://127.0.0.1/hook",
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newTestService(nil)
 
-	if !errors.Is(err, domain.ErrInvalidWebhookURL) {
-		t.Errorf("expected ErrInvalidWebhookURL, got %v", err)
+			_, _, err := svc.CreateJob(ctxWithNS("t1"), CreateJobInput{
+				Name:           "bad-webhook",
+				CronExpression: "*/5 * * * *",
+				Timezone:       "UTC",
+				WebhookURL:     tt.url,
+			})
+
+			if !errors.Is(err, domain.ErrInvalidWebhookURL) {
+				t.Errorf("expected ErrInvalidWebhookURL, got %v", err)
+			}
+		})
 	}
 }
 
