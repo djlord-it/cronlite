@@ -13,7 +13,7 @@ type Config struct {
 	DatabaseURL string `json:"database_url"`
 	RedisAddr   string `json:"redis_addr,omitempty"`
 	HTTPAddr    string `json:"http_addr"`
-	APIKey  string `json:"-"` // never serialized, not even masked
+	APIKey      string `json:"-"` // never serialized, not even masked
 
 	TickInterval    time.Duration `json:"-"`
 	TickIntervalStr string        `json:"tick_interval"`
@@ -35,6 +35,7 @@ type Config struct {
 
 	MetricsEnabled bool   `json:"metrics_enabled"`
 	MetricsPath    string `json:"metrics_path"`
+	MetricsPublic  bool   `json:"metrics_public"`
 
 	ReconcileEnabled     bool          `json:"reconcile_enabled"`
 	ReconcileInterval    time.Duration `json:"-"`
@@ -53,9 +54,9 @@ type Config struct {
 	EventBusBufferSize int `json:"eventbus_buffer_size"`
 
 	// CircuitBreakerThreshold: 0 disables the circuit breaker.
-	CircuitBreakerThreshold  int           `json:"circuit_breaker_threshold"`
-	CircuitBreakerCooldown   time.Duration `json:"-"`
-	CircuitBreakerCooldownStr string       `json:"circuit_breaker_cooldown"`
+	CircuitBreakerThreshold   int           `json:"circuit_breaker_threshold"`
+	CircuitBreakerCooldown    time.Duration `json:"-"`
+	CircuitBreakerCooldownStr string        `json:"circuit_breaker_cooldown"`
 
 	// DispatchMode: "channel" (in-memory) or "db" (Postgres FOR UPDATE SKIP LOCKED polling).
 	DispatchMode      string        `json:"dispatch_mode"`
@@ -90,22 +91,23 @@ type Config struct {
 // Load reads configuration from environment variables with defaults.
 func Load() Config {
 	cfg := Config{
-		DatabaseURL:               os.Getenv("DATABASE_URL"),
-		RedisAddr:                 os.Getenv("REDIS_ADDR"),
-		HTTPAddr:                  os.Getenv("HTTP_ADDR"),
-		APIKey:                    os.Getenv("API_KEY"),
-		TickIntervalStr:           os.Getenv("TICK_INTERVAL"),
-		DBOpTimeoutStr:            os.Getenv("DB_OP_TIMEOUT"),
-		DBConnMaxLifetimeStr:      os.Getenv("DB_CONN_MAX_LIFETIME"),
-		DBConnMaxIdleTimeStr:      os.Getenv("DB_CONN_MAX_IDLE_TIME"),
-		HTTPShutdownTimeoutStr:    os.Getenv("HTTP_SHUTDOWN_TIMEOUT"),
-		DispatcherDrainTimeoutStr: os.Getenv("DISPATCHER_DRAIN_TIMEOUT"),
-		MetricsEnabled:            os.Getenv("METRICS_ENABLED") == "true",
-		MetricsPath:               os.Getenv("METRICS_PATH"),
-		ReconcileEnabled:          os.Getenv("RECONCILE_ENABLED") == "true",
-		ReconcileIntervalStr:          os.Getenv("RECONCILE_INTERVAL"),
-		ReconcileThresholdStr:         os.Getenv("RECONCILE_THRESHOLD"),
-		ReconcileRequeueThresholdStr:  os.Getenv("RECONCILE_REQUEUE_THRESHOLD"),
+		DatabaseURL:                  os.Getenv("DATABASE_URL"),
+		RedisAddr:                    os.Getenv("REDIS_ADDR"),
+		HTTPAddr:                     os.Getenv("HTTP_ADDR"),
+		APIKey:                       os.Getenv("API_KEY"),
+		TickIntervalStr:              os.Getenv("TICK_INTERVAL"),
+		DBOpTimeoutStr:               os.Getenv("DB_OP_TIMEOUT"),
+		DBConnMaxLifetimeStr:         os.Getenv("DB_CONN_MAX_LIFETIME"),
+		DBConnMaxIdleTimeStr:         os.Getenv("DB_CONN_MAX_IDLE_TIME"),
+		HTTPShutdownTimeoutStr:       os.Getenv("HTTP_SHUTDOWN_TIMEOUT"),
+		DispatcherDrainTimeoutStr:    os.Getenv("DISPATCHER_DRAIN_TIMEOUT"),
+		MetricsEnabled:               os.Getenv("METRICS_ENABLED") == "true",
+		MetricsPath:                  os.Getenv("METRICS_PATH"),
+		MetricsPublic:                os.Getenv("METRICS_PUBLIC") == "true",
+		ReconcileEnabled:             os.Getenv("RECONCILE_ENABLED") == "true",
+		ReconcileIntervalStr:         os.Getenv("RECONCILE_INTERVAL"),
+		ReconcileThresholdStr:        os.Getenv("RECONCILE_THRESHOLD"),
+		ReconcileRequeueThresholdStr: os.Getenv("RECONCILE_REQUEUE_THRESHOLD"),
 	}
 
 	if batchStr := os.Getenv("RECONCILE_BATCH_SIZE"); batchStr != "" {
@@ -335,67 +337,69 @@ func parseInt(s string) (int, error) {
 // MaskedJSON returns the configuration as JSON with secrets masked.
 func (c Config) MaskedJSON() ([]byte, error) {
 	masked := struct {
-		DatabaseURL            string `json:"database_url"`
-		RedisAddr              string `json:"redis_addr,omitempty"`
-		HTTPAddr               string `json:"http_addr"`
-		TickInterval           string `json:"tick_interval"`
-		DBOpTimeout            string `json:"db_op_timeout"`
-		DBMaxOpenConns         int    `json:"db_max_open_conns"`
-		DBMaxIdleConns         int    `json:"db_max_idle_conns"`
-		DBConnMaxLifetime      string `json:"db_conn_max_lifetime"`
-		DBConnMaxIdleTime      string `json:"db_conn_max_idle_time"`
-		HTTPShutdownTimeout    string `json:"http_shutdown_timeout"`
-		DispatcherDrainTimeout string `json:"dispatcher_drain_timeout"`
-		MetricsEnabled         bool   `json:"metrics_enabled"`
-		MetricsPath            string `json:"metrics_path"`
-		ReconcileEnabled       bool   `json:"reconcile_enabled"`
-		ReconcileInterval      string `json:"reconcile_interval"`
-		ReconcileThreshold         string `json:"reconcile_threshold"`
-		ReconcileRequeueThreshold  string `json:"reconcile_requeue_threshold"`
-		ReconcileBatchSize         int    `json:"reconcile_batch_size"`
-		EventBusBufferSize      int    `json:"eventbus_buffer_size"`
-		CircuitBreakerThreshold int    `json:"circuit_breaker_threshold"`
-		CircuitBreakerCooldown  string `json:"circuit_breaker_cooldown"`
-		DispatchMode             string `json:"dispatch_mode"`
-		DBPollInterval           string `json:"db_poll_interval"`
-		DispatcherWorkers        int    `json:"dispatcher_workers"`
-		LeaderLockKey            int64  `json:"leader_lock_key"`
-		LeaderRetryInterval      string `json:"leader_retry_interval"`
-		LeaderHeartbeatInterval  string `json:"leader_heartbeat_interval"`
-		MaxFiresPerTick          int    `json:"max_fires_per_tick"`
-		IPRateLimit              int    `json:"ip_rate_limit"`
-		NamespaceRateLimit       int    `json:"namespace_rate_limit"`
+		DatabaseURL               string `json:"database_url"`
+		RedisAddr                 string `json:"redis_addr,omitempty"`
+		HTTPAddr                  string `json:"http_addr"`
+		TickInterval              string `json:"tick_interval"`
+		DBOpTimeout               string `json:"db_op_timeout"`
+		DBMaxOpenConns            int    `json:"db_max_open_conns"`
+		DBMaxIdleConns            int    `json:"db_max_idle_conns"`
+		DBConnMaxLifetime         string `json:"db_conn_max_lifetime"`
+		DBConnMaxIdleTime         string `json:"db_conn_max_idle_time"`
+		HTTPShutdownTimeout       string `json:"http_shutdown_timeout"`
+		DispatcherDrainTimeout    string `json:"dispatcher_drain_timeout"`
+		MetricsEnabled            bool   `json:"metrics_enabled"`
+		MetricsPath               string `json:"metrics_path"`
+		MetricsPublic             bool   `json:"metrics_public"`
+		ReconcileEnabled          bool   `json:"reconcile_enabled"`
+		ReconcileInterval         string `json:"reconcile_interval"`
+		ReconcileThreshold        string `json:"reconcile_threshold"`
+		ReconcileRequeueThreshold string `json:"reconcile_requeue_threshold"`
+		ReconcileBatchSize        int    `json:"reconcile_batch_size"`
+		EventBusBufferSize        int    `json:"eventbus_buffer_size"`
+		CircuitBreakerThreshold   int    `json:"circuit_breaker_threshold"`
+		CircuitBreakerCooldown    string `json:"circuit_breaker_cooldown"`
+		DispatchMode              string `json:"dispatch_mode"`
+		DBPollInterval            string `json:"db_poll_interval"`
+		DispatcherWorkers         int    `json:"dispatcher_workers"`
+		LeaderLockKey             int64  `json:"leader_lock_key"`
+		LeaderRetryInterval       string `json:"leader_retry_interval"`
+		LeaderHeartbeatInterval   string `json:"leader_heartbeat_interval"`
+		MaxFiresPerTick           int    `json:"max_fires_per_tick"`
+		IPRateLimit               int    `json:"ip_rate_limit"`
+		NamespaceRateLimit        int    `json:"namespace_rate_limit"`
 	}{
-		DatabaseURL:            maskSecret(c.DatabaseURL),
-		RedisAddr:              maskSecret(c.RedisAddr),
-		HTTPAddr:               c.HTTPAddr,
-		TickInterval:           c.TickIntervalStr,
-		DBOpTimeout:            c.DBOpTimeoutStr,
-		DBMaxOpenConns:         c.DBMaxOpenConns,
-		DBMaxIdleConns:         c.DBMaxIdleConns,
-		DBConnMaxLifetime:      c.DBConnMaxLifetimeStr,
-		DBConnMaxIdleTime:      c.DBConnMaxIdleTimeStr,
-		HTTPShutdownTimeout:    c.HTTPShutdownTimeoutStr,
-		DispatcherDrainTimeout: c.DispatcherDrainTimeoutStr,
-		MetricsEnabled:         c.MetricsEnabled,
-		MetricsPath:            c.MetricsPath,
-		ReconcileEnabled:       c.ReconcileEnabled,
-		ReconcileInterval:      c.ReconcileIntervalStr,
+		DatabaseURL:               maskSecret(c.DatabaseURL),
+		RedisAddr:                 maskSecret(c.RedisAddr),
+		HTTPAddr:                  c.HTTPAddr,
+		TickInterval:              c.TickIntervalStr,
+		DBOpTimeout:               c.DBOpTimeoutStr,
+		DBMaxOpenConns:            c.DBMaxOpenConns,
+		DBMaxIdleConns:            c.DBMaxIdleConns,
+		DBConnMaxLifetime:         c.DBConnMaxLifetimeStr,
+		DBConnMaxIdleTime:         c.DBConnMaxIdleTimeStr,
+		HTTPShutdownTimeout:       c.HTTPShutdownTimeoutStr,
+		DispatcherDrainTimeout:    c.DispatcherDrainTimeoutStr,
+		MetricsEnabled:            c.MetricsEnabled,
+		MetricsPath:               c.MetricsPath,
+		MetricsPublic:             c.MetricsPublic,
+		ReconcileEnabled:          c.ReconcileEnabled,
+		ReconcileInterval:         c.ReconcileIntervalStr,
 		ReconcileThreshold:        c.ReconcileThresholdStr,
 		ReconcileRequeueThreshold: c.ReconcileRequeueThresholdStr,
 		ReconcileBatchSize:        c.ReconcileBatchSize,
-		EventBusBufferSize:      c.EventBusBufferSize,
-		CircuitBreakerThreshold: c.CircuitBreakerThreshold,
-		CircuitBreakerCooldown:  c.CircuitBreakerCooldownStr,
-		DispatchMode:            c.DispatchMode,
-		DBPollInterval:          c.DBPollIntervalStr,
-		DispatcherWorkers:       c.DispatcherWorkers,
-		LeaderLockKey:           c.LeaderLockKey,
-		LeaderRetryInterval:     c.LeaderRetryIntervalStr,
-		LeaderHeartbeatInterval: c.LeaderHeartbeatIntervalStr,
-		MaxFiresPerTick:         c.MaxFiresPerTick,
-		IPRateLimit:             c.IPRateLimit,
-		NamespaceRateLimit:      c.NamespaceRateLimit,
+		EventBusBufferSize:        c.EventBusBufferSize,
+		CircuitBreakerThreshold:   c.CircuitBreakerThreshold,
+		CircuitBreakerCooldown:    c.CircuitBreakerCooldownStr,
+		DispatchMode:              c.DispatchMode,
+		DBPollInterval:            c.DBPollIntervalStr,
+		DispatcherWorkers:         c.DispatcherWorkers,
+		LeaderLockKey:             c.LeaderLockKey,
+		LeaderRetryInterval:       c.LeaderRetryIntervalStr,
+		LeaderHeartbeatInterval:   c.LeaderHeartbeatIntervalStr,
+		MaxFiresPerTick:           c.MaxFiresPerTick,
+		IPRateLimit:               c.IPRateLimit,
+		NamespaceRateLimit:        c.NamespaceRateLimit,
 	}
 	return json.MarshalIndent(masked, "", "  ")
 }

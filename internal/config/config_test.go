@@ -299,6 +299,27 @@ func TestLoad_APIKeyEmpty(t *testing.T) {
 	}
 }
 
+func TestLoad_MetricsPublic(t *testing.T) {
+	os.Setenv("METRICS_PUBLIC", "true")
+	defer os.Unsetenv("METRICS_PUBLIC")
+
+	cfg := Load()
+
+	if !cfg.MetricsPublic {
+		t.Error("MetricsPublic: expected true")
+	}
+}
+
+func TestLoad_MetricsPublicDefaultFalse(t *testing.T) {
+	os.Unsetenv("METRICS_PUBLIC")
+
+	cfg := Load()
+
+	if cfg.MetricsPublic {
+		t.Error("MetricsPublic: expected false")
+	}
+}
+
 func TestMaskedJSON_ExcludesAPIKey(t *testing.T) {
 	os.Setenv("API_KEY", "super-secret")
 	defer os.Unsetenv("API_KEY")
