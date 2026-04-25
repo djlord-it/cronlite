@@ -142,6 +142,7 @@ Environment Variables:
 
   METRICS_ENABLED           Enable Prometheus metrics (default: "false")
   METRICS_PATH              Metrics endpoint path (default: "/metrics")
+  METRICS_PUBLIC            Allow unauthenticated metrics access (default: "false")
 
   RECONCILE_ENABLED         Enable orphan execution reconciler (default: "false")
   RECONCILE_INTERVAL        How often to scan for orphans (default: "5m")
@@ -168,6 +169,19 @@ type leaderRuntime struct {
 	emitter     interface {
 		Emit(ctx context.Context, event domain.TriggerEvent) error
 	}
+}
+
+func newMetricsHandler(
+	appCtx context.Context,
+	keyRepo domain.APIKeyRepository,
+	fallbackKey string,
+	public bool,
+) http.Handler {
+	metricsHandler := http.Handler(promhttp.Handler())
+	if public {
+		return metricsHandler
+	}
+	return api.MultiKeyAuthMiddleware(appCtx, keyRepo, fallbackKey, metricsHandler)
 }
 
 func (lr *leaderRuntime) start(leaderCtx context.Context) {
@@ -397,11 +411,7 @@ func runServe() int {
 
 	httpMux := http.NewServeMux()
 	if cfg.MetricsEnabled {
-		metricsHandler := http.Handler(promhttp.Handler())
-		if cfg.APIKey != "" {
-			metricsHandler = api.MultiKeyAuthMiddleware(appCtx, store, cfg.APIKey, metricsHandler)
-		}
-		httpMux.Handle(cfg.MetricsPath, metricsHandler)
+		httpMux.Handle(cfg.MetricsPath, newMetricsHandler(appCtx, store, cfg.APIKey, cfg.MetricsPublic))
 	}
 	httpMux.Handle("/mcp", mcpHandler)
 	httpMux.Handle("/", rootHandler)
