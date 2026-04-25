@@ -103,6 +103,8 @@ type mockExecRepo struct {
 	getExecutionFn          func(ctx context.Context, id uuid.UUID) (domain.Execution, error)
 	getExecutionScopedFn    func(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error)
 	listExecutionsFn        func(ctx context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error)
+	listPendingAckFn        func(ctx context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error)
+	ackExecutionFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
 	getRecentExecutionsFn   func(ctx context.Context, jobID uuid.UUID, limit int) ([]domain.Execution, error)
 	updateExecutionStatusFn func(ctx context.Context, id uuid.UUID, status domain.ExecutionStatus) error
 	dequeueExecutionFn      func(ctx context.Context) (*domain.Execution, error)
@@ -133,6 +135,18 @@ func (m *mockExecRepo) ListExecutions(ctx context.Context, filter domain.Executi
 		return m.listExecutionsFn(ctx, filter)
 	}
 	return nil, nil
+}
+func (m *mockExecRepo) ListPendingAck(ctx context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error) {
+	if m.listPendingAckFn != nil {
+		return m.listPendingAckFn(ctx, ns, jobID, limit)
+	}
+	return nil, nil
+}
+func (m *mockExecRepo) AckExecution(ctx context.Context, id uuid.UUID, ns domain.Namespace) error {
+	if m.ackExecutionFn != nil {
+		return m.ackExecutionFn(ctx, id, ns)
+	}
+	return nil
 }
 func (m *mockExecRepo) GetRecentExecutions(ctx context.Context, jobID uuid.UUID, limit int) ([]domain.Execution, error) {
 	if m.getRecentExecutionsFn != nil {
@@ -286,9 +300,9 @@ func newTestServer(jr *mockJobRepo, sr *mockScheduleRepo, er *mockExecRepo, tr *
 	return NewServerImpl(svc)
 }
 
-func boolPtr(b bool) *bool       { return &b }
-func strPtr(s string) *string     { return &s }
-func intPtr(i int) *int           { return &i }
+func boolPtr(b bool) *bool    { return &b }
+func strPtr(s string) *string { return &s }
+func intPtr(i int) *int       { return &i }
 
 // fixedJob returns a domain.Job with sensible defaults for testing.
 func fixedJob(id uuid.UUID, ns string) domain.Job {
@@ -1057,6 +1071,112 @@ func TestGetExecution_NotFound(t *testing.T) {
 
 	if _, ok := resp.(GetExecution404JSONResponse); !ok {
 		t.Fatalf("expected GetExecution404JSONResponse, got %T", resp)
+	}
+}
+
+func TestListPendingAck_HappyPath(t *testing.T) {
+	jobID := uuid.New()
+	execID := uuid.New()
+	now := time.Now().UTC()
+	limit := 2
+
+	var capturedNS domain.Namespace
+	var capturedJobID *uuid.UUID
+	var capturedLimit int
+	er := &mockExecRepo{
+		listPendingAckFn: func(ctx context.Context, ns domain.Namespace, requestedJobID *uuid.UUID, limit int) ([]domain.Execution, error) {
+			capturedNS = ns
+			capturedJobID = requestedJobID
+			capturedLimit = limit
+			return []domain.Execution{
+				{
+					ID:          execID,
+					JobID:       jobID,
+					Namespace:   ns,
+					TriggerType: domain.TriggerTypeScheduled,
+					ScheduledAt: now,
+					FiredAt:     now,
+					Status:      domain.ExecutionStatusDelivered,
+					CreatedAt:   now,
+				},
+			}, nil
+		},
+	}
+	srv := newTestServer(nil, nil, er, nil, nil, nil)
+
+	resp, err := srv.ListPendingAck(ctxWithNS("t1"), ListPendingAckRequestObject{
+		Params: ListPendingAckParams{
+			Limit: &limit,
+			JobId: &jobID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := resp.(ListPendingAck200JSONResponse)
+	if !ok {
+		t.Fatalf("expected ListPendingAck200JSONResponse, got %T", resp)
+	}
+	if len(got.Executions) != 1 {
+		t.Fatalf("expected 1 execution, got %d", len(got.Executions))
+	}
+	if got.Executions[0].Id != execID {
+		t.Fatalf("expected execution ID %v, got %v", execID, got.Executions[0].Id)
+	}
+	if capturedNS != "t1" {
+		t.Fatalf("expected namespace t1, got %q", capturedNS)
+	}
+	if capturedJobID == nil || *capturedJobID != jobID {
+		t.Fatalf("expected job_id filter %v, got %v", jobID, capturedJobID)
+	}
+	if capturedLimit != limit {
+		t.Fatalf("expected limit %d, got %d", limit, capturedLimit)
+	}
+}
+
+func TestAckExecution_HappyPath(t *testing.T) {
+	execID := uuid.New()
+	var capturedID uuid.UUID
+	var capturedNS domain.Namespace
+	er := &mockExecRepo{
+		ackExecutionFn: func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error {
+			capturedID = id
+			capturedNS = ns
+			return nil
+		},
+	}
+	srv := newTestServer(nil, nil, er, nil, nil, nil)
+
+	resp, err := srv.AckExecution(ctxWithNS("t1"), AckExecutionRequestObject{Id: execID})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := resp.(AckExecution204Response); !ok {
+		t.Fatalf("expected AckExecution204Response, got %T", resp)
+	}
+	if capturedID != execID {
+		t.Fatalf("expected execution ID %v, got %v", execID, capturedID)
+	}
+	if capturedNS != "t1" {
+		t.Fatalf("expected namespace t1, got %q", capturedNS)
+	}
+}
+
+func TestAckExecution_NotFound(t *testing.T) {
+	er := &mockExecRepo{
+		ackExecutionFn: func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error {
+			return domain.ErrExecutionNotFound
+		},
+	}
+	srv := newTestServer(nil, nil, er, nil, nil, nil)
+
+	resp, err := srv.AckExecution(ctxWithNS("t1"), AckExecutionRequestObject{Id: uuid.New()})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := resp.(AckExecution404JSONResponse); !ok {
+		t.Fatalf("expected AckExecution404JSONResponse, got %T", resp)
 	}
 }
 

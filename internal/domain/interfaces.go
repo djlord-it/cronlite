@@ -37,6 +37,8 @@ type ExecutionRepository interface {
 	// Used by the service layer for API-facing operations (defense-in-depth).
 	GetExecutionScoped(ctx context.Context, id uuid.UUID, ns Namespace) (Execution, error)
 	ListExecutions(ctx context.Context, filter ExecutionFilter) ([]Execution, error)
+	ListPendingAck(ctx context.Context, ns Namespace, jobID *uuid.UUID, limit int) ([]Execution, error)
+	AckExecution(ctx context.Context, id uuid.UUID, ns Namespace) error
 	GetRecentExecutions(ctx context.Context, jobID uuid.UUID, limit int) ([]Execution, error)
 	UpdateExecutionStatus(ctx context.Context, id uuid.UUID, status ExecutionStatus) error
 	DequeueExecution(ctx context.Context) (*Execution, error)

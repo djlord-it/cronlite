@@ -560,6 +560,67 @@ LIMIT $%d OFFSET $%d
 	return scanExecutionRows(rows)
 }
 
+// ListPendingAck returns terminal executions that have not been acknowledged.
+func (s *Store) ListPendingAck(ctx context.Context, ns domain.Namespace, jobID *uuid.UUID, limit int) ([]domain.Execution, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	params := domain.ListParams{Limit: limit}.WithDefaults()
+
+	conditions := []string{
+		"namespace = $1",
+		"acknowledged_at IS NULL",
+		"status IN ('delivered', 'failed')",
+	}
+	args := []interface{}{string(ns)}
+	argIdx := 2
+
+	if jobID != nil && *jobID != uuid.Nil {
+		conditions = append(conditions, fmt.Sprintf("job_id = $%d", argIdx))
+		args = append(args, *jobID)
+		argIdx++
+	}
+
+	query := fmt.Sprintf(`
+SELECT id, job_id, namespace, trigger_type, scheduled_at, fired_at, status, acknowledged_at, created_at
+FROM executions
+WHERE %s
+ORDER BY created_at DESC
+LIMIT $%d
+`, strings.Join(conditions, " AND "), argIdx)
+
+	args = append(args, params.Limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanExecutionRows(rows)
+}
+
+// AckExecution marks a terminal unacknowledged execution as acknowledged.
+func (s *Store) AckExecution(ctx context.Context, id uuid.UUID, ns domain.Namespace) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	result, err := s.db.ExecContext(ctx, queryAckExecution, id, string(ns))
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return domain.ErrExecutionNotFound
+	}
+
+	return nil
+}
+
 // UpdateExecutionStatus updates the status of an execution.
 // Returns dispatcher.ErrStatusTransitionDenied if the execution is already in a terminal state.
 // This uses an atomic UPDATE with WHERE clause to prevent TOCTOU race conditions.
