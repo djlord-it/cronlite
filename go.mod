@@ -1,6 +1,6 @@
 module github.com/djlord-it/cronlite
 
-go 1.25
+go 1.25.5
 
 toolchain go1.25.8
 
@@ -10,7 +10,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/getkin/kin-openapi v0.135.0
 	github.com/lib/pq v1.12.3
-	github.com/mark3labs/mcp-go v0.48.0
+	github.com/mark3labs/mcp-go v0.49.0
 	github.com/oapi-codegen/runtime v1.4.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
