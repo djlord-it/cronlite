@@ -24,6 +24,10 @@ type Store interface {
 	InsertExecution(ctx context.Context, exec domain.Execution) error
 }
 
+type lastScheduledExecutionStore interface {
+	GetLastScheduledExecution(ctx context.Context, jobID uuid.UUID) (time.Time, bool, error)
+}
+
 type CronParser interface {
 	Parse(expression string, timezone string) (CronSchedule, error)
 }
@@ -80,16 +84,9 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	defer ticker.Stop()
 
 	log.Printf("scheduler: started, tick=%s", s.config.TickInterval)
-	// On new leader election after a failover, lastTick resets to the current time.
-	// This means any jobs that came due during the leaderless gap (between the old
-	// leader's last tick and this startup) are NOT backfilled — they will be missed
-	// until their next scheduled occurrence. This is a deliberate design decision:
-	// backfilling would require persisting lastTick to the database and adds complexity
-	// for a scenario (failover gap of seconds to minutes) that is acceptable for most
-	// cron workloads. The (job_id, scheduled_at) unique constraint ensures that if the
-	// old leader did schedule them before dying, duplicate inserts are safely ignored.
-	s.lastTick = s.clock().UTC()
-	expectedNext := s.lastTick.Add(s.config.TickInterval)
+	startedAt := s.clock().UTC()
+	s.lastTick = time.Time{}
+	expectedNext := startedAt.Add(s.config.TickInterval)
 
 	for {
 		select {
@@ -158,6 +155,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) (int, error) {
 	job := jws.Job
 	schedule := jws.Schedule
+	windowStart := s.windowStart(ctx, jws, lastTick, now)
 
 	tz := schedule.Timezone
 	if tz == "" {
@@ -169,7 +167,7 @@ func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, 
 		return 0, fmt.Errorf("load tz %s: %w", tz, err)
 	}
 
-	lastTickInTZ := lastTick.In(loc)
+	lastTickInTZ := windowStart.In(loc)
 	nowInTZ := now.In(loc)
 
 	cronSched, err := s.parser.Parse(schedule.CronExpression, tz)
@@ -200,6 +198,40 @@ func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, 
 	return triggered, nil
 }
 
+func (s *Scheduler) windowStart(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) time.Time {
+	if !lastTick.IsZero() {
+		return lastTick
+	}
+
+	cursor := jws.Job.CreatedAt.UTC()
+	if cursor.IsZero() || cursor.After(now) {
+		cursor = now.Add(-s.tickInterval())
+	}
+
+	store, ok := s.store.(lastScheduledExecutionStore)
+	if !ok {
+		return cursor
+	}
+
+	lastScheduledAt, found, err := store.GetLastScheduledExecution(ctx, jws.Job.ID)
+	if err != nil {
+		log.Printf("scheduler: job=%s namespace=%s last scheduled lookup failed: %v", jws.Job.ID, jws.Job.Namespace, err)
+		return cursor
+	}
+	if found && lastScheduledAt.After(cursor) {
+		return lastScheduledAt.UTC()
+	}
+
+	return cursor
+}
+
+func (s *Scheduler) tickInterval() time.Duration {
+	if s.config.TickInterval > 0 {
+		return s.config.TickInterval
+	}
+	return time.Minute
+}
+
 func (s *Scheduler) emitExecution(ctx context.Context, job domain.Job, scheduledAt, now time.Time) error {
 	executionID := uuid.New()
 
@@ -207,6 +239,7 @@ func (s *Scheduler) emitExecution(ctx context.Context, job domain.Job, scheduled
 		ID:          executionID,
 		JobID:       job.ID,
 		Namespace:   job.Namespace,
+		TriggerType: domain.TriggerTypeScheduled,
 		ScheduledAt: scheduledAt,
 		FiredAt:     now,
 		Status:      domain.ExecutionStatusEmitted,

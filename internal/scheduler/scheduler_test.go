@@ -64,6 +64,29 @@ func (s *mockStore) InsertExecution(ctx context.Context, exec domain.Execution) 
 	return nil
 }
 
+func (s *mockStore) GetLastScheduledExecution(ctx context.Context, jobID uuid.UUID) (time.Time, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var last time.Time
+	found := false
+	for key := range s.executions {
+		exec := s.executions[key]
+		if exec.JobID != jobID {
+			continue
+		}
+		if exec.TriggerType != "" && exec.TriggerType != domain.TriggerTypeScheduled {
+			continue
+		}
+		if !found || exec.ScheduledAt.After(last) {
+			last = exec.ScheduledAt
+			found = true
+		}
+	}
+
+	return last, found, nil
+}
+
 func (s *mockStore) addJob(job domain.Job, schedule domain.Schedule) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,6 +97,14 @@ func (s *mockStore) executionCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.executions)
+}
+
+func (s *mockStore) addExecution(exec domain.Execution) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	key := exec.JobID.String() + "|" + exec.ScheduledAt.Format(time.RFC3339)
+	s.executions[key] = exec
 }
 
 // mockEmitter tracks emitted events.
@@ -93,6 +124,15 @@ func (e *mockEmitter) eventCount() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return len(e.events)
+}
+
+func (e *mockEmitter) eventsSnapshot() []domain.TriggerEvent {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	events := make([]domain.TriggerEvent, len(e.events))
+	copy(events, e.events)
+	return events
 }
 
 // mockCronParser returns a schedule that fires at fixed times.
@@ -116,6 +156,95 @@ func (s *mockCronSchedule) Next(after time.Time) time.Time {
 	}
 	// Return far future if no more fire times
 	return after.Add(24 * time.Hour)
+}
+
+func TestScheduler_RunBackfillsJobsDueDuringStartupGap(t *testing.T) {
+	store := newMockStore()
+	emitter := &mockEmitter{}
+
+	jobID := uuid.New()
+	scheduleID := uuid.New()
+
+	previousFire := time.Date(2024, 1, 15, 10, 1, 0, 0, time.UTC)
+	missedFire := time.Date(2024, 1, 15, 10, 2, 0, 0, time.UTC)
+	startupTime := time.Date(2024, 1, 15, 10, 2, 30, 0, time.UTC)
+
+	store.addJob(
+		domain.Job{
+			ID:         jobID,
+			Namespace:  domain.Namespace("test-ns"),
+			Name:       "test-job",
+			Enabled:    true,
+			ScheduleID: scheduleID,
+			CreatedAt:  previousFire.Add(-time.Minute),
+		},
+		domain.Schedule{
+			ID:             scheduleID,
+			CronExpression: "* * * * *",
+			Timezone:       "UTC",
+		},
+	)
+	store.addExecution(domain.Execution{
+		ID:          uuid.New(),
+		JobID:       jobID,
+		Namespace:   domain.Namespace("test-ns"),
+		TriggerType: domain.TriggerTypeScheduled,
+		ScheduledAt: previousFire,
+		FiredAt:     previousFire,
+		Status:      domain.ExecutionStatusDelivered,
+		CreatedAt:   previousFire,
+	})
+
+	parser := &mockCronParser{fireTimes: []time.Time{
+		previousFire,
+		missedFire,
+		missedFire.Add(time.Minute),
+	}}
+
+	sched := New(
+		Config{TickInterval: time.Millisecond},
+		store,
+		parser,
+		emitter,
+	)
+	sched.clock = func() time.Time { return startupTime }
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- sched.Run(ctx)
+	}()
+
+	deadline := time.After(100 * time.Millisecond)
+	for emitter.eventCount() == 0 {
+		select {
+		case <-deadline:
+			cancel()
+			err := <-errCh
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("Run returned %v, want context.Canceled", err)
+			}
+			t.Fatal("expected scheduler startup to emit missed execution")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	cancel()
+	err := <-errCh
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run returned %v, want context.Canceled", err)
+	}
+
+	events := emitter.eventsSnapshot()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 emitted event, got %d", len(events))
+	}
+	if !events[0].ScheduledAt.Equal(missedFire) {
+		t.Fatalf("expected missed fire at %s, got %s", missedFire, events[0].ScheduledAt)
+	}
 }
 
 // TestScheduler_Idempotency_SameJobSameTime verifies that the scheduler

@@ -111,6 +111,15 @@ INSERT INTO executions (id, job_id, namespace, trigger_type, scheduled_at, fired
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
+const queryGetLastScheduledExecution = `
+SELECT scheduled_at
+FROM executions
+WHERE job_id = $1
+  AND (trigger_type = 'scheduled' OR trigger_type = '')
+ORDER BY scheduled_at DESC
+LIMIT 1
+`
+
 const queryGetExecution = `
 SELECT id, job_id, namespace, trigger_type, scheduled_at, fired_at, status, acknowledged_at, created_at
 FROM executions
