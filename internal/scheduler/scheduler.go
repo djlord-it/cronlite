@@ -63,6 +63,12 @@ type Scheduler struct {
 	lastTick time.Time
 }
 
+type processJobResult struct {
+	triggered int
+	capped    bool
+	cursor    time.Time
+}
+
 func New(config Config, store Store, parser CronParser, emitter EventEmitter) *Scheduler {
 	return &Scheduler{
 		config:  config,
@@ -116,6 +122,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 	start := s.clock()
 	now := start.UTC()
 	jobsTriggered := 0
+	nextLastTick := now
 
 	// Keyset-paginate enabled jobs to avoid loading unbounded data and to keep
 	// mutable row positions from causing skipped jobs between pages.
@@ -130,10 +137,13 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 		}
 
 		for i := range jobs {
-			triggered, jobErr := s.processJob(ctx, jobs[i], s.lastTick, now)
-			jobsTriggered += triggered
+			result, jobErr := s.processJobWithProgress(ctx, jobs[i], s.lastTick, now)
+			jobsTriggered += result.triggered
 			if jobErr != nil {
 				log.Printf("scheduler: job=%s namespace=%s error: %v", jobs[i].Job.ID, jobs[i].Job.Namespace, jobErr)
+			}
+			if result.capped && !result.cursor.IsZero() && result.cursor.Before(nextLastTick) {
+				nextLastTick = result.cursor
 			}
 		}
 
@@ -144,7 +154,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 		afterID = jobs[len(jobs)-1].Job.ID
 	}
 
-	s.lastTick = now
+	s.lastTick = nextLastTick
 
 	if s.metrics != nil {
 		s.metrics.TickCompleted(s.clock().Sub(start), jobsTriggered, nil)
@@ -154,6 +164,11 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 }
 
 func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) (int, error) {
+	result, err := s.processJobWithProgress(ctx, jws, lastTick, now)
+	return result.triggered, err
+}
+
+func (s *Scheduler) processJobWithProgress(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) (processJobResult, error) {
 	job := jws.Job
 	schedule := jws.Schedule
 	windowStart := s.windowStart(ctx, jws, lastTick, now)
@@ -165,7 +180,7 @@ func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, 
 
 	loc, err := time.LoadLocation(tz)
 	if err != nil {
-		return 0, fmt.Errorf("load tz %s: %w", tz, err)
+		return processJobResult{}, fmt.Errorf("load tz %s: %w", tz, err)
 	}
 
 	lastTickInTZ := windowStart.In(loc)
@@ -173,7 +188,7 @@ func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, 
 
 	cronSched, err := s.parser.Parse(schedule.CronExpression, tz)
 	if err != nil {
-		return 0, fmt.Errorf("parse cron: %w", err)
+		return processJobResult{}, fmt.Errorf("parse cron: %w", err)
 	}
 
 	// Loop through all due times since last tick
@@ -182,21 +197,34 @@ func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, 
 		maxIterations = 1000
 	}
 	t := cronSched.Next(lastTickInTZ)
-	triggered := 0
+	result := processJobResult{cursor: now}
 
 	for i := 0; i < maxIterations && !t.After(nowInTZ); i++ {
 		scheduledAtUTC := t.UTC().Truncate(time.Minute)
+		result.cursor = scheduledAtUTC
 
 		if err := s.emitExecution(ctx, job, scheduledAtUTC, now); err != nil {
 			log.Printf("scheduler: job=%s namespace=%s at %s error: %v", job.ID, job.Namespace, scheduledAtUTC.Format(time.RFC3339), err)
 		} else {
-			triggered++
+			result.triggered++
 		}
 
 		t = cronSched.Next(t)
 	}
 
-	return triggered, nil
+	if !t.After(nowInTZ) {
+		result.capped = true
+		log.Printf(
+			"scheduler: job=%s namespace=%s catch-up capped at %d fires; deferred remaining due executions after %s next_due=%s",
+			job.ID,
+			job.Namespace,
+			maxIterations,
+			result.cursor.Format(time.RFC3339),
+			t.UTC().Format(time.RFC3339),
+		)
+	}
+
+	return result, nil
 }
 
 func (s *Scheduler) windowStart(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) time.Time {
