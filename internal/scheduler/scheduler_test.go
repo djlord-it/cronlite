@@ -493,6 +493,68 @@ func TestScheduler_SameJobDifferentTimes(t *testing.T) {
 	}
 }
 
+func TestScheduler_CatchUpCapDefersRemainingDueExecutions(t *testing.T) {
+	store := newMockStore()
+	emitter := &mockEmitter{}
+
+	jobID := uuid.New()
+	scheduleID := uuid.New()
+
+	firstFire := time.Date(2024, 1, 15, 10, 1, 0, 0, time.UTC)
+	secondFire := firstFire.Add(time.Minute)
+	thirdFire := secondFire.Add(time.Minute)
+	firstTickNow := thirdFire.Add(30 * time.Second)
+	secondTickNow := firstTickNow.Add(time.Minute)
+
+	store.addJob(
+		domain.Job{
+			ID:         jobID,
+			Namespace:  domain.Namespace("test-ns"),
+			Name:       "test-job",
+			Enabled:    true,
+			ScheduleID: scheduleID,
+		},
+		domain.Schedule{
+			ID:             scheduleID,
+			CronExpression: "* * * * *",
+			Timezone:       "UTC",
+		},
+	)
+
+	parser := &mockCronParser{fireTimes: []time.Time{
+		firstFire,
+		secondFire,
+		thirdFire,
+	}}
+	sched := New(
+		Config{
+			TickInterval:    time.Minute,
+			MaxFiresPerTick: 2,
+		},
+		store,
+		parser,
+		emitter,
+	)
+
+	sched.lastTick = firstFire.Add(-time.Minute)
+	sched.clock = func() time.Time { return firstTickNow }
+	if err := sched.processTick(context.Background()); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+	if store.executionCount() != 2 {
+		t.Fatalf("expected 2 executions after capped first tick, got %d", store.executionCount())
+	}
+
+	sched.clock = func() time.Time { return secondTickNow }
+	if err := sched.processTick(context.Background()); err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+
+	if store.executionCount() != 3 {
+		t.Fatalf("expected deferred due execution to be emitted on next tick, got %d executions", store.executionCount())
+	}
+}
+
 // TestScheduler_Pagination verifies that the scheduler paginates through
 // jobs in chunks rather than loading all at once.
 func TestScheduler_Pagination(t *testing.T) {
