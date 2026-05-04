@@ -443,6 +443,23 @@ func (s *Store) InsertExecution(ctx context.Context, exec domain.Execution) erro
 	return nil
 }
 
+// GetLastScheduledExecution returns the most recent scheduled fire time for a job.
+func (s *Store) GetLastScheduledExecution(ctx context.Context, jobID uuid.UUID) (time.Time, bool, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	var scheduledAt time.Time
+	err := s.db.QueryRowContext(ctx, queryGetLastScheduledExecution, jobID).Scan(&scheduledAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, err
+	}
+
+	return scheduledAt, true, nil
+}
+
 // GetExecution returns an execution by its ID.
 func (s *Store) GetExecution(ctx context.Context, id uuid.UUID) (domain.Execution, error) {
 	ctx, cancel := s.withTimeout(ctx)
