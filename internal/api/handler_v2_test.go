@@ -62,6 +62,12 @@ func (m *mockJobRepo) UpdateJob(ctx context.Context, job domain.Job) error {
 	}
 	return nil
 }
+func (m *mockJobRepo) UpdateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags *[]domain.Tag) error {
+	if m.updateJobFn != nil {
+		return m.updateJobFn(ctx, job)
+	}
+	return nil
+}
 func (m *mockJobRepo) DeleteJob(ctx context.Context, id uuid.UUID, ns domain.Namespace) error {
 	if m.deleteJobFn != nil {
 		return m.deleteJobFn(ctx, id, ns)

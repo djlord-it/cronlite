@@ -347,6 +347,67 @@ func (s *Store) UpdateJob(ctx context.Context, job domain.Job) error {
 	return nil
 }
 
+// UpdateJobAggregate updates a job, its schedule, and optionally replaces tags atomically.
+func (s *Store) UpdateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags *[]domain.Tag) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	if _, err := tx.ExecContext(ctx, queryUpdateSchedule,
+		schedule.CronExpression,
+		schedule.Timezone,
+		schedule.UpdatedAt,
+		schedule.ID,
+	); err != nil {
+		return err
+	}
+
+	result, err := tx.ExecContext(ctx, queryUpdateJob,
+		job.Name,
+		job.Enabled,
+		string(job.Delivery.Type),
+		job.Delivery.WebhookURL,
+		job.Delivery.Secret,
+		job.Delivery.Timeout.Milliseconds(),
+		job.Analytics.Enabled,
+		job.Analytics.RetentionSeconds,
+		job.UpdatedAt,
+		job.ID,
+		string(job.Namespace),
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return domain.ErrJobNotFound
+	}
+
+	if tags != nil {
+		if _, err := tx.ExecContext(ctx, queryDeleteTags, job.ID); err != nil {
+			return err
+		}
+		for _, tag := range *tags {
+			if _, err := tx.ExecContext(ctx, queryUpsertTag, job.ID, tag.Key, tag.Value); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
 // DeleteJob cascade-deletes a job by id and namespace.
 func (s *Store) DeleteJob(ctx context.Context, jobID uuid.UUID, ns domain.Namespace) error {
 	ctx, cancel := s.withTimeout(ctx)

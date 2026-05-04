@@ -20,12 +20,16 @@ type mockJobRepo struct {
 	getJobWithScheduleScopedFn func(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error)
 	listJobsFn                 func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
 	updateJobFn                func(ctx context.Context, job domain.Job) error
+	updateJobAggregateFn       func(ctx context.Context, job domain.Job, schedule domain.Schedule, tags *[]domain.Tag) error
 	deleteJobFn                func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
 	getEnabledJobsFn           func(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
 
 	// capture last call
-	lastInsertedJob domain.Job
-	lastUpdatedJob  domain.Job
+	lastInsertedJob       domain.Job
+	lastUpdatedJob        domain.Job
+	lastAggregateJob      domain.Job
+	lastAggregateSchedule domain.Schedule
+	lastAggregateTags     *[]domain.Tag
 }
 
 func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -72,6 +76,17 @@ func (m *mockJobRepo) UpdateJob(ctx context.Context, job domain.Job) error {
 	m.lastUpdatedJob = job
 	if m.updateJobFn != nil {
 		return m.updateJobFn(ctx, job)
+	}
+	return nil
+}
+
+func (m *mockJobRepo) UpdateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags *[]domain.Tag) error {
+	m.lastUpdatedJob = job
+	m.lastAggregateJob = job
+	m.lastAggregateSchedule = schedule
+	m.lastAggregateTags = tags
+	if m.updateJobAggregateFn != nil {
+		return m.updateJobAggregateFn(ctx, job, schedule, tags)
 	}
 	return nil
 }
@@ -708,7 +723,6 @@ func TestUpdateJob_HappyPath(t *testing.T) {
 func TestUpdateJob_ScheduleChanged(t *testing.T) {
 	jobID := uuid.New()
 	schedID := uuid.New()
-	var scheduleUpdated bool
 	jobRepo := &mockJobRepo{
 		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
 			return domain.Job{
@@ -717,27 +731,18 @@ func TestUpdateJob_ScheduleChanged(t *testing.T) {
 			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
 		},
 	}
-	schedRepo := &mockScheduleRepo{
-		updateScheduleFn: func(_ context.Context, schedule domain.Schedule) error {
-			scheduleUpdated = true
-			if schedule.CronExpression != "*/10 * * * *" {
-				t.Errorf("expected cron '*/10 * * * *', got %q", schedule.CronExpression)
-			}
-			return nil
-		},
-	}
-	svc := newTestServiceFull(jobRepo, schedRepo, nil, nil, nil, nil)
+	svc := newTestService(jobRepo)
 
 	newCron := "*/10 * * * *"
 	_, sched, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{CronExpression: &newCron})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !scheduleUpdated {
-		t.Error("expected schedule to be updated")
-	}
 	if sched.CronExpression != "*/10 * * * *" {
 		t.Errorf("expected new cron '*/10 * * * *', got %q", sched.CronExpression)
+	}
+	if jobRepo.lastAggregateSchedule.CronExpression != "*/10 * * * *" {
+		t.Errorf("expected aggregate cron '*/10 * * * *', got %q", jobRepo.lastAggregateSchedule.CronExpression)
 	}
 }
 
@@ -822,38 +827,75 @@ func TestUpdateJob_WithTags(t *testing.T) {
 		},
 	}
 
-	var deleteCalled, upsertCalled bool
-	tagRepo := &mockTagRepo{
-		deleteTagsFn: func(_ context.Context, id uuid.UUID) error {
-			deleteCalled = true
-			if id != jobID {
-				t.Errorf("expected delete for job %s, got %s", jobID, id)
-			}
-			return nil
-		},
-		upsertTagsFn: func(_ context.Context, id uuid.UUID, tags []domain.Tag) error {
-			upsertCalled = true
-			if id != jobID {
-				t.Errorf("expected upsert for job %s, got %s", jobID, id)
-			}
-			if len(tags) != 2 {
-				t.Errorf("expected 2 tags, got %d", len(tags))
-			}
-			return nil
-		},
-	}
-	svc := newTestServiceFull(jobRepo, nil, nil, tagRepo, nil, nil)
+	svc := newTestService(jobRepo)
 
 	newTags := []domain.Tag{{Key: "env", Value: "prod"}, {Key: "team", Value: "backend"}}
 	_, _, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{Tags: &newTags})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !deleteCalled {
-		t.Error("expected DeleteTags to be called")
+	if jobRepo.lastAggregateTags == nil {
+		t.Fatal("expected aggregate tags to be set")
 	}
-	if !upsertCalled {
-		t.Error("expected UpsertTags to be called")
+	if len(*jobRepo.lastAggregateTags) != 2 {
+		t.Fatalf("expected 2 aggregate tags, got %d", len(*jobRepo.lastAggregateTags))
+	}
+}
+
+func TestUpdateJob_UsesAtomicAggregateUpdate(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	newTags := []domain.Tag{{Key: "env", Value: "prod"}}
+	newCron := "*/10 * * * *"
+	newName := "new-name"
+	var aggregateCalled bool
+
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "t1", Name: "old-name", ScheduleID: schedID, Enabled: true,
+				Delivery: domain.DeliveryConfig{WebhookURL: "https://example.com", Timeout: 30 * time.Second},
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+		updateJobAggregateFn: func(_ context.Context, job domain.Job, schedule domain.Schedule, tags *[]domain.Tag) error {
+			aggregateCalled = true
+			if job.Name != newName {
+				t.Errorf("aggregate job name = %q, want %q", job.Name, newName)
+			}
+			if schedule.CronExpression != newCron {
+				t.Errorf("aggregate cron = %q, want %q", schedule.CronExpression, newCron)
+			}
+			if tags == nil || len(*tags) != 1 || (*tags)[0] != newTags[0] {
+				t.Errorf("aggregate tags = %#v, want %#v", tags, newTags)
+			}
+			return nil
+		},
+	}
+	schedRepo := &mockScheduleRepo{
+		updateScheduleFn: func(_ context.Context, _ domain.Schedule) error {
+			return errors.New("separate schedule update should not be called")
+		},
+	}
+	tagRepo := &mockTagRepo{
+		deleteTagsFn: func(_ context.Context, _ uuid.UUID) error {
+			return errors.New("separate tag delete should not be called")
+		},
+		upsertTagsFn: func(_ context.Context, _ uuid.UUID, _ []domain.Tag) error {
+			return errors.New("separate tag upsert should not be called")
+		},
+	}
+	svc := newTestServiceFull(jobRepo, schedRepo, nil, tagRepo, nil, nil)
+
+	_, _, err := svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{
+		Name:           &newName,
+		CronExpression: &newCron,
+		Tags:           &newTags,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !aggregateCalled {
+		t.Fatal("expected UpdateJobAggregate to be called")
 	}
 }
 

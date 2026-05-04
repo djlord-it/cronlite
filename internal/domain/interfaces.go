@@ -20,6 +20,7 @@ type JobRepository interface {
 	GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID, ns Namespace) (Job, Schedule, error)
 	ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
 	UpdateJob(ctx context.Context, job Job) error
+	UpdateJobAggregate(ctx context.Context, job Job, schedule Schedule, tags *[]Tag) error
 	DeleteJob(ctx context.Context, id uuid.UUID, ns Namespace) error
 	GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID) ([]JobWithSchedule, error)
 }
