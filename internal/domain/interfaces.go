@@ -21,7 +21,7 @@ type JobRepository interface {
 	ListJobs(ctx context.Context, filter JobFilter) ([]Job, error)
 	UpdateJob(ctx context.Context, job Job) error
 	DeleteJob(ctx context.Context, id uuid.UUID, ns Namespace) error
-	GetEnabledJobs(ctx context.Context, limit, offset int) ([]JobWithSchedule, error)
+	GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID) ([]JobWithSchedule, error)
 }
 
 type ScheduleRepository interface {

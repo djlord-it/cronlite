@@ -115,7 +115,7 @@ func main() {
 
 type stubStore struct{}
 
-func (s *stubStore) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
+func (s *stubStore) GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error) {
 	return nil, nil
 }
 

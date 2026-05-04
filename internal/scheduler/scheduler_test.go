@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -19,11 +20,12 @@ type mockStore struct {
 	jobs         []domain.JobWithSchedule
 	getJobsCalls []getJobsCall // tracks pagination calls
 	getJobsErr   error         // if set, GetEnabledJobs returns this error
+	afterGetJobs func(*mockStore, getJobsCall)
 }
 
 type getJobsCall struct {
-	limit  int
-	offset int
+	limit   int
+	afterID uuid.UUID
 }
 
 func newMockStore() *mockStore {
@@ -32,24 +34,36 @@ func newMockStore() *mockStore {
 	}
 }
 
-func (s *mockStore) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
+func (s *mockStore) GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.getJobsCalls = append(s.getJobsCalls, getJobsCall{limit: limit, offset: offset})
+	call := getJobsCall{limit: limit, afterID: afterID}
+	s.getJobsCalls = append(s.getJobsCalls, call)
 
 	if s.getJobsErr != nil {
 		return nil, s.getJobsErr
 	}
 
-	if offset >= len(s.jobs) {
-		return nil, nil
+	sortedJobs := append([]domain.JobWithSchedule(nil), s.jobs...)
+	sort.Slice(sortedJobs, func(i, j int) bool {
+		return sortedJobs[i].Job.ID.String() < sortedJobs[j].Job.ID.String()
+	})
+
+	var jobs []domain.JobWithSchedule
+	for i := range sortedJobs {
+		if afterID != uuid.Nil && sortedJobs[i].Job.ID.String() <= afterID.String() {
+			continue
+		}
+		jobs = append(jobs, sortedJobs[i])
+		if len(jobs) == limit {
+			break
+		}
 	}
-	end := offset + limit
-	if end > len(s.jobs) {
-		end = len(s.jobs)
+	if s.afterGetJobs != nil {
+		s.afterGetJobs(s, call)
 	}
-	return s.jobs[offset:end], nil
+	return jobs, nil
 }
 
 func (s *mockStore) InsertExecution(ctx context.Context, exec domain.Execution) error {
@@ -527,8 +541,7 @@ func TestScheduler_Pagination(t *testing.T) {
 		t.Fatalf("processTick failed: %v", err)
 	}
 
-	// Verify pagination happened: should have 3 pages of calls
-	// Page 1: offset=0, Page 2: offset=100, Page 3: offset=200
+	// Verify pagination happened: should have 3 pages of calls.
 	store.mu.Lock()
 	calls := store.getJobsCalls
 	store.mu.Unlock()
@@ -537,14 +550,15 @@ func TestScheduler_Pagination(t *testing.T) {
 		t.Errorf("expected 3 pagination calls, got %d", len(calls))
 	}
 
-	// Verify offsets
-	expectedOffsets := []int{0, 100, 200}
-	for i, expected := range expectedOffsets {
+	for i := range calls {
 		if i >= len(calls) {
 			break
 		}
-		if calls[i].offset != expected {
-			t.Errorf("call %d: expected offset %d, got %d", i, expected, calls[i].offset)
+		if i == 0 && calls[i].afterID != uuid.Nil {
+			t.Errorf("call %d: expected empty cursor, got %s", i, calls[i].afterID)
+		}
+		if i > 0 && calls[i].afterID == uuid.Nil {
+			t.Errorf("call %d: expected non-empty cursor", i)
 		}
 		if calls[i].limit != DefaultJobPageSize {
 			t.Errorf("call %d: expected limit %d, got %d", i, DefaultJobPageSize, calls[i].limit)
@@ -554,6 +568,61 @@ func TestScheduler_Pagination(t *testing.T) {
 	// Verify all jobs were processed
 	if store.executionCount() != numJobs {
 		t.Errorf("expected %d executions, got %d", numJobs, store.executionCount())
+	}
+}
+
+func TestScheduler_PaginationDoesNotSkipWhenEnabledSetShrinksBetweenPages(t *testing.T) {
+	store := newMockStore()
+	emitter := &mockEmitter{}
+
+	fireTime := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
+
+	numJobs := DefaultJobPageSize + 1
+	for i := 0; i < numJobs; i++ {
+		jobID := uuid.New()
+		scheduleID := uuid.New()
+		store.addJob(
+			domain.Job{
+				ID:         jobID,
+				Namespace:  domain.Namespace("test-ns"),
+				Name:       "test-job",
+				Enabled:    true,
+				ScheduleID: scheduleID,
+			},
+			domain.Schedule{
+				ID:             scheduleID,
+				CronExpression: "0 * * * *",
+				Timezone:       "UTC",
+			},
+		)
+	}
+	store.afterGetJobs = func(s *mockStore, call getJobsCall) {
+		if call.afterID == uuid.Nil {
+			sort.Slice(s.jobs, func(i, j int) bool {
+				return s.jobs[i].Job.ID.String() < s.jobs[j].Job.ID.String()
+			})
+			s.jobs = s.jobs[1:]
+		}
+	}
+
+	parser := &mockCronParser{fireTimes: []time.Time{fireTime}}
+
+	sched := New(
+		Config{TickInterval: time.Minute},
+		store,
+		parser,
+		emitter,
+	)
+
+	sched.clock = func() time.Time { return fireTime.Add(30 * time.Second) }
+	sched.lastTick = fireTime.Add(-time.Minute)
+
+	if err := sched.processTick(context.Background()); err != nil {
+		t.Fatalf("processTick failed: %v", err)
+	}
+
+	if store.executionCount() != numJobs {
+		t.Fatalf("expected all %d jobs to be processed, got %d", numJobs, store.executionCount())
 	}
 }
 

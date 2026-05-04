@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ func newMockStoreWithErrors() *mockStoreWithErrors {
 	}
 }
 
-func (s *mockStoreWithErrors) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
+func (s *mockStoreWithErrors) GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -36,14 +37,22 @@ func (s *mockStoreWithErrors) GetEnabledJobs(ctx context.Context, limit, offset 
 		return nil, s.getJobsErr
 	}
 
-	if offset >= len(s.jobs) {
-		return nil, nil
+	sortedJobs := append([]domain.JobWithSchedule(nil), s.jobs...)
+	sort.Slice(sortedJobs, func(i, j int) bool {
+		return sortedJobs[i].Job.ID.String() < sortedJobs[j].Job.ID.String()
+	})
+
+	var jobs []domain.JobWithSchedule
+	for i := range sortedJobs {
+		if afterID != uuid.Nil && sortedJobs[i].Job.ID.String() <= afterID.String() {
+			continue
+		}
+		jobs = append(jobs, sortedJobs[i])
+		if len(jobs) == limit {
+			break
+		}
 	}
-	end := offset + limit
-	if end > len(s.jobs) {
-		end = len(s.jobs)
-	}
-	return s.jobs[offset:end], nil
+	return jobs, nil
 }
 
 func (s *mockStoreWithErrors) InsertExecution(ctx context.Context, exec domain.Execution) error {
