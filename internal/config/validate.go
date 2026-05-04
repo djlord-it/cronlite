@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/djlord-it/cronlite/internal/dispatcher"
@@ -132,8 +133,43 @@ func Validate(cfg Config) error {
 		})
 	}
 
+	if strings.EqualFold(cfg.Environment, "production") {
+		errs = append(errs, validateProduction(cfg)...)
+	}
+
 	if len(errs) > 0 {
 		return errs
 	}
 	return nil
+}
+
+func validateProduction(cfg Config) ValidationErrors {
+	var errs ValidationErrors
+
+	if cfg.DispatchMode != "db" {
+		errs = append(errs, ValidationError{
+			Field:   "DISPATCH_MODE",
+			Message: "must be 'db' when CRONLITE_ENV=production",
+		})
+	}
+	if !cfg.ReconcileEnabled {
+		errs = append(errs, ValidationError{
+			Field:   "RECONCILE_ENABLED",
+			Message: "must be true when CRONLITE_ENV=production",
+		})
+	}
+	if !cfg.MetricsEnabled {
+		errs = append(errs, ValidationError{
+			Field:   "METRICS_ENABLED",
+			Message: "must be true when CRONLITE_ENV=production",
+		})
+	}
+	if cfg.APIKey == "" {
+		errs = append(errs, ValidationError{
+			Field:   "API_KEY",
+			Message: "required when CRONLITE_ENV=production",
+		})
+	}
+
+	return errs
 }

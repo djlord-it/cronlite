@@ -148,11 +148,11 @@ func TestValidationErrors_Format(t *testing.T) {
 // validDBConfig returns a minimal valid Config for DB dispatch mode.
 func validDBConfig() Config {
 	return Config{
-		DatabaseURL:             "postgres://localhost/test",
-		DispatchMode:            "db",
-		LeaderRetryInterval:     5 * time.Second,
-		LeaderRetryIntervalStr:  "5s",
-		LeaderHeartbeatInterval: 2 * time.Second,
+		DatabaseURL:                "postgres://localhost/test",
+		DispatchMode:               "db",
+		LeaderRetryInterval:        5 * time.Second,
+		LeaderRetryIntervalStr:     "5s",
+		LeaderHeartbeatInterval:    2 * time.Second,
 		LeaderHeartbeatIntervalStr: "2s",
 	}
 }
@@ -214,9 +214,9 @@ func TestValidate_ReconcileThresholdSafe(t *testing.T) {
 
 func TestValidate_CircuitBreakerCooldownRequired(t *testing.T) {
 	cfg := Config{
-		DatabaseURL:              "postgres://localhost/test",
-		CircuitBreakerThreshold:  5,
-		CircuitBreakerCooldown:   -1 * time.Second,
+		DatabaseURL:               "postgres://localhost/test",
+		CircuitBreakerThreshold:   5,
+		CircuitBreakerCooldown:    -1 * time.Second,
 		CircuitBreakerCooldownStr: "-1s",
 	}
 
@@ -226,5 +226,63 @@ func TestValidate_CircuitBreakerCooldownRequired(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "CIRCUIT_BREAKER_COOLDOWN") {
 		t.Errorf("error should mention CIRCUIT_BREAKER_COOLDOWN: %q", err)
+	}
+}
+
+func TestValidate_ProductionRequiresSafeRuntimeSettings(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.Environment = "production"
+	cfg.DispatchMode = "channel"
+	cfg.ReconcileEnabled = false
+	cfg.MetricsEnabled = false
+	cfg.APIKey = ""
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected production validation errors")
+	}
+
+	for _, want := range []string{
+		"DISPATCH_MODE",
+		"RECONCILE_ENABLED",
+		"METRICS_ENABLED",
+		"API_KEY",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("expected production validation error to mention %s, got: %v", want, err)
+		}
+	}
+}
+
+func TestValidate_ProductionValidConfig(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.Environment = "production"
+	cfg.ReconcileEnabled = true
+	cfg.ReconcileInterval = 5 * time.Minute
+	cfg.ReconcileIntervalStr = "5m"
+	cfg.ReconcileThreshold = 15 * time.Minute
+	cfg.ReconcileThresholdStr = "15m"
+	cfg.ReconcileRequeueThreshold = 2 * time.Minute
+	cfg.ReconcileRequeueThresholdStr = "2m"
+	cfg.MetricsEnabled = true
+	cfg.APIKey = "prod-key"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("expected valid production config, got: %v", err)
+	}
+}
+
+func TestValidate_DevelopmentAllowsUnsafeRuntimeSettings(t *testing.T) {
+	cfg := Config{
+		Environment:      "development",
+		DatabaseURL:      "postgres://localhost/test",
+		DispatchMode:     "channel",
+		ReconcileEnabled: false,
+		MetricsEnabled:   false,
+		APIKey:           "",
+	}
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("expected development config to remain valid, got: %v", err)
 	}
 }
