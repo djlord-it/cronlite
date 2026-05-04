@@ -20,7 +20,7 @@ const (
 )
 
 type Store interface {
-	GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
+	GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
 	InsertExecution(ctx context.Context, exec domain.Execution) error
 }
 
@@ -117,10 +117,11 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 	now := start.UTC()
 	jobsTriggered := 0
 
-	// Paginate through all enabled jobs to avoid loading unbounded data into memory.
-	offset := 0
+	// Keyset-paginate enabled jobs to avoid loading unbounded data and to keep
+	// mutable row positions from causing skipped jobs between pages.
+	afterID := uuid.Nil
 	for {
-		jobs, err := s.store.GetEnabledJobs(ctx, DefaultJobPageSize, offset)
+		jobs, err := s.store.GetEnabledJobs(ctx, DefaultJobPageSize, afterID)
 		if err != nil {
 			if s.metrics != nil {
 				s.metrics.TickCompleted(s.clock().Sub(start), jobsTriggered, err)
@@ -140,7 +141,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 		if len(jobs) < DefaultJobPageSize {
 			break
 		}
-		offset += len(jobs)
+		afterID = jobs[len(jobs)-1].Job.ID
 	}
 
 	s.lastTick = now

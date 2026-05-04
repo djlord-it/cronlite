@@ -12,8 +12,9 @@ SELECT
 FROM jobs j
 JOIN schedules s ON j.schedule_id = s.id
 WHERE j.enabled = true
+  AND ($2 = '00000000-0000-0000-0000-000000000000'::uuid OR j.id > $2)
 ORDER BY j.id
-LIMIT $1 OFFSET $2
+LIMIT $1
 `
 
 const queryInsertJob = `

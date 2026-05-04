@@ -23,7 +23,7 @@ type mockJobRepo struct {
 	listJobsFn           func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
 	updateJobFn          func(ctx context.Context, job domain.Job) error
 	deleteJobFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
-	getEnabledJobsFn     func(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error)
+	getEnabledJobsFn     func(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
 }
 
 func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -68,9 +68,9 @@ func (m *mockJobRepo) DeleteJob(ctx context.Context, id uuid.UUID, ns domain.Nam
 	}
 	return nil
 }
-func (m *mockJobRepo) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
+func (m *mockJobRepo) GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error) {
 	if m.getEnabledJobsFn != nil {
-		return m.getEnabledJobsFn(ctx, limit, offset)
+		return m.getEnabledJobsFn(ctx, limit, afterID)
 	}
 	return nil, nil
 }

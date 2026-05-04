@@ -41,12 +41,12 @@ func (s *Store) withTimeout(parent context.Context) (context.Context, context.Ca
 
 // ── Job Repository ────────────────────────────────────────────────────────────
 
-// GetEnabledJobs returns enabled jobs with their schedules, paginated by limit and offset.
-func (s *Store) GetEnabledJobs(ctx context.Context, limit, offset int) ([]domain.JobWithSchedule, error) {
+// GetEnabledJobs returns enabled jobs with their schedules after afterID, ordered by job ID.
+func (s *Store) GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	rows, err := s.db.QueryContext(ctx, queryGetEnabledJobs, limit, offset)
+	rows, err := s.db.QueryContext(ctx, queryGetEnabledJobs, limit, afterID)
 	if err != nil {
 		return nil, err
 	}
