@@ -206,27 +206,11 @@ func (s *JobService) UpdateJob(ctx context.Context, id uuid.UUID, input UpdateJo
 		schedule.CronExpression = cronExpr
 		schedule.Timezone = tz
 		schedule.UpdatedAt = now
-
-		if err := s.schedules.UpdateSchedule(ctx, schedule); err != nil {
-			return domain.Job{}, domain.Schedule{}, fmt.Errorf("update schedule: %w", err)
-		}
 	}
 
 	job.UpdatedAt = now
-	if err := s.jobs.UpdateJob(ctx, job); err != nil {
-		return domain.Job{}, domain.Schedule{}, fmt.Errorf("update job: %w", err)
-	}
-
-	// If tags changed, delete and re-upsert.
-	if input.Tags != nil {
-		if err := s.tags.DeleteTags(ctx, id); err != nil {
-			return domain.Job{}, domain.Schedule{}, fmt.Errorf("delete tags: %w", err)
-		}
-		if len(*input.Tags) > 0 {
-			if err := s.tags.UpsertTags(ctx, id, *input.Tags); err != nil {
-				return domain.Job{}, domain.Schedule{}, fmt.Errorf("upsert tags: %w", err)
-			}
-		}
+	if err := s.jobs.UpdateJobAggregate(ctx, job, schedule, input.Tags); err != nil {
+		return domain.Job{}, domain.Schedule{}, fmt.Errorf("update job aggregate: %w", err)
 	}
 
 	return job, schedule, nil
