@@ -1241,7 +1241,7 @@ func TestAckExecution_NotFound(t *testing.T) {
 
 func TestCreateAPIKey_HappyPath(t *testing.T) {
 	srv := newTestServer(nil, nil, nil, nil, nil, nil)
-	ctx := ctxWithNS("admin")
+	ctx := ctxWithNS("t1")
 
 	resp, err := srv.CreateAPIKey(ctx, CreateAPIKeyRequestObject{
 		Body: &CreateAPIKeyRequest{
@@ -1265,6 +1265,28 @@ func TestCreateAPIKey_HappyPath(t *testing.T) {
 	}
 	if got.Token == "" {
 		t.Fatal("expected token to be non-empty")
+	}
+}
+
+func TestCreateAPIKey_UsesAuthenticatedNamespace(t *testing.T) {
+	srv := newTestServer(nil, nil, nil, nil, nil, nil)
+
+	resp, err := srv.CreateAPIKey(ctxWithNS("caller-ns"), CreateAPIKeyRequestObject{
+		Body: &CreateAPIKeyRequest{
+			Label:     "test-key",
+			Namespace: "other-ns",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got, ok := resp.(CreateAPIKey201JSONResponse)
+	if !ok {
+		t.Fatalf("expected CreateAPIKey201JSONResponse, got %T", resp)
+	}
+	if got.Namespace != "caller-ns" {
+		t.Fatalf("expected namespace %q, got %q", "caller-ns", got.Namespace)
 	}
 }
 

@@ -384,12 +384,7 @@ func (s *ServerImpl) AckExecution(ctx context.Context, request AckExecutionReque
 func (s *ServerImpl) CreateAPIKey(ctx context.Context, request CreateAPIKeyRequestObject) (CreateAPIKeyResponseObject, error) {
 	body := request.Body
 
-	// The namespace for the new key comes from the request body.
-	// Override the context namespace with the requested namespace so the
-	// service layer sees the target namespace.
-	nsCtx := domain.NamespaceToContext(ctx, domain.Namespace(body.Namespace))
-
-	result, err := s.svc.CreateAPIKey(nsCtx, service.CreateAPIKeyInput{
+	result, err := s.svc.CreateAPIKey(ctx, service.CreateAPIKeyInput{
 		Label: body.Label,
 	})
 	if err != nil {
