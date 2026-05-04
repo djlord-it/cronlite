@@ -289,6 +289,17 @@ func TestLoad_APIKey(t *testing.T) {
 	}
 }
 
+func TestLoad_Environment(t *testing.T) {
+	os.Setenv("CRONLITE_ENV", "production")
+	defer os.Unsetenv("CRONLITE_ENV")
+
+	cfg := Load()
+
+	if cfg.Environment != "production" {
+		t.Errorf("Environment: expected 'production', got %q", cfg.Environment)
+	}
+}
+
 func TestLoad_APIKeyEmpty(t *testing.T) {
 	os.Unsetenv("API_KEY")
 

@@ -56,9 +56,11 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 ## Production Checklist
 
 - [ ] All migrations applied in order (see [Migrations](#migrations))
+- [ ] `CRONLITE_ENV=production` set so unsafe production configuration fails startup
+- [ ] `DISPATCH_MODE=db` on all production instances
 - [ ] `RECONCILE_ENABLED=true` on all instances
 - [ ] `METRICS_ENABLED=true` on all instances
-- [ ] `DISPATCH_MODE=db` if running more than one instance
+- [ ] `API_KEY` set for production startup validation, even if traffic uses namespace-scoped API keys
 - [ ] `LEADER_LOCK_KEY` identical across all instances (default: 728379)
 - [ ] `DISPATCHER_WORKERS` set to 2-4 for production workloads
 - [ ] Postgres TCP keepalive tuned: `tcp_keepalives_idle=10`, `tcp_keepalives_interval=5`, `tcp_keepalives_count=3`
@@ -76,6 +78,7 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `CRONLITE_ENV` | *(empty)* | Set to `production` to fail startup on unsafe production settings |
 | `DATABASE_URL` | *required* | PostgreSQL connection string |
 | `API_KEY` | *(empty)* | Legacy static Bearer token fallback (also used to protect `/metrics` when set) |
 | `HTTP_ADDR` | `:8080` | Listen address |
@@ -109,8 +112,11 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 
 | Variable | Value | Why |
 |----------|-------|-----|
+| `CRONLITE_ENV` | `production` | Enables strict production validation before startup |
+| `DISPATCH_MODE` | `db` | Avoids in-memory dispatch loss and supports multi-instance coordination |
 | `RECONCILE_ENABLED` | `true` | Without this, orphaned executions are **permanently lost** |
 | `METRICS_ENABLED` | `true` | Required for observability and alerting |
+| `API_KEY` | non-empty | Ensures API authentication is configured at startup |
 
 ## Guarantees
 

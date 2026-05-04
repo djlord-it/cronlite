@@ -10,6 +10,7 @@ import (
 // Config holds all configuration for the cronlite application.
 // Values are loaded from environment variables; see printUsage() for the full list.
 type Config struct {
+	Environment string `json:"environment,omitempty"`
 	DatabaseURL string `json:"database_url"`
 	RedisAddr   string `json:"redis_addr,omitempty"`
 	HTTPAddr    string `json:"http_addr"`
@@ -91,6 +92,7 @@ type Config struct {
 // Load reads configuration from environment variables with defaults.
 func Load() Config {
 	cfg := Config{
+		Environment:                  os.Getenv("CRONLITE_ENV"),
 		DatabaseURL:                  os.Getenv("DATABASE_URL"),
 		RedisAddr:                    os.Getenv("REDIS_ADDR"),
 		HTTPAddr:                     os.Getenv("HTTP_ADDR"),
@@ -337,6 +339,7 @@ func parseInt(s string) (int, error) {
 // MaskedJSON returns the configuration as JSON with secrets masked.
 func (c Config) MaskedJSON() ([]byte, error) {
 	masked := struct {
+		Environment               string `json:"environment,omitempty"`
 		DatabaseURL               string `json:"database_url"`
 		RedisAddr                 string `json:"redis_addr,omitempty"`
 		HTTPAddr                  string `json:"http_addr"`
@@ -369,6 +372,7 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		IPRateLimit               int    `json:"ip_rate_limit"`
 		NamespaceRateLimit        int    `json:"namespace_rate_limit"`
 	}{
+		Environment:               c.Environment,
 		DatabaseURL:               maskSecret(c.DatabaseURL),
 		RedisAddr:                 maskSecret(c.RedisAddr),
 		HTTPAddr:                  c.HTTPAddr,

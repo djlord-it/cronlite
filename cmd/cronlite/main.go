@@ -112,6 +112,7 @@ Commands:
   create-key   Create a new API key  (usage: cronlite create-key <namespace> <label>)
 
 Environment Variables:
+  CRONLITE_ENV              Runtime environment; "production" enables strict validation
   DATABASE_URL              PostgreSQL connection string (required)
   REDIS_ADDR                Redis address for analytics (optional)
   HTTP_ADDR                 HTTP server address (default: ":8080")
