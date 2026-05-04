@@ -323,6 +323,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
+        "503":
+          description: Degraded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
 
   /jobs:
     post:

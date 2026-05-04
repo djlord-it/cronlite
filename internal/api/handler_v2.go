@@ -48,6 +48,7 @@ func (s *ServerImpl) GetHealth(ctx context.Context, request GetHealthRequestObje
 		dbStatus := "unhealthy"
 		resp.Database = &dbStatus
 		log.Printf("api: health check database unhealthy: %v", err)
+		return GetHealth503JSONResponse(resp), nil
 	} else {
 		dbStatus := "healthy"
 		resp.Database = &dbStatus

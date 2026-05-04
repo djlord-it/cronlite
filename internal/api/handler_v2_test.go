@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -409,9 +411,9 @@ func TestGetHealth_VerboseUnhealthy(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	got, ok := resp.(GetHealth200JSONResponse)
+	got, ok := resp.(GetHealth503JSONResponse)
 	if !ok {
-		t.Fatalf("expected GetHealth200JSONResponse, got %T", resp)
+		t.Fatalf("expected GetHealth503JSONResponse, got %T", resp)
 	}
 	if got.Status != "degraded" {
 		t.Fatalf("expected status %q, got %q", "degraded", got.Status)
@@ -421,6 +423,14 @@ func TestGetHealth_VerboseUnhealthy(t *testing.T) {
 	}
 	if *got.Database != "unhealthy" {
 		t.Fatalf("expected database %q, got %q", "unhealthy", *got.Database)
+	}
+
+	w := httptest.NewRecorder()
+	if err := resp.VisitGetHealthResponse(w); err != nil {
+		t.Fatalf("unexpected response write error: %v", err)
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected HTTP status %d, got %d", http.StatusServiceUnavailable, w.Code)
 	}
 }
 
