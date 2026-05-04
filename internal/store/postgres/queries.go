@@ -70,17 +70,23 @@ WHERE id = $10 AND namespace = $11
 `
 
 const queryDeleteJob = `
-WITH deleted_attempts AS (
+WITH authorized_job AS (
+    SELECT id, schedule_id FROM jobs WHERE id = $1 AND namespace = $2
+),
+deleted_attempts AS (
     DELETE FROM delivery_attempts
-    WHERE execution_id IN (SELECT id FROM executions WHERE job_id = $1)
+    WHERE execution_id IN (SELECT id FROM executions WHERE job_id IN (SELECT id FROM authorized_job))
 ),
 deleted_executions AS (
-    DELETE FROM executions WHERE job_id = $1
+    DELETE FROM executions WHERE job_id IN (SELECT id FROM authorized_job)
+),
+deleted_tags AS (
+    DELETE FROM tags WHERE job_id IN (SELECT id FROM authorized_job)
 ),
 deleted_schedules AS (
-    DELETE FROM schedules WHERE id IN (SELECT schedule_id FROM jobs WHERE id = $1 AND namespace = $2)
+    DELETE FROM schedules WHERE id IN (SELECT schedule_id FROM authorized_job)
 )
-DELETE FROM jobs WHERE id = $1 AND namespace = $2
+DELETE FROM jobs WHERE id IN (SELECT id FROM authorized_job)
 RETURNING id`
 
 // ── Schedules ─────────────────────────────────────────────────────────────────
