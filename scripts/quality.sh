@@ -4,7 +4,8 @@ set -uo pipefail
 GOBIN="$(go env GOPATH 2>/dev/null)/bin"
 [[ -d "$GOBIN" ]] && export PATH="$GOBIN:$PATH"
 
-ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || dirname "$(dirname "$0")")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
 if [ -t 1 ]; then
@@ -193,7 +194,7 @@ printf "\n  ${B}Reliability${R}\n"
 
 check "Error handling (unchecked errors)"
 if need_tool golangci-lint "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; then
-  errcheck_out=$(golangci-lint run --enable errcheck --disable-all --timeout 120s ./... 2>&1 || true)
+  errcheck_out=$(golangci-lint run --no-config --enable-only errcheck --timeout 120s ./... 2>&1 || true)
   errcount=$(echo "$errcheck_out" | grep -c ':' 2>/dev/null) || errcount=0
   if [ "$errcount" -le 0 ]; then
     pass "no unchecked errors"
