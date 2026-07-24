@@ -107,6 +107,10 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 | `MAX_FIRES_PER_TICK` | `1000` | Max executions a single job can emit per scheduler tick |
 | `RATE_LIMIT` | `10` | Per-IP request rate limit (requests/sec) |
 | `NAMESPACE_RATE_LIMIT` | `100` | Per-namespace request rate limit (requests/sec, after auth) |
+| `ADMIN_ENABLED` | `false` | Enable the server-rendered admin UI at `/admin` |
+| `ADMIN_BOOTSTRAP_TOKEN` | *(empty)* | Secret required only for first-key creation through `/admin/setup`; never printed by `cronlite config` |
+| `ADMIN_SESSION_TTL` | `12h` | Sliding lifetime for PostgreSQL-backed admin sessions |
+| `ADMIN_COOKIE_SECURE` | production-aware | Secure cookie flag; defaults to `true` in production and `false` otherwise |
 
 ### Required in Production
 
@@ -171,8 +175,23 @@ Current migrations:
 | `004_agent_platform.sql` | API keys, namespaces, tags, execution acknowledgment |
 | `005_drop_scopes.sql` | Removes unused `scopes` column from api_keys |
 | `006_add_claimed_at_index.sql` | Partial index for reconciler crash recovery queries |
+| `007_admin_sessions.sql` | Revocable browser sessions for the optional admin UI |
 
-Current releases require all migrations through 006. Skipping migrations may cause auth failures, missing columns, or degraded reconciler performance.
+Current releases require all migrations through 007 when the admin UI is enabled. Skipping migrations may cause auth failures, missing columns, or degraded reconciler performance.
+
+## Admin UI Operations
+
+The admin UI is disabled unless `ADMIN_ENABLED=true`. It is embedded in the existing `cronlite` binary and serves English HTML/CSS at `/admin`.
+
+For a fresh database:
+
+1. Apply migrations through `007_admin_sessions.sql`.
+2. Set a long random `ADMIN_BOOTSTRAP_TOKEN`.
+3. Start CronLite and open `/admin/setup`.
+4. Enter the installation token, namespace, and first key label.
+5. Save the API key shown once, then remove `ADMIN_BOOTSTRAP_TOKEN` from the runtime environment.
+
+The bootstrap transaction takes a PostgreSQL advisory lock and refuses creation after any API key exists. Regular sign-in hashes the supplied API key, then creates an opaque session tied to that key. Deleting the API key cascades to its sessions. All mutations require CSRF tokens, and login/setup use the normal per-IP rate limit.
 
 ## Auth Model
 

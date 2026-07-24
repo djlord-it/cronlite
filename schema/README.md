@@ -36,6 +36,10 @@ Status values:
 
 Records each webhook delivery attempt for an execution. Includes HTTP status code, error message, and timestamps.
 
+### admin_sessions
+
+Stores opaque, revocable browser sessions for the optional `/admin` UI. Session rows are deleted automatically when their API key is revoked.
+
 ## Constraints
 
 - `executions.UNIQUE(job_id, scheduled_at)`: Enforces execution idempotency

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -150,6 +151,28 @@ func (s *JobService) ListJobs(ctx context.Context, filter domain.JobFilter) ([]d
 	filter.ListParams = filter.WithDefaults()
 
 	return s.jobs.ListJobs(ctx, filter)
+}
+
+type jobScheduleListRepository interface {
+	ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
+}
+
+// ListJobsWithSchedules returns list rows with schedule data in one repository
+// operation, scoped to the namespace from ctx.
+func (s *JobService) ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+	ns := domain.NamespaceFromContext(ctx)
+	if ns.IsZero() {
+		return nil, domain.ErrNamespaceRequired
+	}
+
+	filter.Namespace = ns
+	filter.ListParams = filter.WithDefaults()
+
+	repo, ok := s.jobs.(jobScheduleListRepository)
+	if !ok {
+		return nil, errors.New("job repository does not support scheduled job lists")
+	}
+	return repo.ListJobsWithSchedules(ctx, filter)
 }
 
 // UpdateJob applies partial updates to an existing job.

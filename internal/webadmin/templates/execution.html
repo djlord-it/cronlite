@@ -1,0 +1,30 @@
+{{define "execution"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main class="container">
+  <a class="back" href="/admin/jobs/{{.Execution.JobID}}">← Job</a>
+  <div class="page-heading"><div><p class="eyebrow">{{.Execution.TriggerType}}</p><h1>Execution</h1></div><span class="badge">{{.Execution.Status}}</span></div>
+  <section class="card">
+    <dl>
+      <dt>ID</dt><dd><code>{{.Execution.ID}}</code></dd>
+      <dt>Scheduled</dt><dd>{{formatTime .Execution.ScheduledAt}}</dd>
+      <dt>Fired</dt><dd>{{formatTime .Execution.FiredAt}}</dd>
+      <dt>Created</dt><dd>{{formatTime .Execution.CreatedAt}}</dd>
+    </dl>
+  </section>
+  <section>
+    <h2>Delivery attempts</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Attempt</th><th>HTTP status</th><th>Error</th><th>Started</th><th>Finished</th></tr></thead>
+        <tbody>
+        {{range .Attempts}}
+          <tr><td>{{.Attempt}}</td><td>{{.StatusCode}}</td><td class="break">{{if .Error}}{{.Error}}{{else}}—{{end}}</td><td>{{formatTime .StartedAt}}</td><td>{{formatTime .FinishedAt}}</td></tr>
+        {{else}}<tr><td colspan="5" class="empty">No delivery attempts recorded.</td></tr>{{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

@@ -1,0 +1,37 @@
+{{define "setup"}}
+{{template "head" .}}
+<main class="auth-shell">
+  <section class="card auth-card">
+    <p class="eyebrow">First installation</p>
+    <h1>Set up CronLite</h1>
+    <p class="muted">Create the first namespace-scoped API key. This page closes permanently once a key exists.</p>
+    {{template "messages" .}}
+    <form method="post" action="/admin/setup">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label for="bootstrap_token">Installation token</label>
+      <input id="bootstrap_token" name="bootstrap_token" type="password" autocomplete="off" required>
+      <label for="namespace">Namespace</label>
+      <input id="namespace" name="namespace" type="text" maxlength="128" required>
+      <label for="label">Key label</label>
+      <input id="label" name="label" type="text" maxlength="128" value="owner" required>
+      <button type="submit">Create first key</button>
+    </form>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "setup_complete"}}
+{{template "head" .}}
+<main class="auth-shell">
+  <section class="card auth-card">
+    <p class="eyebrow">Setup complete</p>
+    <h1>Save your API key</h1>
+    <p>This key is shown once. Store it in a password manager before continuing.</p>
+    <pre class="secret">{{.APIKey}}</pre>
+    <p><strong>Namespace:</strong> {{.Namespace}}</p>
+    <a class="button" href="/admin/jobs">Continue to jobs</a>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

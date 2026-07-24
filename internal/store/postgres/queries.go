@@ -268,3 +268,31 @@ const queryUpdateLastUsedAt = `
 UPDATE api_keys SET last_used_at = NOW()
 WHERE id = ANY($1)
 `
+
+const queryHasAnyAPIKeys = `SELECT EXISTS (SELECT 1 FROM api_keys)`
+
+// ── Admin Sessions ────────────────────────────────────────────────────────────
+
+const queryInsertAdminSession = `
+INSERT INTO admin_sessions (token_hash, api_key_id, csrf_token, created_at, last_seen_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6)
+`
+
+const queryGetAdminSession = `
+SELECT
+    s.token_hash, s.api_key_id, s.csrf_token, s.created_at, s.last_seen_at, s.expires_at,
+    k.id, k.namespace, k.token_hash, k.label, k.enabled, k.created_at, k.last_used_at
+FROM admin_sessions s
+JOIN api_keys k ON k.id = s.api_key_id
+WHERE s.token_hash = $1
+  AND s.expires_at > $2
+  AND k.enabled = true
+`
+
+const queryRefreshAdminSession = `
+UPDATE admin_sessions
+SET last_seen_at = $1, expires_at = $2
+WHERE token_hash = $3
+`
+
+const queryDeleteAdminSession = `DELETE FROM admin_sessions WHERE token_hash = $1`

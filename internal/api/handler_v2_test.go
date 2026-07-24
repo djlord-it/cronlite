@@ -17,13 +17,14 @@ import (
 // ── Mock repositories ────────────────────────────────────────────────────────
 
 type mockJobRepo struct {
-	insertJobFn          func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	getJobFn             func(ctx context.Context, id uuid.UUID) (domain.Job, error)
-	getJobWithScheduleFn func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
-	listJobsFn           func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
-	updateJobFn          func(ctx context.Context, job domain.Job) error
-	deleteJobFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
-	getEnabledJobsFn     func(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
+	insertJobFn             func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
+	getJobFn                func(ctx context.Context, id uuid.UUID) (domain.Job, error)
+	getJobWithScheduleFn    func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
+	listJobsFn              func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listJobsWithSchedulesFn func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
+	updateJobFn             func(ctx context.Context, job domain.Job) error
+	deleteJobFn             func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
+	getEnabledJobsFn        func(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
 }
 
 func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -53,6 +54,12 @@ func (m *mockJobRepo) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID
 func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, filter)
+	}
+	return nil, nil
+}
+func (m *mockJobRepo) ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+	if m.listJobsWithSchedulesFn != nil {
+		return m.listJobsWithSchedulesFn(ctx, filter)
 	}
 	return nil, nil
 }
@@ -525,9 +532,12 @@ func TestCreateJob_InvalidCron(t *testing.T) {
 
 func TestListJobs_HappyPath(t *testing.T) {
 	jobID := uuid.New()
+	scheduleID := uuid.New()
 	jr := &mockJobRepo{
-		listJobsFn: func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
-			return []domain.Job{fixedJob(jobID, "t1")}, nil
+		listJobsWithSchedulesFn: func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+			job := fixedJob(jobID, "t1")
+			job.ScheduleID = scheduleID
+			return []domain.JobWithSchedule{{Job: job, Schedule: fixedSchedule(scheduleID)}}, nil
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)
@@ -549,6 +559,9 @@ func TestListJobs_HappyPath(t *testing.T) {
 	}
 	if got.Jobs[0].Name != "test-job" {
 		t.Fatalf("expected job name %q, got %q", "test-job", got.Jobs[0].Name)
+	}
+	if got.Jobs[0].CronExpression != "*/5 * * * *" || got.Jobs[0].Timezone != "UTC" {
+		t.Fatalf("expected populated schedule, got cron=%q timezone=%q", got.Jobs[0].CronExpression, got.Jobs[0].Timezone)
 	}
 }
 
@@ -1458,9 +1471,12 @@ func TestListParamsFromQuery(t *testing.T) {
 func TestListJobs_WithFilters(t *testing.T) {
 	var capturedFilter domain.JobFilter
 	jr := &mockJobRepo{
-		listJobsFn: func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+		listJobsWithSchedulesFn: func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 			capturedFilter = filter
-			return []domain.Job{fixedJob(uuid.New(), "t1")}, nil
+			return []domain.JobWithSchedule{{
+				Job:      fixedJob(uuid.New(), "t1"),
+				Schedule: domain.Schedule{CronExpression: "0 * * * *", Timezone: "UTC"},
+			}}, nil
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)

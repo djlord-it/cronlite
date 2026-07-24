@@ -1,0 +1,35 @@
+{{define "head"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · CronLite</title>
+  <link rel="stylesheet" href="/admin/assets/admin.css">
+</head>
+<body>
+{{end}}
+
+{{define "nav"}}
+<header class="topbar">
+  <a class="brand" href="/admin/jobs">CronLite</a>
+  <nav aria-label="Primary navigation">
+    <a href="/admin/jobs">Jobs</a>
+    <span class="namespace">{{.Namespace}}</span>
+    <form method="post" action="/admin/logout">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <button class="link-button" type="submit">Log out</button>
+    </form>
+  </nav>
+</header>
+{{end}}
+
+{{define "messages"}}
+{{if .Notice}}<div class="notice" role="status">{{.Notice}}</div>{{end}}
+{{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
+{{end}}
+
+{{define "foot"}}
+</body>
+</html>
+{{end}}

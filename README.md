@@ -151,6 +151,23 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 > See the [Operator Guide](OPERATORS.md#horizontal-scaling-multi-instance-ha) for configuration, tuning, failover timing, and alerting rules.
 
+## Lightweight Admin UI
+
+CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates and embedded CSS only—no JavaScript, frontend framework, Node runtime, CDN, or separate asset files.
+
+Apply migration 007, set an installation token, and enable the UI:
+
+```bash
+psql "$DATABASE_URL" < schema/007_admin_sessions.sql
+export ADMIN_ENABLED=true
+export ADMIN_BOOTSTRAP_TOKEN="replace-with-a-long-random-token"
+./cronlite serve
+```
+
+Open `http://localhost:8080/admin`. On a fresh installation, `/admin/setup` accepts the installation token and creates the first namespace-scoped API key. The key is displayed once. Once any API key exists, setup is permanently disabled and users sign in with an existing API key.
+
+Admin sessions are opaque, revocable PostgreSQL records linked to the API key. The default sliding lifetime is 12 hours (`ADMIN_SESSION_TTL`); cookies are automatically marked Secure in production. Remove `ADMIN_BOOTSTRAP_TOKEN` from the environment after first setup.
+
 ## CLI
 
 | Command | Description |

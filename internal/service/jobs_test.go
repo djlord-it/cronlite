@@ -19,6 +19,7 @@ type mockJobRepo struct {
 	getJobWithScheduleFn       func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
 	getJobWithScheduleScopedFn func(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error)
 	listJobsFn                 func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listJobsWithSchedulesFn    func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
 	updateJobFn                func(ctx context.Context, job domain.Job) error
 	updateJobAggregateFn       func(ctx context.Context, job domain.Job, schedule domain.Schedule, tags *[]domain.Tag) error
 	deleteJobFn                func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
@@ -68,6 +69,13 @@ func (m *mockJobRepo) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID
 func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, filter)
+	}
+	return nil, nil
+}
+
+func (m *mockJobRepo) ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+	if m.listJobsWithSchedulesFn != nil {
+		return m.listJobsWithSchedulesFn(ctx, filter)
 	}
 	return nil, nil
 }
@@ -254,11 +262,13 @@ func (m *mockTagRepo) DeleteTags(ctx context.Context, jobID uuid.UUID) error {
 }
 
 type mockAPIKeyRepo struct {
-	insertAPIKeyFn   func(ctx context.Context, key domain.APIKey) error
-	getKeyByHashFn   func(ctx context.Context, tokenHash string) (domain.APIKey, error)
-	listKeysFn       func(ctx context.Context, ns domain.Namespace, params domain.ListParams) ([]domain.APIKey, error)
-	deleteKeyFn      func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
-	updateLastUsedFn func(ctx context.Context, ids []uuid.UUID) error
+	insertAPIKeyFn      func(ctx context.Context, key domain.APIKey) error
+	insertFirstAPIKeyFn func(ctx context.Context, key domain.APIKey) error
+	hasAnyAPIKeysFn     func(ctx context.Context) (bool, error)
+	getKeyByHashFn      func(ctx context.Context, tokenHash string) (domain.APIKey, error)
+	listKeysFn          func(ctx context.Context, ns domain.Namespace, params domain.ListParams) ([]domain.APIKey, error)
+	deleteKeyFn         func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
+	updateLastUsedFn    func(ctx context.Context, ids []uuid.UUID) error
 }
 
 func (m *mockAPIKeyRepo) InsertAPIKey(ctx context.Context, key domain.APIKey) error {
@@ -266,6 +276,20 @@ func (m *mockAPIKeyRepo) InsertAPIKey(ctx context.Context, key domain.APIKey) er
 		return m.insertAPIKeyFn(ctx, key)
 	}
 	return nil
+}
+
+func (m *mockAPIKeyRepo) InsertFirstAPIKey(ctx context.Context, key domain.APIKey) error {
+	if m.insertFirstAPIKeyFn != nil {
+		return m.insertFirstAPIKeyFn(ctx, key)
+	}
+	return nil
+}
+
+func (m *mockAPIKeyRepo) HasAnyAPIKeys(ctx context.Context) (bool, error) {
+	if m.hasAnyAPIKeysFn != nil {
+		return m.hasAnyAPIKeysFn(ctx)
+	}
+	return false, nil
 }
 
 func (m *mockAPIKeyRepo) GetKeyByTokenHash(ctx context.Context, tokenHash string) (domain.APIKey, error) {
@@ -686,6 +710,31 @@ func TestListJobs_NoNamespace(t *testing.T) {
 	_, err := svc.ListJobs(context.Background(), domain.JobFilter{})
 	if !errors.Is(err, domain.ErrNamespaceRequired) {
 		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+func TestListJobsWithSchedules_HappyPath(t *testing.T) {
+	var capturedFilter domain.JobFilter
+	jobRepo := &mockJobRepo{
+		listJobsWithSchedulesFn: func(_ context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+			capturedFilter = filter
+			return []domain.JobWithSchedule{{
+				Job:      domain.Job{ID: uuid.New(), Namespace: "t1", Name: "job-1"},
+				Schedule: domain.Schedule{CronExpression: "*/5 * * * *", Timezone: "UTC"},
+			}}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	jobs, err := svc.ListJobsWithSchedules(ctxWithNS("t1"), domain.JobFilter{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Schedule.CronExpression != "*/5 * * * *" {
+		t.Fatalf("unexpected jobs: %#v", jobs)
+	}
+	if capturedFilter.Namespace != "t1" || capturedFilter.Limit <= 0 {
+		t.Fatalf("filter defaults were not applied: %#v", capturedFilter)
 	}
 }
 

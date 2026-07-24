@@ -191,3 +191,41 @@ func TestHashToken(t *testing.T) {
 		}
 	})
 }
+
+func TestBootstrapFirstAPIKey_HappyPath(t *testing.T) {
+	var storedKey domain.APIKey
+	apiKeyRepo := &mockAPIKeyRepo{
+		insertFirstAPIKeyFn: func(_ context.Context, key domain.APIKey) error {
+			storedKey = key
+			return nil
+		},
+	}
+	svc := newTestServiceFull(nil, nil, nil, nil, apiKeyRepo, nil)
+
+	result, err := svc.BootstrapFirstAPIKey(context.Background(), "first-team", "owner")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Key.Namespace != "first-team" || storedKey.Namespace != "first-team" {
+		t.Fatalf("expected first-team namespace, got result=%q stored=%q", result.Key.Namespace, storedKey.Namespace)
+	}
+	if result.Key.Label != "owner" {
+		t.Fatalf("expected owner label, got %q", result.Key.Label)
+	}
+	if !strings.HasPrefix(result.PlaintextToken, "ec_") {
+		t.Fatalf("expected generated API token, got %q", result.PlaintextToken)
+	}
+	if storedKey.TokenHash != HashToken(result.PlaintextToken) {
+		t.Fatal("stored key hash does not match returned token")
+	}
+}
+
+func TestBootstrapFirstAPIKey_RejectsEmptyNamespace(t *testing.T) {
+	svc := newTestServiceFull(nil, nil, nil, nil, &mockAPIKeyRepo{}, nil)
+
+	_, err := svc.BootstrapFirstAPIKey(context.Background(), "", "owner")
+	if !errors.Is(err, domain.ErrNamespaceRequired) {
+		t.Fatalf("expected ErrNamespaceRequired, got %v", err)
+	}
+}

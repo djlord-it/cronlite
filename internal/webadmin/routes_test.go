@@ -1,0 +1,221 @@
+package webadmin
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/google/uuid"
+)
+
+func TestProtectedRouteRedirectsToLogin(t *testing.T) {
+	handler := newTestHandler(t, nil, nil, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/jobs", nil))
+
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/login" {
+		t.Fatalf("expected login redirect, got status=%d location=%q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestEditPageNeverRendersStoredWebhookSecret(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	jobID := uuid.New()
+	svc := &fakeAdminService{
+		hasKeys: true,
+		job: domain.Job{
+			ID: jobID, Namespace: "team", Name: "private-job", Enabled: true,
+			Delivery: domain.DeliveryConfig{
+				WebhookURL: "https://example.com/hook",
+				Secret:     "stored-super-secret",
+				Timeout:    30 * time.Second,
+			},
+		},
+		schedule: domain.Schedule{CronExpression: "0 * * * *", Timezone: "UTC"},
+		tags:     []domain.Tag{{Key: "env", Value: "prod"}},
+	}
+	handler := newTestHandler(t, svc, sessions, nil)
+	req := authenticatedRequest(http.MethodGet, "/admin/jobs/"+jobID.String()+"/edit", nil, sessions)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "stored-super-secret") {
+		t.Fatal("stored webhook secret leaked into edit page")
+	}
+	for _, want := range []string{"private-job", "0 * * * *", "env=prod"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("expected edit page to contain %q", want)
+		}
+	}
+}
+
+func TestEditPageCanExplicitlyClearWebhookSecret(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	jobID := uuid.New()
+	svc := &fakeAdminService{
+		hasKeys: true,
+		job:     domain.Job{ID: jobID, Namespace: "team", Name: "job"},
+		schedule: domain.Schedule{
+			CronExpression: "0 * * * *",
+			Timezone:       "UTC",
+		},
+	}
+	handler := newTestHandler(t, svc, sessions, nil)
+	form := url.Values{
+		"csrf_token":           {"csrf-token"},
+		"name":                 {"job"},
+		"cron_expression":      {"0 * * * *"},
+		"timezone":             {"UTC"},
+		"webhook_url":          {"https://example.com/hook"},
+		"timeout_seconds":      {"30"},
+		"clear_webhook_secret": {"true"},
+	}
+	req := authenticatedRequest(http.MethodPost, "/admin/jobs/"+jobID.String()+"/edit", form, sessions)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if svc.updatedInput.Secret == nil || *svc.updatedInput.Secret != "" {
+		t.Fatalf("expected explicit secret clear, got %#v", svc.updatedInput.Secret)
+	}
+}
+
+func TestJobActionsUseScopedService(t *testing.T) {
+	jobID := uuid.New()
+	for _, action := range []string{"pause", "resume", "trigger"} {
+		t.Run(action, func(t *testing.T) {
+			sessions := &fakeAdminSessionStore{}
+			svc := &fakeAdminService{hasKeys: true}
+			handler := newTestHandler(t, svc, sessions, nil)
+			form := url.Values{"csrf_token": {"csrf-token"}}
+			req := authenticatedRequest(http.MethodPost, "/admin/jobs/"+jobID.String()+"/"+action, form, sessions)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("expected 303, got %d: %s", rec.Code, rec.Body.String())
+			}
+			if svc.actionID != jobID {
+				t.Fatalf("service received %s, want %s", svc.actionID, jobID)
+			}
+		})
+	}
+}
+
+func TestDeleteUsesConfirmationThenPost(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	jobID := uuid.New()
+	svc := &fakeAdminService{
+		hasKeys: true,
+		job:     domain.Job{ID: jobID, Namespace: "team", Name: "delete-me"},
+		schedule: domain.Schedule{
+			CronExpression: "0 * * * *",
+			Timezone:       "UTC",
+		},
+	}
+	handler := newTestHandler(t, svc, sessions, nil)
+
+	getReq := authenticatedRequest(http.MethodGet, "/admin/jobs/"+jobID.String()+"/delete", nil, sessions)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK || !strings.Contains(getRec.Body.String(), "Delete delete-me?") {
+		t.Fatalf("confirmation missing: status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+
+	form := url.Values{"csrf_token": {"csrf-token"}}
+	postReq := authenticatedRequest(http.MethodPost, "/admin/jobs/"+jobID.String()+"/delete", form, sessions)
+	postRec := httptest.NewRecorder()
+	handler.ServeHTTP(postRec, postReq)
+	if postRec.Code != http.StatusSeeOther || svc.actionID != jobID {
+		t.Fatalf("delete failed: status=%d id=%s", postRec.Code, svc.actionID)
+	}
+}
+
+func TestExecutionPageRendersDeliveryAttempts(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	executionID := uuid.New()
+	jobID := uuid.New()
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	svc := &fakeAdminService{
+		hasKeys: true,
+		executions: []domain.Execution{{
+			ID: executionID, JobID: jobID, Namespace: "team",
+			Status: domain.ExecutionStatusFailed, TriggerType: domain.TriggerTypeManual,
+			ScheduledAt: now, FiredAt: now, CreatedAt: now,
+		}},
+		attempts: []domain.DeliveryAttempt{{
+			ID: uuid.New(), ExecutionID: executionID, Attempt: 1,
+			StatusCode: 503, Error: "upstream unavailable", StartedAt: now, FinishedAt: now.Add(time.Second),
+		}},
+	}
+	handler := newTestHandler(t, svc, sessions, nil)
+	req := authenticatedRequest(http.MethodGet, "/admin/executions/"+executionID.String(), nil, sessions)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{"failed", "manual", "503", "upstream unavailable"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("expected execution page to contain %q", want)
+		}
+	}
+}
+
+func TestLogoutDeletesServerSession(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	handler := newTestHandler(t, nil, sessions, nil)
+	form := url.Values{"csrf_token": {"csrf-token"}}
+	req := authenticatedRequest(http.MethodPost, "/admin/logout", form, sessions)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/login" {
+		t.Fatalf("unexpected logout response: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if sessions.deletedHash == "" {
+		t.Fatal("server-side session was not deleted")
+	}
+}
+
+func TestBootstrapRejectsWrongInstallationToken(t *testing.T) {
+	svc := &fakeAdminService{hasKeys: false}
+	handler := newTestHandler(t, svc, nil, nil)
+
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/admin/setup", nil))
+	csrfCookie := getRec.Result().Cookies()[0]
+	csrf := extractHiddenCSRF(t, getRec.Body.String())
+
+	form := url.Values{
+		"csrf_token":      {csrf},
+		"bootstrap_token": {"wrong"},
+		"namespace":       {"team"},
+		"label":           {"owner"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/admin/setup", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(csrfCookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized || svc.bootstrapNS != "" {
+		t.Fatalf("wrong token reached bootstrap: status=%d namespace=%q", rec.Code, svc.bootstrapNS)
+	}
+}

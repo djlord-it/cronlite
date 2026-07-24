@@ -13,6 +13,7 @@ services:
       - ./schema/004_agent_platform.sql:/docker-entrypoint-initdb.d/004_agent_platform.sql
       - ./schema/005_drop_scopes.sql:/docker-entrypoint-initdb.d/005_drop_scopes.sql
       - ./schema/006_add_claimed_at_index.sql:/docker-entrypoint-initdb.d/006_add_claimed_at_index.sql
+      - ./schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql
     ports:
       - "5432:5432"
     healthcheck:

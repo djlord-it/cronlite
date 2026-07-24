@@ -33,6 +33,7 @@ import (
 	"github.com/djlord-it/cronlite/internal/service"
 	"github.com/djlord-it/cronlite/internal/store/postgres"
 	"github.com/djlord-it/cronlite/internal/transport/channel"
+	"github.com/djlord-it/cronlite/internal/webadmin"
 
 	_ "github.com/lib/pq"
 )
@@ -145,6 +146,11 @@ Environment Variables:
   METRICS_PATH              Metrics endpoint path (default: "/metrics")
   METRICS_PUBLIC            Allow unauthenticated metrics access (default: "false")
 
+  ADMIN_ENABLED             Enable server-rendered admin UI at /admin (default: "false")
+  ADMIN_BOOTSTRAP_TOKEN     Secret required to create the first API key in /admin/setup
+  ADMIN_SESSION_TTL         Sliding admin session lifetime (default: "12h")
+  ADMIN_COOKIE_SECURE       Force Secure admin cookies (default: true in production)
+
   RECONCILE_ENABLED         Enable orphan execution reconciler (default: "false")
   RECONCILE_INTERVAL        How often to scan for orphans (default: "5m")
   RECONCILE_THRESHOLD       Age before emitted execution is orphaned (default: "15m")
@@ -183,6 +189,15 @@ func newMetricsHandler(
 		return metricsHandler
 	}
 	return api.MultiKeyAuthMiddleware(appCtx, keyRepo, fallbackKey, metricsHandler)
+}
+
+func registerAdminRoutes(mux *http.ServeMux, cfg config.Config, handler http.Handler) {
+	if !cfg.AdminEnabled {
+		return
+	}
+	rateLimited := api.RateLimitMiddleware(cfg.IPRateLimit, handler)
+	mux.Handle("/admin", rateLimited)
+	mux.Handle("/admin/", rateLimited)
 }
 
 func (lr *leaderRuntime) start(leaderCtx context.Context) {
@@ -413,6 +428,24 @@ func runServe() int {
 	httpMux := http.NewServeMux()
 	if cfg.MetricsEnabled {
 		httpMux.Handle(cfg.MetricsPath, newMetricsHandler(appCtx, store, cfg.APIKey, cfg.MetricsPublic))
+	}
+	if cfg.AdminEnabled {
+		adminHandler, err := webadmin.NewHandler(webadmin.Config{
+			Service:        jobService,
+			Sessions:       store,
+			Keys:           store,
+			BootstrapToken: cfg.AdminBootstrapToken,
+			SessionTTL:     cfg.AdminSessionTTL,
+			CookieSecure:   cfg.AdminCookieSecure,
+			Logger:         log.Default(),
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to initialize admin UI: %v\n", err)
+			return exitRuntimeError
+		}
+		registerAdminRoutes(httpMux, cfg, adminHandler)
+		log.Printf("cronlite: admin UI mounted at /admin (session_ttl=%s, secure_cookie=%t)",
+			cfg.AdminSessionTTL, cfg.AdminCookieSecure)
 	}
 	httpMux.Handle("/mcp", mcpHandler)
 	httpMux.Handle("/", rootHandler)

@@ -1,0 +1,18 @@
+{{define "login"}}
+{{template "head" .}}
+<main class="auth-shell">
+  <section class="card auth-card">
+    <p class="eyebrow">CronLite Admin</p>
+    <h1>Sign in</h1>
+    <p class="muted">Use an enabled CronLite API key. Access is limited to its namespace.</p>
+    {{template "messages" .}}
+    <form method="post" action="/admin/login">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label for="api_key">API key</label>
+      <input id="api_key" name="api_key" type="password" autocomplete="off" required autofocus>
+      <button type="submit">Sign in</button>
+    </form>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

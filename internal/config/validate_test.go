@@ -286,3 +286,17 @@ func TestValidate_DevelopmentAllowsUnsafeRuntimeSettings(t *testing.T) {
 		t.Fatalf("expected development config to remain valid, got: %v", err)
 	}
 }
+
+func TestValidate_AdminSessionTTLPositiveWhenEnabled(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:        "postgres://localhost/test",
+		AdminEnabled:       true,
+		AdminSessionTTLStr: "0s",
+		AdminSessionTTL:    0,
+	}
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_SESSION_TTL") {
+		t.Fatalf("expected ADMIN_SESSION_TTL validation error, got %v", err)
+	}
+}

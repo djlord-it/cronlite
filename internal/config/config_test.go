@@ -310,6 +310,76 @@ func TestLoad_APIKeyEmpty(t *testing.T) {
 	}
 }
 
+func TestLoad_AdminDefaults(t *testing.T) {
+	t.Setenv("ADMIN_ENABLED", "")
+	t.Setenv("ADMIN_BOOTSTRAP_TOKEN", "")
+	t.Setenv("ADMIN_SESSION_TTL", "")
+	t.Setenv("ADMIN_COOKIE_SECURE", "")
+	t.Setenv("CRONLITE_ENV", "")
+
+	cfg := Load()
+
+	if cfg.AdminEnabled {
+		t.Error("AdminEnabled: expected false")
+	}
+	if cfg.AdminBootstrapToken != "" {
+		t.Error("AdminBootstrapToken: expected empty")
+	}
+	if cfg.AdminSessionTTL != 12*time.Hour {
+		t.Errorf("AdminSessionTTL: expected 12h, got %v", cfg.AdminSessionTTL)
+	}
+	if cfg.AdminCookieSecure {
+		t.Error("AdminCookieSecure: expected false outside production")
+	}
+}
+
+func TestLoad_AdminCustomValues(t *testing.T) {
+	t.Setenv("ADMIN_ENABLED", "true")
+	t.Setenv("ADMIN_BOOTSTRAP_TOKEN", "bootstrap-secret")
+	t.Setenv("ADMIN_SESSION_TTL", "24h")
+	t.Setenv("ADMIN_COOKIE_SECURE", "true")
+
+	cfg := Load()
+
+	if !cfg.AdminEnabled {
+		t.Error("AdminEnabled: expected true")
+	}
+	if cfg.AdminBootstrapToken != "bootstrap-secret" {
+		t.Errorf("AdminBootstrapToken: got %q", cfg.AdminBootstrapToken)
+	}
+	if cfg.AdminSessionTTL != 24*time.Hour {
+		t.Errorf("AdminSessionTTL: expected 24h, got %v", cfg.AdminSessionTTL)
+	}
+	if !cfg.AdminCookieSecure {
+		t.Error("AdminCookieSecure: expected true")
+	}
+}
+
+func TestLoad_AdminCookieSecureDefaultsToProduction(t *testing.T) {
+	t.Setenv("CRONLITE_ENV", "production")
+	t.Setenv("ADMIN_COOKIE_SECURE", "")
+
+	cfg := Load()
+
+	if !cfg.AdminCookieSecure {
+		t.Error("AdminCookieSecure: expected true in production")
+	}
+}
+
+func TestMaskedJSON_DoesNotExposeAdminBootstrapToken(t *testing.T) {
+	t.Setenv("ADMIN_BOOTSTRAP_TOKEN", "never-print-this")
+
+	cfg := Load()
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatalf("MaskedJSON failed: %v", err)
+	}
+
+	if containsString(string(data), "never-print-this") {
+		t.Error("MaskedJSON exposed ADMIN_BOOTSTRAP_TOKEN")
+	}
+}
+
 func TestLoad_MetricsPublic(t *testing.T) {
 	os.Setenv("METRICS_PUBLIC", "true")
 	defer os.Unsetenv("METRICS_PUBLIC")

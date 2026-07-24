@@ -127,14 +127,18 @@ func (s *ServerImpl) ListJobs(ctx context.Context, request ListJobsRequestObject
 		}
 	}
 
-	jobs, err := s.svc.ListJobs(ctx, filter)
+	jobs, err := s.svc.ListJobsWithSchedules(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 
 	apiJobs := make([]Job, len(jobs))
 	for i := range jobs {
-		apiJobs[i] = domainJobToAPI(jobs[i], "", "")
+		apiJobs[i] = domainJobToAPI(
+			jobs[i].Job,
+			jobs[i].Schedule.CronExpression,
+			jobs[i].Schedule.Timezone,
+		)
 	}
 
 	return ListJobs200JSONResponse{Jobs: apiJobs}, nil

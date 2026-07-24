@@ -133,6 +133,13 @@ func Validate(cfg Config) error {
 		})
 	}
 
+	if cfg.AdminEnabled && cfg.AdminSessionTTL <= 0 {
+		errs = append(errs, ValidationError{
+			Field:   "ADMIN_SESSION_TTL",
+			Message: "must be a positive duration when admin UI is enabled",
+		})
+	}
+
 	if strings.EqualFold(cfg.Environment, "production") {
 		errs = append(errs, validateProduction(cfg)...)
 	}

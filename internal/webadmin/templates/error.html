@@ -1,0 +1,12 @@
+{{define "error"}}
+{{template "head" .}}
+<main class="auth-shell">
+  <section class="card auth-card">
+    <p class="eyebrow">CronLite Admin</p>
+    <h1>{{.Title}}</h1>
+    <p>{{.Error}}</p>
+    <a class="button" href="/admin/jobs">Return to jobs</a>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

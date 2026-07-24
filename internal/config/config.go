@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -87,6 +88,13 @@ type Config struct {
 
 	// CORSOrigins: comma-separated allowed origins (empty = disabled, * = all).
 	CORSOrigins string `json:"cors_origins,omitempty"`
+
+	// Admin UI is opt-in and served under /admin.
+	AdminEnabled        bool          `json:"admin_enabled"`
+	AdminBootstrapToken string        `json:"-"`
+	AdminSessionTTL     time.Duration `json:"-"`
+	AdminSessionTTLStr  string        `json:"admin_session_ttl"`
+	AdminCookieSecure   bool          `json:"admin_cookie_secure"`
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -110,6 +118,16 @@ func Load() Config {
 		ReconcileIntervalStr:         os.Getenv("RECONCILE_INTERVAL"),
 		ReconcileThresholdStr:        os.Getenv("RECONCILE_THRESHOLD"),
 		ReconcileRequeueThresholdStr: os.Getenv("RECONCILE_REQUEUE_THRESHOLD"),
+		AdminEnabled:                 os.Getenv("ADMIN_ENABLED") == "true",
+		AdminBootstrapToken:          os.Getenv("ADMIN_BOOTSTRAP_TOKEN"),
+		AdminSessionTTLStr:           os.Getenv("ADMIN_SESSION_TTL"),
+	}
+
+	cookieSecure := os.Getenv("ADMIN_COOKIE_SECURE")
+	if cookieSecure == "" {
+		cfg.AdminCookieSecure = strings.EqualFold(cfg.Environment, "production")
+	} else {
+		cfg.AdminCookieSecure = cookieSecure == "true"
 	}
 
 	if batchStr := os.Getenv("RECONCILE_BATCH_SIZE"); batchStr != "" {
@@ -279,6 +297,9 @@ func Load() Config {
 	if cfg.LeaderHeartbeatIntervalStr == "" {
 		cfg.LeaderHeartbeatIntervalStr = "2s"
 	}
+	if cfg.AdminSessionTTLStr == "" {
+		cfg.AdminSessionTTLStr = "12h"
+	}
 
 	// Parse durations; validation is handled separately by Validate().
 	if d, err := time.ParseDuration(cfg.TickIntervalStr); err == nil {
@@ -319,6 +340,9 @@ func Load() Config {
 	}
 	if d, err := time.ParseDuration(cfg.LeaderHeartbeatIntervalStr); err == nil {
 		cfg.LeaderHeartbeatInterval = d
+	}
+	if d, err := time.ParseDuration(cfg.AdminSessionTTLStr); err == nil {
+		cfg.AdminSessionTTL = d
 	}
 
 	return cfg
@@ -371,6 +395,9 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		MaxFiresPerTick           int    `json:"max_fires_per_tick"`
 		IPRateLimit               int    `json:"ip_rate_limit"`
 		NamespaceRateLimit        int    `json:"namespace_rate_limit"`
+		AdminEnabled              bool   `json:"admin_enabled"`
+		AdminSessionTTL           string `json:"admin_session_ttl"`
+		AdminCookieSecure         bool   `json:"admin_cookie_secure"`
 	}{
 		Environment:               c.Environment,
 		DatabaseURL:               maskSecret(c.DatabaseURL),
@@ -404,6 +431,9 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		MaxFiresPerTick:           c.MaxFiresPerTick,
 		IPRateLimit:               c.IPRateLimit,
 		NamespaceRateLimit:        c.NamespaceRateLimit,
+		AdminEnabled:              c.AdminEnabled,
+		AdminSessionTTL:           c.AdminSessionTTLStr,
+		AdminCookieSecure:         c.AdminCookieSecure,
 	}
 	return json.MarshalIndent(masked, "", "  ")
 }
