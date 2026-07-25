@@ -32,7 +32,7 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 		h.renderStatus(w, "login", pageData{Title: "Sign in", Error: "The form expired. Please try again.", CSRFToken: h.issuePublicCSRF(w)}, http.StatusForbidden)
 		return
 	}
-	if _, err := h.sessions.login(r.Context(), w, r.FormValue("api_key")); err != nil {
+	if _, err := h.sessions.login(r.Context(), w, r, r.FormValue("api_key")); err != nil {
 		if errors.Is(err, errUnauthenticated) {
 			h.renderStatus(w, "login", pageData{Title: "Sign in", Error: "Invalid API key.", CSRFToken: h.issuePublicCSRF(w)}, http.StatusUnauthorized)
 			return
@@ -86,7 +86,7 @@ func (h *Handler) setup(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, err)
 		return
 	}
-	if _, err := h.sessions.login(r.Context(), w, result.PlaintextToken); err != nil {
+	if _, err := h.sessions.login(r.Context(), w, r, result.PlaintextToken); err != nil {
 		h.internalError(w, r, err)
 		return
 	}

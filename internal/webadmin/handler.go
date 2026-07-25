@@ -56,14 +56,15 @@ type AdminService interface {
 }
 
 type Config struct {
-	Service        AdminService
-	Sessions       domain.AdminSessionRepository
-	Keys           keyLookup
-	BootstrapToken string
-	SessionTTL     time.Duration
-	CookieSecure   bool
-	Now            func() time.Time
-	Logger         *log.Logger
+	Service            AdminService
+	Sessions           domain.AdminSessionRepository
+	Keys               keyLookup
+	BootstrapToken     string
+	SessionTTL         time.Duration
+	SessionAbsoluteTTL time.Duration
+	CookieSecure       bool
+	Now                func() time.Time
+	Logger             *log.Logger
 }
 
 type Handler struct {
@@ -107,6 +108,12 @@ func NewHandler(cfg Config) (http.Handler, error) {
 	if cfg.SessionTTL <= 0 {
 		return nil, errors.New("webadmin session TTL must be positive")
 	}
+	if cfg.SessionAbsoluteTTL <= 0 {
+		return nil, errors.New("webadmin absolute session TTL must be positive")
+	}
+	if cfg.SessionAbsoluteTTL < cfg.SessionTTL {
+		return nil, errors.New("webadmin absolute session TTL must be at least the idle session TTL")
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
@@ -133,7 +140,7 @@ func NewHandler(cfg Config) (http.Handler, error) {
 
 	h := &Handler{
 		service:        cfg.Service,
-		sessions:       newSessionManager(cfg.Sessions, cfg.Keys, cfg.SessionTTL, cfg.CookieSecure, cfg.Now),
+		sessions:       newSessionManager(cfg.Sessions, cfg.Keys, cfg.SessionTTL, cfg.SessionAbsoluteTTL, cfg.CookieSecure, cfg.Now),
 		bootstrapToken: cfg.BootstrapToken,
 		cookieSecure:   cfg.CookieSecure,
 		templates:      templates,

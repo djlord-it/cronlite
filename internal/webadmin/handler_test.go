@@ -107,19 +107,43 @@ func newTestHandler(t *testing.T, svc *fakeAdminService, sessions *fakeAdminSess
 		keys = &fakeKeyLookup{}
 	}
 	handler, err := NewHandler(Config{
-		Service:        svc,
-		Sessions:       sessions,
-		Keys:           keys,
-		BootstrapToken: "install-secret",
-		SessionTTL:     12 * time.Hour,
-		CookieSecure:   false,
-		Now:            func() time.Time { return time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC) },
-		Logger:         log.New(io.Discard, "", 0),
+		Service:            svc,
+		Sessions:           sessions,
+		Keys:               keys,
+		BootstrapToken:     "install-secret",
+		SessionTTL:         12 * time.Hour,
+		SessionAbsoluteTTL: 24 * time.Hour,
+		CookieSecure:       false,
+		Now:                func() time.Time { return time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC) },
+		Logger:             log.New(io.Discard, "", 0),
 	})
 	if err != nil {
 		t.Fatalf("NewHandler: %v", err)
 	}
 	return handler
+}
+
+func TestNewHandlerValidatesSessionAbsoluteTTL(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		absoluteTTL time.Duration
+	}{
+		{name: "zero", absoluteTTL: 0},
+		{name: "less than idle TTL", absoluteTTL: 30 * time.Minute},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewHandler(Config{
+				Service:            &fakeAdminService{},
+				Sessions:           &fakeAdminSessionStore{},
+				Keys:               &fakeKeyLookup{},
+				SessionTTL:         time.Hour,
+				SessionAbsoluteTTL: tt.absoluteTTL,
+			})
+			if err == nil {
+				t.Fatal("expected invalid absolute session TTL to be rejected")
+			}
+		})
+	}
 }
 
 func authenticatedRequest(method, target string, form url.Values, sessions *fakeAdminSessionStore) *http.Request {
@@ -132,11 +156,13 @@ func authenticatedRequest(method, target string, form url.Values, sessions *fake
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 	rawSession := "browser-session"
-	req.AddCookie(newSessionCookie(rawSession, time.Now().Add(12*time.Hour), false))
+	now := time.Now()
+	req.AddCookie(newSessionCookie(rawSession, now, now.Add(12*time.Hour), false))
 	sessions.session = domain.AdminSession{
-		TokenHash: service.HashToken(rawSession),
-		CSRFToken: "csrf-token",
-		ExpiresAt: time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC),
+		TokenHash:         service.HashToken(rawSession),
+		CSRFToken:         "csrf-token",
+		ExpiresAt:         time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC),
+		AbsoluteExpiresAt: time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
 	}
 	sessions.key = domain.APIKey{ID: uuid.New(), Namespace: "team", Enabled: true}
 	return req
