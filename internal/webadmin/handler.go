@@ -149,7 +149,8 @@ func NewHandler(cfg Config) (http.Handler, error) {
 		mux:            http.NewServeMux(),
 	}
 	h.routes()
-	return securityHeaders(h.mux), nil
+	crossOrigin := http.NewCrossOriginProtection()
+	return securityHeaders(crossOrigin.Handler(h.mux), cfg.CookieSecure), nil
 }
 
 func (h *Handler) routes() {
@@ -175,12 +176,18 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /admin/", h.adminRoot)
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+func securityHeaders(next http.Handler, secure bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		if secure {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		if !strings.HasPrefix(r.URL.Path, "/admin/assets/") {
 			w.Header().Set("Cache-Control", "no-store")
 		}
@@ -259,10 +266,16 @@ func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, err erro
 	if tokenErr != nil {
 		id = "unavailable"
 	}
-	if len(id) > 12 {
-		id = id[:12]
+	if len(id) > 24 {
+		id = id[:24]
 	}
-	h.logger.Printf("webadmin: request_id=%s method=%s path=%s error=%v", id, r.Method, r.URL.Path, err)
+	h.logger.Printf(
+		"webadmin: request_id=%s method=%s path=%s error_class=%s",
+		id,
+		r.Method,
+		r.URL.Path,
+		errorClass(err),
+	)
 	h.renderStatus(w, "error", pageData{Title: "Something went wrong", Error: id}, http.StatusInternalServerError)
 }
 
@@ -336,6 +349,28 @@ func isUserError(err error) bool {
 		errors.Is(err, domain.ErrInvalidTimezone) ||
 		errors.Is(err, domain.ErrInvalidWebhookURL) ||
 		errors.Is(err, domain.ErrJobDisabled)
+}
+
+func errorClass(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrJobNotFound),
+		errors.Is(err, domain.ErrExecutionNotFound),
+		errors.Is(err, domain.ErrAPIKeyNotFound),
+		errors.Is(err, domain.ErrAdminSessionNotFound),
+		errors.Is(err, domain.ErrNamespaceMismatch):
+		return "not_found"
+	case errors.Is(err, domain.ErrInvalidCronExpression),
+		errors.Is(err, domain.ErrInvalidTimezone),
+		errors.Is(err, domain.ErrInvalidWebhookURL),
+		errors.Is(err, domain.ErrJobDisabled),
+		errors.Is(err, domain.ErrDuplicateExecution),
+		errors.Is(err, domain.ErrDuplicateAPIKey),
+		errors.Is(err, domain.ErrBootstrapAlreadyCompleted),
+		errors.Is(err, domain.ErrScheduleParseFailure):
+		return "validation"
+	default:
+		return "internal"
+	}
 }
 
 func userErrorText(err error) string {

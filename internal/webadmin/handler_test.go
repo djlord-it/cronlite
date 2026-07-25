@@ -97,6 +97,18 @@ func (f *fakeAdminService) GetExecution(context.Context, uuid.UUID) (domain.Exec
 
 func newTestHandler(t *testing.T, svc *fakeAdminService, sessions *fakeAdminSessionStore, keys *fakeKeyLookup) http.Handler {
 	t.Helper()
+	return newTestHandlerWithOptions(t, svc, sessions, keys, false, log.New(io.Discard, "", 0))
+}
+
+func newTestHandlerWithOptions(
+	t *testing.T,
+	svc *fakeAdminService,
+	sessions *fakeAdminSessionStore,
+	keys *fakeKeyLookup,
+	cookieSecure bool,
+	logger *log.Logger,
+) http.Handler {
+	t.Helper()
 	if svc == nil {
 		svc = &fakeAdminService{hasKeys: true}
 	}
@@ -113,9 +125,9 @@ func newTestHandler(t *testing.T, svc *fakeAdminService, sessions *fakeAdminSess
 		BootstrapToken:     "install-secret",
 		SessionTTL:         12 * time.Hour,
 		SessionAbsoluteTTL: 24 * time.Hour,
-		CookieSecure:       false,
+		CookieSecure:       cookieSecure,
 		Now:                func() time.Time { return time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC) },
-		Logger:             log.New(io.Discard, "", 0),
+		Logger:             logger,
 	})
 	if err != nil {
 		t.Fatalf("NewHandler: %v", err)
@@ -179,6 +191,9 @@ func TestHandlerAddsSecurityHeadersAndServesEmbeddedCSS(t *testing.T) {
 	}
 	if !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/css") {
 		t.Fatalf("unexpected content type: %q", rec.Header().Get("Content-Type"))
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "public, max-age=86400" {
+		t.Fatalf("embedded CSS cache policy = %q, want public, max-age=86400", got)
 	}
 	if rec.Header().Get("Content-Security-Policy") == "" ||
 		rec.Header().Get("X-Content-Type-Options") != "nosniff" ||
@@ -344,6 +359,27 @@ func TestRenderedPagesContainNoScriptTags(t *testing.T) {
 		if bytes.Contains(bytes.ToLower(rec.Body.Bytes()), []byte("<script")) {
 			t.Fatalf("%s contains JavaScript", path)
 		}
+	}
+}
+
+func TestSuccessfulLogoutClearsCachedSiteData(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	handler := newTestHandler(t, nil, sessions, nil)
+	req := authenticatedRequest(
+		http.MethodPost,
+		"/admin/logout",
+		url.Values{"csrf_token": {"csrf-token"}},
+		sessions,
+	)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Clear-Site-Data"); got != `"cache"` {
+		t.Fatalf("Clear-Site-Data = %q, want %q", got, `"cache"`)
 	}
 }
 

@@ -110,6 +110,7 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, err)
 		return
 	}
+	w.Header().Set("Clear-Site-Data", `"cache"`)
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
 
