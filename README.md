@@ -155,7 +155,15 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates and embedded CSS only—no JavaScript, frontend framework, Node runtime, CDN, or separate asset files.
 
-Apply migration 007, set an installation token, and enable the UI:
+For local development, Docker and Go are the only prerequisites:
+
+```bash
+./scripts/admin-local.sh
+```
+
+The launcher starts PostgreSQL, applies the admin session migration when needed, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits.
+
+For a manual launch, apply migration 007, set an installation token, and enable the UI:
 
 ```bash
 psql "$DATABASE_URL" < schema/007_admin_sessions.sql
