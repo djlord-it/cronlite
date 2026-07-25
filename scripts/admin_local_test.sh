@@ -54,6 +54,10 @@ run_launcher() {
   cp "$LAUNCHER" "$project_dir/scripts/admin-local.sh"
   cp "$ROOT/schema/007_admin_sessions.sql" \
     "$project_dir/schema/007_admin_sessions.sql"
+  if [[ -f "$ROOT/schema/008_admin_session_absolute_expiry.sql" ]]; then
+    cp "$ROOT/schema/008_admin_session_absolute_expiry.sql" \
+      "$project_dir/schema/008_admin_session_absolute_expiry.sql"
+  fi
   touch "$project_dir/docker-compose.yml"
   printf 'HTTP_ADDR=:8080\n' > "$project_dir/.cronlite.local.env"
   env_checksum_before="$(cksum "$project_dir/.cronlite.local.env")"
@@ -89,9 +93,29 @@ case "$*" in
       printf '\n'
     fi
     ;;
+  *"SELECT column_name FROM information_schema.columns"*)
+    if [[ "${FAKE_ABSOLUTE_COLUMN_EXISTS:-0}" == 1 ]]; then
+      printf 'absolute_expires_at\n'
+    else
+      printf '\n'
+    fi
+    ;;
   "compose exec -T postgres psql -v ON_ERROR_STOP=1 -U cronlite -d cronlite")
-    cat >/dev/null
-    printf 'migration-input\n' >> "$FAKE_DOCKER_CALLS"
+    migration_input="$(cat)"
+    if [[ "$migration_input" == *"CREATE TABLE admin_sessions"* ]]; then
+      printf 'migration-007-input\n' >> "$FAKE_DOCKER_CALLS"
+    elif [[ "$migration_input" == *"absolute_expires_at"* ]]; then
+      printf 'migration-008-input\n' >> "$FAKE_DOCKER_CALLS"
+      if [[ "$migration_input" == *"SET DEFAULT (CURRENT_TIMESTAMP + INTERVAL '12 hours')"* ]]; then
+        printf 'migration-008-legacy-default\n' >> "$FAKE_DOCKER_CALLS"
+      fi
+      if [[ "$migration_input" == "BEGIN;"$'\n'* ]] &&
+        [[ "$migration_input" == *$'\n'"COMMIT;" ]]; then
+        printf 'migration-008-transaction\n' >> "$FAKE_DOCKER_CALLS"
+      fi
+    else
+      printf 'unknown-migration-input\n' >> "$FAKE_DOCKER_CALLS"
+    fi
     ;;
   *)
     printf 'unexpected docker call: %s\n' "$*" >&2
@@ -139,6 +163,7 @@ EOF
       FAKE_DOCKER_CALLS="$calls_file" \
       FAKE_GO_ENV="$go_env_file" \
       FAKE_TABLE_EXISTS="${FAKE_TABLE_EXISTS:-0}" \
+      FAKE_ABSOLUTE_COLUMN_EXISTS="${FAKE_ABSOLUTE_COLUMN_EXISTS:-0}" \
       FAKE_COMPOSE_UNAVAILABLE="${FAKE_COMPOSE_UNAVAILABLE:-0}" \
       FAKE_HEALTH_STATUS="${FAKE_HEALTH_STATUS:-healthy}" \
       ADMIN_LOCAL_HEALTH_ATTEMPTS="${ADMIN_LOCAL_HEALTH_ATTEMPTS:-30}" \
@@ -167,7 +192,12 @@ test_happy_path() {
   assert_contains "$calls" \
     "inspect --format={{.State.Health.Status}} container-id"
   assert_contains "$calls" "compose exec -T postgres psql"
-  assert_contains "$calls" "migration-input"
+  assert_contains "$calls" "migration-007-input"
+  assert_contains "$calls" \
+    "SELECT column_name FROM information_schema.columns"
+  assert_contains "$calls" "migration-008-input"
+  assert_contains "$calls" "migration-008-transaction"
+  assert_contains "$calls" "migration-008-legacy-default"
   assert_contains "$go_env" "args=run ./cmd/cronlite serve"
   assert_contains "$go_env" "ADMIN_ENABLED=true"
   assert_contains "$go_env" "ADMIN_COOKIE_SECURE=false"
@@ -184,10 +214,13 @@ test_happy_path() {
 }
 
 test_table_exists() {
-  FAKE_TABLE_EXISTS=1 run_launcher table-exists
+  FAKE_TABLE_EXISTS=1 \
+    FAKE_ABSOLUTE_COLUMN_EXISTS=1 \
+    run_launcher table-exists
 
   assert_equals "$exit_status" 0
-  assert_not_contains "$calls" "migration-input"
+  assert_not_contains "$calls" "migration-007-input"
+  assert_not_contains "$calls" "migration-008-input"
 
   printf 'PASS: existing migration is skipped\n'
 }

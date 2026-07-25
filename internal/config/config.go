@@ -90,11 +90,13 @@ type Config struct {
 	CORSOrigins string `json:"cors_origins,omitempty"`
 
 	// Admin UI is opt-in and served under /admin.
-	AdminEnabled        bool          `json:"admin_enabled"`
-	AdminBootstrapToken string        `json:"-"`
-	AdminSessionTTL     time.Duration `json:"-"`
-	AdminSessionTTLStr  string        `json:"admin_session_ttl"`
-	AdminCookieSecure   bool          `json:"admin_cookie_secure"`
+	AdminEnabled               bool          `json:"admin_enabled"`
+	AdminBootstrapToken        string        `json:"-"`
+	AdminSessionTTL            time.Duration `json:"-"`
+	AdminSessionTTLStr         string        `json:"admin_session_ttl"`
+	AdminSessionAbsoluteTTL    time.Duration `json:"-"`
+	AdminSessionAbsoluteTTLStr string        `json:"admin_session_absolute_ttl"`
+	AdminCookieSecure          bool          `json:"admin_cookie_secure"`
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -121,6 +123,7 @@ func Load() Config {
 		AdminEnabled:                 os.Getenv("ADMIN_ENABLED") == "true",
 		AdminBootstrapToken:          os.Getenv("ADMIN_BOOTSTRAP_TOKEN"),
 		AdminSessionTTLStr:           os.Getenv("ADMIN_SESSION_TTL"),
+		AdminSessionAbsoluteTTLStr:   os.Getenv("ADMIN_SESSION_ABSOLUTE_TTL"),
 	}
 
 	cookieSecure := os.Getenv("ADMIN_COOKIE_SECURE")
@@ -298,7 +301,10 @@ func Load() Config {
 		cfg.LeaderHeartbeatIntervalStr = "2s"
 	}
 	if cfg.AdminSessionTTLStr == "" {
-		cfg.AdminSessionTTLStr = "12h"
+		cfg.AdminSessionTTLStr = "30m"
+	}
+	if cfg.AdminSessionAbsoluteTTLStr == "" {
+		cfg.AdminSessionAbsoluteTTLStr = "12h"
 	}
 
 	// Parse durations; validation is handled separately by Validate().
@@ -343,6 +349,9 @@ func Load() Config {
 	}
 	if d, err := time.ParseDuration(cfg.AdminSessionTTLStr); err == nil {
 		cfg.AdminSessionTTL = d
+	}
+	if d, err := time.ParseDuration(cfg.AdminSessionAbsoluteTTLStr); err == nil {
+		cfg.AdminSessionAbsoluteTTL = d
 	}
 
 	return cfg
@@ -397,6 +406,7 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		NamespaceRateLimit        int    `json:"namespace_rate_limit"`
 		AdminEnabled              bool   `json:"admin_enabled"`
 		AdminSessionTTL           string `json:"admin_session_ttl"`
+		AdminSessionAbsoluteTTL   string `json:"admin_session_absolute_ttl"`
 		AdminCookieSecure         bool   `json:"admin_cookie_secure"`
 	}{
 		Environment:               c.Environment,
@@ -433,6 +443,7 @@ func (c Config) MaskedJSON() ([]byte, error) {
 		NamespaceRateLimit:        c.NamespaceRateLimit,
 		AdminEnabled:              c.AdminEnabled,
 		AdminSessionTTL:           c.AdminSessionTTLStr,
+		AdminSessionAbsoluteTTL:   c.AdminSessionAbsoluteTTLStr,
 		AdminCookieSecure:         c.AdminCookieSecure,
 	}
 	return json.MarshalIndent(masked, "", "  ")

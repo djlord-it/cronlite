@@ -38,7 +38,7 @@ Records each webhook delivery attempt for an execution. Includes HTTP status cod
 
 ### admin_sessions
 
-Stores opaque, revocable browser sessions for the optional `/admin` UI. Session rows are deleted automatically when their API key is revoked.
+Stores opaque, revocable browser sessions for the optional `/admin` UI. Sessions have idle and absolute expiry timestamps, and rows are deleted automatically when their API key is revoked.
 
 ## Constraints
 

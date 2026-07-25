@@ -42,6 +42,48 @@ func TestLoad_TimeoutDefaults(t *testing.T) {
 	}
 }
 
+func TestLoad_AdminSessionLifetimes(t *testing.T) {
+	t.Setenv("ADMIN_SESSION_TTL", "")
+	t.Setenv("ADMIN_SESSION_ABSOLUTE_TTL", "")
+
+	cfg := Load()
+
+	if cfg.AdminSessionTTL != 30*time.Minute {
+		t.Fatalf("idle TTL = %s", cfg.AdminSessionTTL)
+	}
+	if cfg.AdminSessionAbsoluteTTL != 12*time.Hour {
+		t.Fatalf("absolute TTL = %s", cfg.AdminSessionAbsoluteTTL)
+	}
+}
+
+func TestLoad_AdminSessionLifetimeCustomValues(t *testing.T) {
+	t.Setenv("ADMIN_SESSION_TTL", "45m")
+	t.Setenv("ADMIN_SESSION_ABSOLUTE_TTL", "8h")
+
+	cfg := Load()
+
+	if cfg.AdminSessionTTL != 45*time.Minute {
+		t.Fatalf("idle TTL = %s", cfg.AdminSessionTTL)
+	}
+	if cfg.AdminSessionAbsoluteTTL != 8*time.Hour {
+		t.Fatalf("absolute TTL = %s", cfg.AdminSessionAbsoluteTTL)
+	}
+}
+
+func TestMaskedJSON_IncludesAdminSessionAbsoluteTTL(t *testing.T) {
+	t.Setenv("ADMIN_SESSION_ABSOLUTE_TTL", "8h")
+
+	cfg := Load()
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatalf("MaskedJSON failed: %v", err)
+	}
+
+	if !containsString(string(data), `"admin_session_absolute_ttl": "8h"`) {
+		t.Fatalf("MaskedJSON missing admin_session_absolute_ttl: %s", data)
+	}
+}
+
 func TestLoad_TimeoutCustomValues(t *testing.T) {
 	// Set custom values
 	os.Setenv("DB_OP_TIMEOUT", "10s")
@@ -314,6 +356,7 @@ func TestLoad_AdminDefaults(t *testing.T) {
 	t.Setenv("ADMIN_ENABLED", "")
 	t.Setenv("ADMIN_BOOTSTRAP_TOKEN", "")
 	t.Setenv("ADMIN_SESSION_TTL", "")
+	t.Setenv("ADMIN_SESSION_ABSOLUTE_TTL", "")
 	t.Setenv("ADMIN_COOKIE_SECURE", "")
 	t.Setenv("CRONLITE_ENV", "")
 
@@ -325,8 +368,11 @@ func TestLoad_AdminDefaults(t *testing.T) {
 	if cfg.AdminBootstrapToken != "" {
 		t.Error("AdminBootstrapToken: expected empty")
 	}
-	if cfg.AdminSessionTTL != 12*time.Hour {
-		t.Errorf("AdminSessionTTL: expected 12h, got %v", cfg.AdminSessionTTL)
+	if cfg.AdminSessionTTL != 30*time.Minute {
+		t.Errorf("AdminSessionTTL: expected 30m, got %v", cfg.AdminSessionTTL)
+	}
+	if cfg.AdminSessionAbsoluteTTL != 12*time.Hour {
+		t.Errorf("AdminSessionAbsoluteTTL: expected 12h, got %v", cfg.AdminSessionAbsoluteTTL)
 	}
 	if cfg.AdminCookieSecure {
 		t.Error("AdminCookieSecure: expected false outside production")
@@ -337,6 +383,7 @@ func TestLoad_AdminCustomValues(t *testing.T) {
 	t.Setenv("ADMIN_ENABLED", "true")
 	t.Setenv("ADMIN_BOOTSTRAP_TOKEN", "bootstrap-secret")
 	t.Setenv("ADMIN_SESSION_TTL", "24h")
+	t.Setenv("ADMIN_SESSION_ABSOLUTE_TTL", "48h")
 	t.Setenv("ADMIN_COOKIE_SECURE", "true")
 
 	cfg := Load()
@@ -349,6 +396,9 @@ func TestLoad_AdminCustomValues(t *testing.T) {
 	}
 	if cfg.AdminSessionTTL != 24*time.Hour {
 		t.Errorf("AdminSessionTTL: expected 24h, got %v", cfg.AdminSessionTTL)
+	}
+	if cfg.AdminSessionAbsoluteTTL != 48*time.Hour {
+		t.Errorf("AdminSessionAbsoluteTTL: expected 48h, got %v", cfg.AdminSessionAbsoluteTTL)
 	}
 	if !cfg.AdminCookieSecure {
 		t.Error("AdminCookieSecure: expected true")

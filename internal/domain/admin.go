@@ -10,12 +10,13 @@ import (
 // AdminSession is a revocable browser session linked to an API key.
 // TokenHash is persisted; the plaintext token exists only in the cookie.
 type AdminSession struct {
-	TokenHash  string
-	APIKeyID   uuid.UUID
-	CSRFToken  string
-	CreatedAt  time.Time
-	LastSeenAt time.Time
-	ExpiresAt  time.Time
+	TokenHash         string
+	APIKeyID          uuid.UUID
+	CSRFToken         string
+	CreatedAt         time.Time
+	LastSeenAt        time.Time
+	ExpiresAt         time.Time
+	AbsoluteExpiresAt time.Time
 }
 
 type AdminSessionRepository interface {

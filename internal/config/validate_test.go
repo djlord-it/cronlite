@@ -300,3 +300,33 @@ func TestValidate_AdminSessionTTLPositiveWhenEnabled(t *testing.T) {
 		t.Fatalf("expected ADMIN_SESSION_TTL validation error, got %v", err)
 	}
 }
+
+func TestValidate_AdminAbsoluteTTLPositiveWhenEnabled(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:                "postgres://localhost/test",
+		AdminEnabled:               true,
+		AdminSessionTTL:            30 * time.Minute,
+		AdminSessionTTLStr:         "30m",
+		AdminSessionAbsoluteTTL:    0,
+		AdminSessionAbsoluteTTLStr: "0s",
+	}
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_SESSION_ABSOLUTE_TTL") {
+		t.Fatalf("expected ADMIN_SESSION_ABSOLUTE_TTL validation error, got %v", err)
+	}
+}
+
+func TestValidate_AdminAbsoluteTTLAtLeastIdleTTL(t *testing.T) {
+	cfg := Config{DatabaseURL: "postgres://localhost/cronlite", TickIntervalStr: "30s"}
+	cfg.AdminEnabled = true
+	cfg.AdminSessionTTL = time.Hour
+	cfg.AdminSessionTTLStr = "1h"
+	cfg.AdminSessionAbsoluteTTL = 30 * time.Minute
+	cfg.AdminSessionAbsoluteTTLStr = "30m"
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_SESSION_ABSOLUTE_TTL") {
+		t.Fatalf("expected ADMIN_SESSION_ABSOLUTE_TTL validation error, got %v", err)
+	}
+}

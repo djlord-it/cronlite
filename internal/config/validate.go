@@ -133,11 +133,27 @@ func Validate(cfg Config) error {
 		})
 	}
 
-	if cfg.AdminEnabled && cfg.AdminSessionTTL <= 0 {
-		errs = append(errs, ValidationError{
-			Field:   "ADMIN_SESSION_TTL",
-			Message: "must be a positive duration when admin UI is enabled",
-		})
+	if cfg.AdminEnabled {
+		if cfg.AdminSessionTTL <= 0 {
+			errs = append(errs, ValidationError{
+				Field:   "ADMIN_SESSION_TTL",
+				Message: "must be a positive duration when admin UI is enabled",
+			})
+		}
+		if cfg.AdminSessionAbsoluteTTL <= 0 {
+			errs = append(errs, ValidationError{
+				Field:   "ADMIN_SESSION_ABSOLUTE_TTL",
+				Message: "must be a positive duration when admin UI is enabled",
+			})
+		}
+		if cfg.AdminSessionTTL > 0 &&
+			cfg.AdminSessionAbsoluteTTL > 0 &&
+			cfg.AdminSessionAbsoluteTTL < cfg.AdminSessionTTL {
+			errs = append(errs, ValidationError{
+				Field:   "ADMIN_SESSION_ABSOLUTE_TTL",
+				Message: "must be greater than or equal to ADMIN_SESSION_TTL",
+			})
+		}
 	}
 
 	if strings.EqualFold(cfg.Environment, "production") {

@@ -72,6 +72,16 @@ if [[ "$table" != admin_sessions ]]; then
     < schema/007_admin_sessions.sql
 fi
 
+absolute_expiry_column="$(
+  docker compose exec -T postgres psql -U cronlite -d cronlite -tAc \
+    "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'admin_sessions' AND column_name = 'absolute_expires_at'" |
+    tr -d '[:space:]'
+)"
+if [[ "$absolute_expiry_column" != absolute_expires_at ]]; then
+  docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U cronlite -d cronlite \
+    < schema/008_admin_session_absolute_expiry.sql
+fi
+
 if command -v openssl >/dev/null 2>&1; then
   bootstrap_token="$(openssl rand -hex 32)"
 else
