@@ -1132,6 +1132,8 @@ func (s *Store) CreateAdminSession(ctx context.Context, session domain.AdminSess
 		session.CreatedAt,
 		session.LastSeenAt,
 		session.ExpiresAt,
+		session.AbsoluteExpiresAt,
+		session.CreatedAt,
 	)
 	return err
 }
@@ -1149,6 +1151,7 @@ func (s *Store) GetAdminSession(ctx context.Context, tokenHash string, now time.
 		&session.CreatedAt,
 		&session.LastSeenAt,
 		&session.ExpiresAt,
+		&session.AbsoluteExpiresAt,
 		&key.ID,
 		&key.Namespace,
 		&key.TokenHash,

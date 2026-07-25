@@ -103,10 +103,20 @@ func TestAdminSessionLifecycle(t *testing.T) {
 	session := domain.AdminSession{
 		TokenHash: "session-hash", APIKeyID: keyID, CSRFToken: "csrf",
 		CreatedAt: now, LastSeenAt: now, ExpiresAt: now.Add(12 * time.Hour),
+		AbsoluteExpiresAt: now.Add(12 * time.Hour),
 	}
 
 	mock.ExpectExec(regexp.QuoteMeta(queryInsertAdminSession)).
-		WithArgs(session.TokenHash, keyID, session.CSRFToken, now, now, session.ExpiresAt).
+		WithArgs(
+			session.TokenHash,
+			keyID,
+			session.CSRFToken,
+			now,
+			now,
+			session.ExpiresAt,
+			session.AbsoluteExpiresAt,
+			session.CreatedAt,
+		).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	store := New(db, time.Second)
@@ -117,10 +127,10 @@ func TestAdminSessionLifecycle(t *testing.T) {
 	mock.ExpectQuery(regexp.QuoteMeta(queryGetAdminSession)).
 		WithArgs(session.TokenHash, now).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"token_hash", "api_key_id", "csrf_token", "created_at", "last_seen_at", "expires_at",
+			"token_hash", "api_key_id", "csrf_token", "created_at", "last_seen_at", "expires_at", "absolute_expires_at",
 			"id", "namespace", "token_hash", "label", "enabled", "created_at", "last_used_at",
 		}).AddRow(
-			session.TokenHash, keyID, session.CSRFToken, session.CreatedAt, session.LastSeenAt, session.ExpiresAt,
+			session.TokenHash, keyID, session.CSRFToken, session.CreatedAt, session.LastSeenAt, session.ExpiresAt, session.AbsoluteExpiresAt,
 			keyID, "first-team", "api-hash", "owner", true, now, nil,
 		))
 
@@ -130,6 +140,9 @@ func TestAdminSessionLifecycle(t *testing.T) {
 	}
 	if gotSession.CSRFToken != "csrf" || gotKey.Namespace != "first-team" {
 		t.Fatalf("unexpected session/key: %#v %#v", gotSession, gotKey)
+	}
+	if !gotSession.AbsoluteExpiresAt.Equal(session.AbsoluteExpiresAt) {
+		t.Fatalf("absolute expiry = %v, want %v", gotSession.AbsoluteExpiresAt, session.AbsoluteExpiresAt)
 	}
 
 	refreshedAt := now.Add(7 * time.Hour)
@@ -148,6 +161,34 @@ func TestAdminSessionLifecycle(t *testing.T) {
 		t.Fatalf("DeleteAdminSession: %v", err)
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRefreshAdminSessionCannotExceedAbsoluteExpiry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	const expectedQuery = `
+UPDATE admin_sessions
+SET last_seen_at = $1, expires_at = LEAST($2, absolute_expires_at)
+WHERE token_hash = $3
+  AND expires_at > $1
+  AND absolute_expires_at > $1
+`
+	mock.ExpectExec(regexp.QuoteMeta(expectedQuery)).
+		WithArgs(now, now.Add(time.Hour), "session-hash").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	store := New(db, time.Second)
+	if err := store.RefreshAdminSession(context.Background(), "session-hash", now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("RefreshAdminSession: %v", err)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
