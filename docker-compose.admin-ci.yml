@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
+    environment:
+      POSTGRES_DB: cronlite
+      POSTGRES_USER: cronlite
+      POSTGRES_PASSWORD: cronlite
+    volumes:
+      - admin_ci_pgdata:/var/lib/postgresql/data
+      - ./schema/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro
+      - ./schema/002_add_indexes.sql:/docker-entrypoint-initdb.d/002_add_indexes.sql:ro
+      - ./schema/003_add_claimed_at.sql:/docker-entrypoint-initdb.d/003_add_claimed_at.sql:ro
+      - ./schema/004_agent_platform.sql:/docker-entrypoint-initdb.d/004_agent_platform.sql:ro
+      - ./schema/005_drop_scopes.sql:/docker-entrypoint-initdb.d/005_drop_scopes.sql:ro
+      - ./schema/006_add_claimed_at_index.sql:/docker-entrypoint-initdb.d/006_add_claimed_at_index.sql:ro
+      - ./schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql:ro
+      - ./schema/008_admin_session_absolute_expiry.sql:/docker-entrypoint-initdb.d/008_admin_session_absolute_expiry.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cronlite -d cronlite"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  cronlite:
+    image: cronlite:admin-ci
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://cronlite:cronlite@postgres:5432/cronlite?sslmode=disable
+      HTTP_ADDR: ":8080"
+      TICK_INTERVAL: "5s"
+      DISPATCH_MODE: db
+      DISPATCHER_WORKERS: "2"
+      RECONCILE_ENABLED: "true"
+      METRICS_ENABLED: "true"
+      ADMIN_ENABLED: "true"
+      ADMIN_BOOTSTRAP_TOKEN: "${ADMIN_BOOTSTRAP_TOKEN:?ADMIN_BOOTSTRAP_TOKEN is required}"
+      ADMIN_SESSION_TTL: "30m"
+      ADMIN_SESSION_ABSOLUTE_TTL: "12h"
+      ADMIN_COOKIE_SECURE: "false"
+    ports:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  admin_ci_pgdata:

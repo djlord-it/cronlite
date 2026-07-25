@@ -200,6 +200,23 @@ func registerAdminRoutes(mux *http.ServeMux, cfg config.Config, handler http.Han
 	mux.Handle("/admin/", rateLimited)
 }
 
+func newWebAdminConfig(
+	cfg config.Config,
+	jobService *service.JobService,
+	store *postgres.Store,
+) webadmin.Config {
+	return webadmin.Config{
+		Service:            jobService,
+		Sessions:           store,
+		Keys:               store,
+		BootstrapToken:     cfg.AdminBootstrapToken,
+		SessionTTL:         cfg.AdminSessionTTL,
+		SessionAbsoluteTTL: cfg.AdminSessionAbsoluteTTL,
+		CookieSecure:       cfg.AdminCookieSecure,
+		Logger:             log.Default(),
+	}
+}
+
 func (lr *leaderRuntime) start(leaderCtx context.Context) {
 	lr.mu.Lock()
 	defer lr.mu.Unlock()
@@ -430,15 +447,7 @@ func runServe() int {
 		httpMux.Handle(cfg.MetricsPath, newMetricsHandler(appCtx, store, cfg.APIKey, cfg.MetricsPublic))
 	}
 	if cfg.AdminEnabled {
-		adminHandler, err := webadmin.NewHandler(webadmin.Config{
-			Service:        jobService,
-			Sessions:       store,
-			Keys:           store,
-			BootstrapToken: cfg.AdminBootstrapToken,
-			SessionTTL:     cfg.AdminSessionTTL,
-			CookieSecure:   cfg.AdminCookieSecure,
-			Logger:         log.Default(),
-		})
+		adminHandler, err := webadmin.NewHandler(newWebAdminConfig(cfg, jobService, store))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to initialize admin UI: %v\n", err)
 			return exitRuntimeError
