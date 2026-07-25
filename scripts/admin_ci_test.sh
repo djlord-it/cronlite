@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+go test ./internal/ciworkflow -count=1
+
 # Set ADMIN_COVERAGE_FILE to retain the atomic profile at an explicit path
 # (for example, for CI artifact upload). The default temporary file is removed on EXIT.
 cleanup_coverage=0
