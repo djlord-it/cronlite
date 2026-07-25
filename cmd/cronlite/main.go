@@ -147,8 +147,9 @@ Environment Variables:
   METRICS_PUBLIC            Allow unauthenticated metrics access (default: "false")
 
   ADMIN_ENABLED             Enable server-rendered admin UI at /admin (default: "false")
-  ADMIN_BOOTSTRAP_TOKEN     Secret required to create the first API key in /admin/setup
-  ADMIN_SESSION_TTL         Sliding admin session lifetime (default: "12h")
+  ADMIN_BOOTSTRAP_TOKEN     Secret required by /admin/setup when no API key exists
+  ADMIN_SESSION_TTL         Idle admin session timeout (default: "30m")
+  ADMIN_SESSION_ABSOLUTE_TTL Maximum admin session lifetime (default: "12h")
   ADMIN_COOKIE_SECURE       Force Secure admin cookies (default: true in production)
 
   RECONCILE_ENABLED         Enable orphan execution reconciler (default: "false")
@@ -215,6 +216,15 @@ func newWebAdminConfig(
 		CookieSecure:       cfg.AdminCookieSecure,
 		Logger:             log.Default(),
 	}
+}
+
+func logAdminStartup(cfg config.Config) {
+	log.Printf(
+		"cronlite: admin UI mounted at /admin (idle_session_ttl=%s, absolute_session_ttl=%s, secure_cookie=%t)",
+		cfg.AdminSessionTTL,
+		cfg.AdminSessionAbsoluteTTL,
+		cfg.AdminCookieSecure,
+	)
 }
 
 func (lr *leaderRuntime) start(leaderCtx context.Context) {
@@ -292,6 +302,13 @@ func (lr *leaderRuntime) stop() {
 }
 
 func runServe() int {
+	for _, arg := range os.Args[2:] {
+		if arg == "--help" || arg == "-h" {
+			printUsage()
+			return exitSuccess
+		}
+	}
+
 	cfg := config.Load()
 
 	if err := config.Validate(cfg); err != nil {
@@ -453,8 +470,7 @@ func runServe() int {
 			return exitRuntimeError
 		}
 		registerAdminRoutes(httpMux, cfg, adminHandler)
-		log.Printf("cronlite: admin UI mounted at /admin (session_ttl=%s, secure_cookie=%t)",
-			cfg.AdminSessionTTL, cfg.AdminCookieSecure)
+		logAdminStartup(cfg)
 	}
 	httpMux.Handle("/mcp", mcpHandler)
 	httpMux.Handle("/", rootHandler)

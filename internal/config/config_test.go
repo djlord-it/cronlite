@@ -68,10 +68,18 @@ func TestLoad_AdminSessionLifetimeCustomValues(t *testing.T) {
 	if cfg.AdminSessionAbsoluteTTL != 8*time.Hour {
 		t.Fatalf("absolute TTL = %s", cfg.AdminSessionAbsoluteTTL)
 	}
+
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatalf("MaskedJSON failed: %v", err)
+	}
+	if !containsString(string(data), `"admin_session_absolute_ttl": "8h"`) {
+		t.Fatalf("MaskedJSON missing custom admin_session_absolute_ttl: %s", data)
+	}
 }
 
 func TestMaskedJSON_IncludesAdminSessionAbsoluteTTL(t *testing.T) {
-	t.Setenv("ADMIN_SESSION_ABSOLUTE_TTL", "8h")
+	t.Setenv("ADMIN_SESSION_ABSOLUTE_TTL", "")
 
 	cfg := Load()
 	data, err := cfg.MaskedJSON()
@@ -79,7 +87,7 @@ func TestMaskedJSON_IncludesAdminSessionAbsoluteTTL(t *testing.T) {
 		t.Fatalf("MaskedJSON failed: %v", err)
 	}
 
-	if !containsString(string(data), `"admin_session_absolute_ttl": "8h"`) {
+	if !containsString(string(data), `"admin_session_absolute_ttl": "12h"`) {
 		t.Fatalf("MaskedJSON missing admin_session_absolute_ttl: %s", data)
 	}
 }
