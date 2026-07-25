@@ -3,6 +3,7 @@ package webadmin
 import (
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -111,6 +112,139 @@ func TestParseUpdateJobFormSecretSemantics(t *testing.T) {
 
 		if _, _, err := parseUpdateJobForm(req); err == nil {
 			t.Fatal("expected conflicting secret controls to fail")
+		}
+	})
+}
+
+func TestJobFormValidationPreservesSubmittedValues(t *testing.T) {
+	tests := []struct {
+		name string
+		form url.Values
+		want string
+	}{
+		{
+			name: "required fields",
+			form: url.Values{
+				"name":            {"  submitted-name  "},
+				"cron_expression": {""},
+				"timezone":        {"UTC"},
+				"webhook_url":     {"https://example.com"},
+				"timeout_seconds": {"30"},
+			},
+			want: "required",
+		},
+		{
+			name: "non numeric timeout",
+			form: url.Values{
+				"name":            {"submitted-name"},
+				"cron_expression": {"0 * * * *"},
+				"timezone":        {"UTC"},
+				"webhook_url":     {"https://example.com"},
+				"timeout_seconds": {"soon"},
+			},
+			want: "timeout",
+		},
+		{
+			name: "timeout above maximum",
+			form: url.Values{
+				"name":            {"submitted-name"},
+				"cron_expression": {"0 * * * *"},
+				"timezone":        {"UTC"},
+				"webhook_url":     {"https://example.com"},
+				"timeout_seconds": {"61"},
+			},
+			want: "timeout",
+		},
+		{
+			name: "invalid tags",
+			form: url.Values{
+				"name":            {"submitted-name"},
+				"cron_expression": {"0 * * * *"},
+				"timezone":        {"UTC"},
+				"webhook_url":     {"https://example.com"},
+				"timeout_seconds": {"30"},
+				"tags":            {"missing-separator"},
+			},
+			want: "key=value",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/", strings.NewReader(tt.form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+			_, values, err := parseCreateJobForm(req)
+
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want text %q", err, tt.want)
+			}
+			if values.Name != "submitted-name" {
+				t.Fatalf("submitted name was not preserved: %#v", values)
+			}
+		})
+	}
+}
+
+func FuzzParseTags(f *testing.F) {
+	for _, seed := range []string{
+		"env=prod",
+		"bad",
+		"a=one\na=two",
+		"環境=本番\nチーム=基盤",
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		tags, err := parseTags(raw)
+		if err != nil {
+			return
+		}
+
+		seen := make(map[string]struct{}, len(tags))
+		for _, tag := range tags {
+			if tag.Key == "" || tag.Key != strings.TrimSpace(tag.Key) {
+				t.Fatalf("parseTags(%q) returned invalid key %q", raw, tag.Key)
+			}
+			if tag.Value == "" || tag.Value != strings.TrimSpace(tag.Value) {
+				t.Fatalf("parseTags(%q) returned invalid value %q", raw, tag.Value)
+			}
+			if _, duplicate := seen[tag.Key]; duplicate {
+				t.Fatalf("parseTags(%q) returned duplicate key %q", raw, tag.Key)
+			}
+			seen[tag.Key] = struct{}{}
+		}
+
+		roundTrip, err := parseTags(tagsText(tags))
+		if err != nil {
+			t.Fatalf("reparse parseTags(%q) output: %v", raw, err)
+		}
+		if len(roundTrip) != len(tags) {
+			t.Fatalf("round trip length = %d, want %d", len(roundTrip), len(tags))
+		}
+		for i := range tags {
+			if roundTrip[i] != tags[i] {
+				t.Fatalf("round trip tag %d = %#v, want %#v", i, roundTrip[i], tags[i])
+			}
+		}
+	})
+}
+
+func FuzzPositivePage(f *testing.F) {
+	for _, seed := range []string{"", "1", "-1", "999999999999999999999999999999"} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, raw string) {
+		got := positivePage(raw)
+		parsed, err := strconv.Atoi(raw)
+		if err == nil && parsed > 0 {
+			if got != parsed {
+				t.Fatalf("positivePage(%q) = %d, want exact parsed value %d", raw, got, parsed)
+			}
+			return
+		}
+		if got < 1 {
+			t.Fatalf("positivePage(%q) = %d, want >= 1", raw, got)
 		}
 	})
 }

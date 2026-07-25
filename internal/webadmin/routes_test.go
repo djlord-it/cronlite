@@ -23,6 +23,66 @@ func TestProtectedRouteRedirectsToLogin(t *testing.T) {
 	}
 }
 
+func TestAdminRootAndUnknownPath(t *testing.T) {
+	handler := newTestHandler(t, nil, nil, nil)
+	for _, path := range []string{"/admin", "/admin/"} {
+		t.Run(path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+			if rec.Code != http.StatusTemporaryRedirect || rec.Header().Get("Location") != "/admin/jobs" {
+				t.Fatalf("root response = %d %q, want 307 to /admin/jobs", rec.Code, rec.Header().Get("Location"))
+			}
+		})
+	}
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/unknown", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown path status = %d, want 404", rec.Code)
+	}
+}
+
+func TestInvalidUUIDReturnsNotFound(t *testing.T) {
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/admin/jobs/not-a-uuid"},
+		{method: http.MethodGet, path: "/admin/jobs/not-a-uuid/edit"},
+		{method: http.MethodPost, path: "/admin/jobs/not-a-uuid/edit"},
+		{method: http.MethodGet, path: "/admin/jobs/not-a-uuid/delete"},
+		{method: http.MethodPost, path: "/admin/jobs/not-a-uuid/delete"},
+		{method: http.MethodPost, path: "/admin/jobs/not-a-uuid/pause"},
+		{method: http.MethodPost, path: "/admin/jobs/not-a-uuid/resume"},
+		{method: http.MethodPost, path: "/admin/jobs/not-a-uuid/trigger"},
+		{method: http.MethodGet, path: "/admin/executions/not-a-uuid"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			sessions := &fakeAdminSessionStore{}
+			svc := &fakeAdminService{hasKeys: true}
+			handler := newTestHandler(t, svc, sessions, nil)
+			var form url.Values
+			if tt.method == http.MethodPost {
+				form = url.Values{"csrf_token": {"csrf-token"}}
+			}
+			req := authenticatedRequest(tt.method, tt.path, form, sessions)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404: %s", rec.Code, rec.Body.String())
+			}
+			if svc.actionID != uuid.Nil {
+				t.Fatalf("invalid UUID reached service action: %s", svc.actionID)
+			}
+		})
+	}
+}
+
 func TestEditPageNeverRendersStoredWebhookSecret(t *testing.T) {
 	sessions := &fakeAdminSessionStore{}
 	jobID := uuid.New()

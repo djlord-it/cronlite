@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	stdhtml "html"
+	"html/template"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -11,10 +14,244 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/google/uuid"
 )
+
+var (
+	htmlCommentPattern   = regexp.MustCompile(`(?s)<!--.*?-->`)
+	htmlStartTagPattern  = regexp.MustCompile(`(?is)<\s*([a-z][a-z0-9:-]*)\b((?:[^>"']|"[^"]*"|'[^']*')*)>`)
+	htmlAttributePattern = regexp.MustCompile(
+		"(?is)(?:^|\\s)([a-z_:][a-z0-9_.:-]*)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+))",
+	)
+	templateActionPattern     = regexp.MustCompile(`(?s){{.*?}}`)
+	knownDynamicURLPattern    = regexp.MustCompile(`(?s)^\s*{{\s*\.(?:PreviousURL|NextURL)\s*}}\s*$`)
+	cssCommentOrStringPattern = regexp.MustCompile(`(?s)/\*.*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'`)
+	cssLoadPattern            = regexp.MustCompile(`(?i)(?:@import\b|\burl\s*\()`)
+)
+
+var executableHTMLElements = map[string]struct{}{
+	"base":   {},
+	"embed":  {},
+	"iframe": {},
+	"object": {},
+	"script": {},
+}
+
+var urlBearingHTMLAttributes = map[string]struct{}{
+	"action":     {},
+	"archive":    {},
+	"background": {},
+	"cite":       {},
+	"codebase":   {},
+	"data":       {},
+	"formaction": {},
+	"href":       {},
+	"longdesc":   {},
+	"manifest":   {},
+	"ping":       {},
+	"poster":     {},
+	"profile":    {},
+	"src":        {},
+	"srcset":     {},
+	"usemap":     {},
+	"xlink:href": {},
+}
+
+func TestTemplatesContainNoExecutableOrExternalAssets(t *testing.T) {
+	_, err := template.New("embedded-admin").Funcs(template.FuncMap{
+		"formatTime": func(time.Time) string { return "" },
+		"tagsText":   tagsText,
+	}).ParseFS(embeddedFiles, "templates/*.html")
+	if err != nil {
+		t.Fatalf("parse embedded templates: %v", err)
+	}
+
+	for _, root := range []string{"templates", "assets"} {
+		err := fs.WalkDir(embeddedFiles, root, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.IsDir() {
+				return nil
+			}
+			contents, readErr := fs.ReadFile(embeddedFiles, path)
+			if readErr != nil {
+				return readErr
+			}
+			var findings []string
+			switch {
+			case strings.HasSuffix(path, ".html"):
+				findings = inspectHTMLAsset(string(contents))
+			case strings.HasSuffix(path, ".css"):
+				findings = inspectCSSAsset(string(contents))
+			}
+			for _, finding := range findings {
+				t.Errorf("%s: %s", path, finding)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("inspect embedded %s: %v", root, err)
+		}
+	}
+}
+
+func inspectHTMLAsset(contents string) []string {
+	var findings []string
+	contents = htmlCommentPattern.ReplaceAllString(contents, "")
+	for _, tag := range htmlStartTagPattern.FindAllStringSubmatch(contents, -1) {
+		name, attributes := strings.ToLower(tag[1]), tag[2]
+		if _, forbidden := executableHTMLElements[name]; forbidden {
+			findings = append(findings, "contains executable <"+name+"> element")
+		}
+		for _, match := range htmlAttributePattern.FindAllStringSubmatch(attributes, -1) {
+			attribute := strings.ToLower(match[1])
+			if strings.HasPrefix(attribute, "on") && len(attribute) > 2 {
+				findings = append(findings, "contains inline event handler "+attribute)
+				continue
+			}
+			if _, carriesURL := urlBearingHTMLAttributes[attribute]; !carriesURL {
+				continue
+			}
+			value := firstNonEmpty(match[2], match[3], match[4])
+			for _, candidate := range htmlAttributeURLs(attribute, value) {
+				if unsafeAssetURL(candidate) {
+					findings = append(findings, "contains unsafe "+attribute+" URL")
+				}
+			}
+		}
+	}
+	return findings
+}
+
+func inspectCSSAsset(contents string) []string {
+	contents = cssCommentOrStringPattern.ReplaceAllString(contents, "")
+	if cssLoadPattern.MatchString(contents) {
+		return []string{"contains CSS runtime asset load"}
+	}
+	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func htmlAttributeURLs(attribute, value string) []string {
+	switch attribute {
+	case "srcset":
+		var urls []string
+		for _, candidate := range strings.Split(value, ",") {
+			if fields := strings.Fields(candidate); len(fields) > 0 {
+				urls = append(urls, fields[0])
+			}
+		}
+		return urls
+	case "archive", "ping":
+		return strings.Fields(value)
+	default:
+		return []string{value}
+	}
+}
+
+func unsafeAssetURL(value string) bool {
+	value = strings.TrimSpace(stdhtml.UnescapeString(value))
+	staticValue := strings.TrimSpace(templateActionPattern.ReplaceAllString(value, ""))
+	if staticValue == "" {
+		return !knownDynamicURLPattern.MatchString(value)
+	}
+	value = staticValue
+	if strings.HasPrefix(value, "//") || strings.HasPrefix(value, `\\`) {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	return err != nil || parsed.Scheme != "" || parsed.Host != ""
+}
+
+func TestHTMLAssetInspectionDistinguishesLoadingSurfacesFromInertText(t *testing.T) {
+	tests := []struct {
+		name       string
+		html       string
+		wantUnsafe bool
+	}{
+		{
+			name: "allows inert URL-shaped placeholder text",
+			html: `<input type="url" placeholder="https://example.com/hook"><p>Try https://example.com</p>`,
+		},
+		{
+			name: "allows same-origin and fragment URLs",
+			html: `<a href="/admin/jobs">Jobs</a><a href="#details">Details</a><form action="{{if .Edit}}/admin/jobs/{{.ID}}/edit{{else}}/admin/jobs/new{{end}}">`,
+		},
+		{
+			name: "allows known pagination URL fields",
+			html: `<a href="{{ .PreviousURL }}">Previous</a><a href="{{.NextURL}}">Next</a>`,
+		},
+		{
+			name:       "rejects unknown wholly dynamic URL",
+			html:       `<a href="{{.ExternalURL}}">External</a>`,
+			wantUnsafe: true,
+		},
+		{name: "rejects script", html: `<ScRiPt src="/admin/assets/app.js"></sCrIpT>`, wantUnsafe: true},
+		{name: "rejects iframe", html: `<iframe src="/admin/jobs"></iframe>`, wantUnsafe: true},
+		{name: "rejects object", html: `<object data="/admin/file"></object>`, wantUnsafe: true},
+		{name: "rejects embed", html: `<embed src="/admin/file">`, wantUnsafe: true},
+		{name: "rejects base", html: `<base href="/admin/">`, wantUnsafe: true},
+		{name: "rejects inline event handler", html: `<button ONCLICK="alert(1)">Run</button>`, wantUnsafe: true},
+		{name: "rejects external src", html: `<img src="https://attacker.example/pixel">`, wantUnsafe: true},
+		{name: "rejects protocol relative href", html: `<a href="//cdn.attacker.example/file">File</a>`, wantUnsafe: true},
+		{name: "rejects javascript action", html: `<form action="JaVaScRiPt:alert(1)">`, wantUnsafe: true},
+		{name: "rejects data formaction", html: `<button formaction="data:text/html,unsafe">`, wantUnsafe: true},
+		{name: "rejects vbscript poster", html: `<video poster="vbscript:msgbox(1)">`, wantUnsafe: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := inspectHTMLAsset(tt.html)
+			if tt.wantUnsafe && len(findings) == 0 {
+				t.Fatalf("expected unsafe HTML finding for %q", tt.html)
+			}
+			if !tt.wantUnsafe && len(findings) != 0 {
+				t.Fatalf("safe inert HTML produced findings: %v", findings)
+			}
+		})
+	}
+}
+
+func TestCSSAssetInspectionRejectsRuntimeLoads(t *testing.T) {
+	tests := []struct {
+		name       string
+		css        string
+		wantUnsafe bool
+	}{
+		{name: "allows inert URL text", css: `.hint::after { content: "https://example.com/hook"; }`},
+		{name: "allows ordinary declarations", css: `body { color: #123; font-family: sans-serif; }`},
+		{name: "rejects import", css: `@IMPORT "https://attacker.example/theme.css";`, wantUnsafe: true},
+		{name: "rejects external URL", css: `.x { background: url("https://attacker.example/pixel"); }`, wantUnsafe: true},
+		{name: "rejects protocol relative URL", css: `.x { background: url(//cdn.attacker.example/pixel); }`, wantUnsafe: true},
+		{name: "rejects data URL", css: `.x { background: url(data:image/svg+xml,unsafe); }`, wantUnsafe: true},
+		{name: "rejects javascript URL", css: `.x { background: url(javascript:alert(1)); }`, wantUnsafe: true},
+		{name: "rejects same-origin URL dependency", css: `.x { background: url("/admin/assets/other.css"); }`, wantUnsafe: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			findings := inspectCSSAsset(tt.css)
+			if tt.wantUnsafe && len(findings) == 0 {
+				t.Fatalf("expected unsafe CSS finding for %q", tt.css)
+			}
+			if !tt.wantUnsafe && len(findings) != 0 {
+				t.Fatalf("safe inert CSS produced findings: %v", findings)
+			}
+		})
+	}
+}
 
 func assertRequiredSecurityHeaders(t *testing.T, header http.Header, secure bool) {
 	t.Helper()

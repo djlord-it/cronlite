@@ -17,6 +17,7 @@ type fakeAdminSessionStore struct {
 	created       domain.AdminSession
 	session       domain.AdminSession
 	key           domain.APIKey
+	createErr     error
 	getErr        error
 	refreshedAt   time.Time
 	refreshedTill time.Time
@@ -27,7 +28,7 @@ type fakeAdminSessionStore struct {
 func (f *fakeAdminSessionStore) CreateAdminSession(_ context.Context, session domain.AdminSession) error {
 	f.created = session
 	f.operations = append(f.operations, "create:"+session.TokenHash)
-	return nil
+	return f.createErr
 }
 
 func (f *fakeAdminSessionStore) GetAdminSession(_ context.Context, _ string, _ time.Time) (domain.AdminSession, domain.APIKey, error) {

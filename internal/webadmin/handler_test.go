@@ -3,6 +3,8 @@ package webadmin
 import (
 	"bytes"
 	"context"
+	"errors"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -32,6 +34,7 @@ type fakeAdminService struct {
 	schedule        domain.Schedule
 	tags            []domain.Tag
 	executions      []domain.Execution
+	executionFilter domain.ExecutionFilter
 	attempts        []domain.DeliveryAttempt
 	updatedInput    service.UpdateJobInput
 	actionID        uuid.UUID
@@ -85,6 +88,7 @@ func (f *fakeAdminService) GetNextRunTime(context.Context, uuid.UUID) (time.Time
 	return next, f.nextRuns, f.schedule, f.err
 }
 func (f *fakeAdminService) ListExecutions(_ context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error) {
+	f.executionFilter = filter
 	return f.executions, f.err
 }
 func (f *fakeAdminService) GetExecution(context.Context, uuid.UUID) (domain.Execution, []domain.DeliveryAttempt, error) {
@@ -306,6 +310,261 @@ func TestJobsListUsesAuthenticatedNamespaceAndSchedule(t *testing.T) {
 	}
 	if svc.listFilter.Namespace != "team" || svc.listFilter.Name != "daily" || svc.listFilter.Enabled == nil || !*svc.listFilter.Enabled {
 		t.Fatalf("namespace/filter not applied: %#v", svc.listFilter)
+	}
+}
+
+func TestCreateAndDetailPagesRender(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	jobID := uuid.New()
+	executionID := uuid.New()
+	nextRun := time.Date(2026, 7, 25, 9, 0, 0, 0, time.UTC)
+	svc := &fakeAdminService{
+		hasKeys: true,
+		job: domain.Job{
+			ID: jobID, Namespace: "team", Name: "nightly-report", Enabled: true,
+			Delivery: domain.DeliveryConfig{WebhookURL: "https://hooks.example.test/report", Timeout: 30 * time.Second},
+		},
+		schedule: domain.Schedule{CronExpression: "0 9 * * *", Timezone: "America/Toronto"},
+		tags:     []domain.Tag{{Key: "env", Value: "prod"}},
+		executions: []domain.Execution{{
+			ID: executionID, JobID: jobID, Namespace: "team",
+			Status: domain.ExecutionStatusDelivered, TriggerType: domain.TriggerTypeScheduled,
+			ScheduledAt: nextRun.Add(-24 * time.Hour), FiredAt: nextRun.Add(-24 * time.Hour),
+		}},
+		nextRuns: []time.Time{nextRun},
+	}
+	handler := newTestHandler(t, svc, sessions, nil)
+
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(
+		createRec,
+		authenticatedRequest(http.MethodGet, "/admin/jobs/new", nil, sessions),
+	)
+	if createRec.Code != http.StatusOK {
+		t.Fatalf("create page status = %d, want 200: %s", createRec.Code, createRec.Body.String())
+	}
+	for _, want := range []string{"Create job", `value="UTC"`, `value="30"`} {
+		if !strings.Contains(createRec.Body.String(), want) {
+			t.Fatalf("create page missing %q: %s", want, createRec.Body.String())
+		}
+	}
+
+	detailRec := httptest.NewRecorder()
+	handler.ServeHTTP(
+		detailRec,
+		authenticatedRequest(http.MethodGet, "/admin/jobs/"+jobID.String()+"?notice=created", nil, sessions),
+	)
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("detail page status = %d, want 200: %s", detailRec.Code, detailRec.Body.String())
+	}
+	for _, want := range []string{
+		"nightly-report", "0 9 * * *", "America/Toronto", "env", "prod",
+		"delivered", "scheduled", "Job created.", "2026-07-25 09:00:00 UTC",
+	} {
+		if !strings.Contains(detailRec.Body.String(), want) {
+			t.Fatalf("detail page missing %q: %s", want, detailRec.Body.String())
+		}
+	}
+}
+
+func TestServiceErrorsMapToSafeStatuses(t *testing.T) {
+	internalErr := errors.New("database failed with do-not-expose")
+	tests := []struct {
+		name       string
+		err        error
+		build      func(*fakeAdminSessionStore, uuid.UUID) *http.Request
+		wantStatus int
+		wantText   string
+	}{
+		{
+			name: "missing job is not found",
+			err:  domain.ErrJobNotFound,
+			build: func(sessions *fakeAdminSessionStore, id uuid.UUID) *http.Request {
+				return authenticatedRequest(http.MethodGet, "/admin/jobs/"+id.String(), nil, sessions)
+			},
+			wantStatus: http.StatusNotFound,
+			wantText:   "does not exist",
+		},
+		{
+			name: "disabled job action is a conflict",
+			err:  domain.ErrJobDisabled,
+			build: func(sessions *fakeAdminSessionStore, id uuid.UUID) *http.Request {
+				return authenticatedRequest(
+					http.MethodPost,
+					"/admin/jobs/"+id.String()+"/trigger",
+					url.Values{"csrf_token": {"csrf-token"}},
+					sessions,
+				)
+			},
+			wantStatus: http.StatusConflict,
+			wantText:   "Resume this job",
+		},
+		{
+			name: "repository failure is internal",
+			err:  internalErr,
+			build: func(sessions *fakeAdminSessionStore, id uuid.UUID) *http.Request {
+				return authenticatedRequest(http.MethodGet, "/admin/executions/"+id.String(), nil, sessions)
+			},
+			wantStatus: http.StatusInternalServerError,
+			wantText:   "Something went wrong",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sessions := &fakeAdminSessionStore{}
+			svc := &fakeAdminService{hasKeys: true, err: tt.err}
+			handler := newTestHandler(t, svc, sessions, nil)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, tt.build(sessions, uuid.New()))
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantText) {
+				t.Fatalf("response missing safe text %q: %s", tt.wantText, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), internalErr.Error()) {
+				t.Fatalf("internal service error leaked: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestPaginationPreservesFilters(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	jobID := uuid.New()
+	jobs := make([]domain.JobWithSchedule, 26)
+	executions := make([]domain.Execution, 26)
+	for i := range jobs {
+		jobs[i].Job = domain.Job{ID: uuid.New(), Namespace: "team", Name: "nightly"}
+		executions[i] = domain.Execution{
+			ID: uuid.New(), JobID: jobID, Namespace: "team",
+			Status: domain.ExecutionStatusFailed, TriggerType: domain.TriggerTypeManual,
+		}
+	}
+	svc := &fakeAdminService{
+		hasKeys:    true,
+		jobs:       jobs,
+		job:        domain.Job{ID: jobID, Namespace: "team", Name: "nightly"},
+		schedule:   domain.Schedule{CronExpression: "0 * * * *", Timezone: "UTC"},
+		executions: executions,
+	}
+	handler := newTestHandler(t, svc, sessions, nil)
+
+	jobsRec := httptest.NewRecorder()
+	handler.ServeHTTP(
+		jobsRec,
+		authenticatedRequest(
+			http.MethodGet,
+			"/admin/jobs?name=nightly&enabled=false&page=2",
+			nil,
+			sessions,
+		),
+	)
+	jobsBody := html.UnescapeString(jobsRec.Body.String())
+	for _, want := range []string{
+		"/admin/jobs?enabled=false&name=nightly&page=1",
+		"/admin/jobs?enabled=false&name=nightly&page=3",
+	} {
+		if !strings.Contains(jobsBody, want) {
+			t.Fatalf("jobs pagination missing %q: %s", want, jobsBody)
+		}
+	}
+	if svc.listFilter.ListParams.Offset != 25 || svc.listFilter.ListParams.Limit != 26 ||
+		svc.listFilter.Enabled == nil || *svc.listFilter.Enabled {
+		t.Fatalf("jobs filter/pagination not forwarded: %#v", svc.listFilter)
+	}
+
+	detailRec := httptest.NewRecorder()
+	handler.ServeHTTP(
+		detailRec,
+		authenticatedRequest(
+			http.MethodGet,
+			"/admin/jobs/"+jobID.String()+"?status=failed&trigger_type=manual&page=2",
+			nil,
+			sessions,
+		),
+	)
+	detailBody := html.UnescapeString(detailRec.Body.String())
+	for _, want := range []string{
+		"/admin/jobs/" + jobID.String() + "?page=1&status=failed&trigger_type=manual",
+		"/admin/jobs/" + jobID.String() + "?page=3&status=failed&trigger_type=manual",
+	} {
+		if !strings.Contains(detailBody, want) {
+			t.Fatalf("detail pagination missing %q: %s", want, detailBody)
+		}
+	}
+	if svc.executionFilter.ListParams.Offset != 25 || svc.executionFilter.ListParams.Limit != 26 ||
+		svc.executionFilter.Status == nil || *svc.executionFilter.Status != domain.ExecutionStatusFailed ||
+		svc.executionFilter.TriggerType == nil || *svc.executionFilter.TriggerType != "manual" {
+		t.Fatalf("execution filter/pagination not forwarded: %#v", svc.executionFilter)
+	}
+}
+
+func TestLoginAndSetupStoreFailuresReturnSafe500(t *testing.T) {
+	const sentinel = "session store failed with do-not-expose"
+	tests := []struct {
+		name     string
+		getPath  string
+		postPath string
+		form     url.Values
+		svc      *fakeAdminService
+	}{
+		{
+			name:     "login",
+			getPath:  "/admin/login",
+			postPath: "/admin/login",
+			form:     url.Values{"api_key": {"ec_valid"}},
+			svc:      &fakeAdminService{hasKeys: true},
+		},
+		{
+			name:     "setup",
+			getPath:  "/admin/setup",
+			postPath: "/admin/setup",
+			form: url.Values{
+				"bootstrap_token": {"install-secret"},
+				"namespace":       {"team"},
+				"label":           {"owner"},
+			},
+			svc: &fakeAdminService{
+				hasKeys: false,
+				bootstrapResult: service.CreateAPIKeyResult{
+					PlaintextToken: "ec_generated",
+					Key:            domain.APIKey{ID: uuid.New(), Namespace: "team", Enabled: true},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sessions := &fakeAdminSessionStore{createErr: errors.New(sentinel)}
+			keys := &fakeKeyLookup{key: domain.APIKey{ID: uuid.New(), Namespace: "team", Enabled: true}}
+			handler := newTestHandler(t, tt.svc, sessions, keys)
+
+			getRec := httptest.NewRecorder()
+			handler.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, tt.getPath, nil))
+			csrfCookie := getRec.Result().Cookies()[0]
+			tt.form.Set("csrf_token", extractHiddenCSRF(t, getRec.Body.String()))
+
+			req := httptest.NewRequest(http.MethodPost, tt.postPath, strings.NewReader(tt.form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.AddCookie(csrfCookie)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want 500: %s", rec.Code, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), sentinel) {
+				t.Fatalf("session store failure leaked: %s", rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), "Something went wrong") {
+				t.Fatalf("safe error page missing: %s", rec.Body.String())
+			}
+		})
 	}
 }
 
