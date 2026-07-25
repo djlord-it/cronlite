@@ -36,7 +36,8 @@ container_id="$(docker compose ps -q postgres)"
 }
 
 healthy=false
-for ((attempt = 1; attempt <= 30; attempt++)); do
+health_attempts="${ADMIN_LOCAL_HEALTH_ATTEMPTS:-30}"
+for ((attempt = 1; attempt <= health_attempts; attempt++)); do
   status="$(
     docker inspect --format='{{.State.Health.Status}}' "$container_id" 2>/dev/null ||
       true
@@ -49,7 +50,8 @@ for ((attempt = 1; attempt <= 30; attempt++)); do
 done
 
 [[ "$healthy" == true ]] || {
-  printf 'error: PostgreSQL did not become healthy within 30 seconds\n' >&2
+  printf 'error: PostgreSQL did not become healthy after %s checks\n' \
+    "$health_attempts" >&2
   exit 1
 }
 
