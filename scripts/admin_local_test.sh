@@ -69,10 +69,15 @@ case "$*" in
     [[ "${FAKE_COMPOSE_UNAVAILABLE:-0}" != 1 ]]
     ;;
   "compose up -d postgres")
+    printf 'host-port=%s\n' "${POSTGRES_HOST_PORT:-unset}" \
+      >> "$FAKE_DOCKER_CALLS"
     exit 0
     ;;
   "compose ps -q postgres")
     printf 'container-id\n'
+    ;;
+  "compose port postgres 5432")
+    printf '0.0.0.0:49152\n'
     ;;
   "inspect --format={{.State.Health.Status}} container-id")
     printf '%s\n' "${FAKE_HEALTH_STATUS:-healthy}"
@@ -157,6 +162,8 @@ test_happy_path() {
 
   assert_equals "$exit_status" 0
   assert_contains "$calls" "compose up -d postgres"
+  assert_contains "$calls" "host-port=0"
+  assert_contains "$calls" "compose port postgres 5432"
   assert_contains "$calls" \
     "inspect --format={{.State.Health.Status}} container-id"
   assert_contains "$calls" "compose exec -T postgres psql"
@@ -167,9 +174,11 @@ test_happy_path() {
   assert_contains "$go_env" \
     "ADMIN_BOOTSTRAP_TOKEN=test-bootstrap-token"
   assert_contains "$go_env" \
-    "DATABASE_URL=postgres://cronlite:cronlite@localhost:5432/cronlite?sslmode=disable"
+    "DATABASE_URL=postgres://cronlite:cronlite@127.0.0.1:49152/cronlite?sslmode=disable"
   assert_contains "$output" "http://localhost:8080/admin"
   assert_contains "$output" "test-bootstrap-token"
+  assert_contains "$(cat "$ROOT/docker-compose.yml")" \
+    '${POSTGRES_HOST_PORT:-5432}:5432'
 
   printf 'PASS: admin local launcher happy path\n'
 }

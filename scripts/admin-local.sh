@@ -25,8 +25,7 @@ if [[ -f .cronlite.local.env ]]; then
   set +a
 fi
 
-export DATABASE_URL="${DATABASE_URL:-postgres://cronlite:cronlite@localhost:5432/cronlite?sslmode=disable}"
-
+export POSTGRES_HOST_PORT=0
 docker compose up -d postgres
 
 container_id="$(docker compose ps -q postgres)"
@@ -34,6 +33,14 @@ container_id="$(docker compose ps -q postgres)"
   printf 'error: PostgreSQL container was not created\n' >&2
   exit 1
 }
+
+published_address="$(docker compose port postgres 5432)"
+postgres_port="${published_address##*:}"
+[[ "$postgres_port" =~ ^[0-9]+$ ]] || {
+  printf 'error: could not determine the PostgreSQL host port\n' >&2
+  exit 1
+}
+export DATABASE_URL="postgres://cronlite:cronlite@127.0.0.1:${postgres_port}/cronlite?sslmode=disable"
 
 healthy=false
 health_attempts="${ADMIN_LOCAL_HEALTH_ATTEMPTS:-30}"

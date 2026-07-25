@@ -15,7 +15,7 @@ services:
       - ./schema/006_add_claimed_at_index.sql:/docker-entrypoint-initdb.d/006_add_claimed_at_index.sql
       - ./schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cronlite"]
       interval: 2s
