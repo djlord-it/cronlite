@@ -25,6 +25,9 @@ func TestNewHTTPServerBoundsHeadersAndIdleConnections(t *testing.T) {
 	if server.ReadHeaderTimeout != 5*time.Second {
 		t.Fatalf("ReadHeaderTimeout = %s, want 5s", server.ReadHeaderTimeout)
 	}
+	if server.ReadTimeout != 30*time.Second {
+		t.Fatalf("ReadTimeout = %s, want 30s", server.ReadTimeout)
+	}
 	if server.IdleTimeout != 60*time.Second {
 		t.Fatalf("IdleTimeout = %s, want 60s", server.IdleTimeout)
 	}

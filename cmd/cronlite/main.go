@@ -70,6 +70,7 @@ const (
 	exitInvalidConfig = 2
 
 	httpReadHeaderTimeout = 5 * time.Second
+	httpReadTimeout       = 30 * time.Second
 	httpIdleTimeout       = 60 * time.Second
 )
 
@@ -638,7 +639,9 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: httpReadHeaderTimeout,
-		IdleTimeout:       httpIdleTimeout,
+		// ReadTimeout bounds header and request-body reads; SSE streams responses.
+		ReadTimeout: httpReadTimeout,
+		IdleTimeout: httpIdleTimeout,
 		// WriteTimeout intentionally remains zero because MCP uses long-lived SSE.
 	}
 }
