@@ -37,6 +37,8 @@ assert_not_contains Dockerfile 'apk upgrade'
 
 assert_contains .dockerignore '**/.venv/'
 assert_contains .dockerignore 'playground/'
+assert_contains .dockerignore '.cronlite.local.env'
+assert_contains .gitignore '.cronlite.local.env'
 
 assert_contains docker-compose.yml \
   'image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50'

@@ -33,6 +33,7 @@ Thumbs.db
 # Local development
 .env
 .env.local
+.cronlite.local.env
 *.log
 **/.venv/
 playground/

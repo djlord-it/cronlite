@@ -44,5 +44,6 @@ playground/reports/
 # Env files (secrets)
 .env
 **/.env
+.cronlite.local.env
 !.env.example
 !**/.env.example
