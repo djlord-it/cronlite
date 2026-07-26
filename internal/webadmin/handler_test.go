@@ -211,6 +211,62 @@ func TestHandlerAddsSecurityHeadersAndServesEmbeddedCSS(t *testing.T) {
 	}
 }
 
+func TestLoginAndSetupExplainExpectedCredentials(t *testing.T) {
+	t.Run("login", func(t *testing.T) {
+		handler := newTestHandler(t, &fakeAdminService{hasKeys: true}, nil, nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/login", nil))
+
+		body := rec.Body.String()
+		for _, want := range []string{
+			"Already set up?",
+			"there is no public signup",
+			`aria-describedby="api_key_help"`,
+			`id="api_key_help"`,
+			"Paste the key generated during setup.",
+			"It starts with",
+			"<code>ec_</code>",
+		} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("login page missing %q: %s", want, body)
+			}
+		}
+		if got := strings.Count(body, "(i)"); got != 1 {
+			t.Fatalf("login info marker count = %d, want 1", got)
+		}
+	})
+
+	t.Run("first-time setup", func(t *testing.T) {
+		handler := newTestHandler(t, &fakeAdminService{hasKeys: false}, nil, nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/setup", nil))
+
+		body := rec.Body.String()
+		for _, want := range []string{
+			"First-time setup",
+			"This is one-time installation setup, not signup.",
+			`aria-describedby="bootstrap_token_help"`,
+			`id="bootstrap_token_help"`,
+			"<code>ADMIN_BOOTSTRAP_TOKEN</code>",
+			`aria-describedby="namespace_help"`,
+			`id="namespace_help"`,
+			"team-prod",
+			`aria-describedby="label_help"`,
+			`id="label_help"`,
+			"owner",
+		} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("setup page missing %q: %s", want, body)
+			}
+		}
+		if got := strings.Count(body, "(i)"); got != 3 {
+			t.Fatalf("setup info marker count = %d, want 3", got)
+		}
+	})
+}
+
 func TestLoginDoesNotEchoInvalidAPIKey(t *testing.T) {
 	svc := &fakeAdminService{hasKeys: true}
 	keys := &fakeKeyLookup{err: domain.ErrAPIKeyNotFound}

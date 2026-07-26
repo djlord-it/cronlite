@@ -4,12 +4,13 @@
   <section class="card auth-card">
     <p class="eyebrow">CronLite Admin</p>
     <h1>Sign in</h1>
-    <p class="muted">Use an enabled CronLite API key. Access is limited to its namespace.</p>
+    <p class="muted"><strong>Already set up?</strong> Paste an enabled CronLite API key below. New installations are sent to one-time setup automatically; there is no public signup.</p>
     {{template "messages" .}}
     <form method="post" action="/admin/login">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-      <label for="api_key">API key</label>
-      <input id="api_key" name="api_key" type="password" autocomplete="off" required autofocus>
+      <label for="api_key">API key <span class="field-info" aria-hidden="true">(i)</span></label>
+      <input id="api_key" name="api_key" type="password" autocomplete="off" aria-describedby="api_key_help" required autofocus>
+      <p class="field-help" id="api_key_help">Paste the key generated during setup. It starts with <code>ec_</code>.</p>
       <button type="submit">Sign in</button>
     </form>
   </section>
