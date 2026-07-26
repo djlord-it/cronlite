@@ -213,10 +213,21 @@ func extractIP(r *http.Request) string {
 }
 
 // ipRateLimiter tracks request counts per IP using a simple token bucket.
+const (
+	ipRateLimiterClientTTL       = 10 * time.Minute
+	ipRateLimiterCleanupInterval = time.Minute
+	ipRateLimiterMaxClients      = 10_000
+)
+
 type ipRateLimiter struct {
-	mu      sync.Mutex
-	rate    int
-	clients map[string]*clientBucket
+	mu              sync.Mutex
+	rate            int
+	clients         map[string]*clientBucket
+	now             func() time.Time
+	clientTTL       time.Duration
+	cleanupInterval time.Duration
+	nextCleanup     time.Time
+	maxClients      int
 }
 
 type clientBucket struct {
@@ -225,9 +236,18 @@ type clientBucket struct {
 }
 
 func newIPRateLimiter(ratePerSecond int) *ipRateLimiter {
+	return newIPRateLimiterWithClock(ratePerSecond, time.Now)
+}
+
+func newIPRateLimiterWithClock(ratePerSecond int, now func() time.Time) *ipRateLimiter {
 	return &ipRateLimiter{
-		rate:    ratePerSecond,
-		clients: make(map[string]*clientBucket),
+		rate:            ratePerSecond,
+		clients:         make(map[string]*clientBucket),
+		now:             now,
+		clientTTL:       ipRateLimiterClientTTL,
+		cleanupInterval: ipRateLimiterCleanupInterval,
+		nextCleanup:     now().Add(ipRateLimiterCleanupInterval),
+		maxClients:      ipRateLimiterMaxClients,
 	}
 }
 
@@ -235,9 +255,17 @@ func (l *ipRateLimiter) allow(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	now := time.Now()
+	now := l.now()
+	if !now.Before(l.nextCleanup) {
+		l.pruneStale(now)
+		l.nextCleanup = now.Add(l.cleanupInterval)
+	}
+
 	b, exists := l.clients[ip]
 	if !exists {
+		if len(l.clients) >= l.maxClients {
+			return false
+		}
 		l.clients[ip] = &clientBucket{tokens: l.rate - 1, lastSeen: now}
 		return true
 	}
@@ -255,6 +283,14 @@ func (l *ipRateLimiter) allow(ip string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+func (l *ipRateLimiter) pruneStale(now time.Time) {
+	for ip, bucket := range l.clients {
+		if now.Sub(bucket.lastSeen) >= l.clientTTL {
+			delete(l.clients, ip)
+		}
+	}
 }
 
 // CORSMiddleware adds CORS headers. If allowedOrigins is empty, CORS

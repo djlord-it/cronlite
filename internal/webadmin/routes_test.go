@@ -83,6 +83,48 @@ func TestInvalidUUIDReturnsNotFound(t *testing.T) {
 	}
 }
 
+func FuzzPathUUID(f *testing.F) {
+	validID := uuid.MustParse("123e4567-e89b-12d3-a456-426614174000")
+	for _, seed := range []string{
+		"",
+		validID.String(),
+		"not-a-uuid",
+		"123e4567-e89b-12d3-a456-42661417400",
+		"../../jobs",
+		"環境",
+	} {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, raw string) {
+		req := httptest.NewRequest(http.MethodGet, "/admin/jobs/"+url.PathEscape(raw), nil)
+		req.SetPathValue("id", raw)
+		rec := httptest.NewRecorder()
+
+		got, ok := pathUUID(rec, req)
+		want, err := uuid.Parse(raw)
+		if err != nil {
+			if ok {
+				t.Fatalf("pathUUID(%q) succeeded with %s", raw, got)
+			}
+			if got != uuid.Nil {
+				t.Fatalf("pathUUID(%q) = %s, want uuid.Nil", raw, got)
+			}
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("pathUUID(%q) status = %d, want 404", raw, rec.Code)
+			}
+			return
+		}
+
+		if !ok {
+			t.Fatalf("pathUUID(%q) rejected valid UUID %s", raw, want)
+		}
+		if got != want {
+			t.Fatalf("pathUUID(%q) = %s, want %s", raw, got, want)
+		}
+	})
+}
+
 func TestEditPageNeverRendersStoredWebhookSecret(t *testing.T) {
 	sessions := &fakeAdminSessionStore{}
 	jobID := uuid.New()

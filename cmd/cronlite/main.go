@@ -68,6 +68,9 @@ const (
 	exitSuccess       = 0
 	exitRuntimeError  = 1
 	exitInvalidConfig = 2
+
+	httpReadHeaderTimeout = 5 * time.Second
+	httpIdleTimeout       = 60 * time.Second
 )
 
 func main() {
@@ -477,10 +480,7 @@ func runServe() int {
 	httpMux.Handle("/", rootHandler)
 
 	// HTTP server runs on all instances regardless of dispatch mode.
-	httpServer := &http.Server{
-		Addr:    cfg.HTTPAddr,
-		Handler: httpMux,
-	}
+	httpServer := newHTTPServer(cfg.HTTPAddr, httpMux)
 
 	go func() {
 		log.Printf("cronlite: http server listening on %s", cfg.HTTPAddr)
@@ -631,6 +631,16 @@ func runServe() int {
 
 	log.Println("cronlite: stopped")
 	return exitSuccess
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		IdleTimeout:       httpIdleTimeout,
+		// WriteTimeout intentionally remains zero because MCP uses long-lived SSE.
+	}
 }
 
 func runValidate() int {

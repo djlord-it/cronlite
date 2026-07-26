@@ -48,3 +48,4 @@ awk -v coverage="$coverage" 'BEGIN {
 
 go test ./internal/webadmin -run=^$ -fuzz=FuzzParseTags -fuzztime=5s
 go test ./internal/webadmin -run=^$ -fuzz=FuzzPositivePage -fuzztime=5s
+go test ./internal/webadmin -run=^$ -fuzz=FuzzPathUUID -fuzztime=5s

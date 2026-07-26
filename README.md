@@ -54,9 +54,12 @@ curl -H "Authorization: Bearer ${CRONLITE_API_KEY}" \
 <summary>Manual setup (without Docker)</summary>
 
 ```bash
+set -euo pipefail
 go build -o cronlite ./cmd/cronlite
 createdb cronlite
-for f in schema/0*.sql; do psql cronlite < "$f"; done
+for f in schema/0*.sql; do
+  psql -v ON_ERROR_STOP=1 cronlite < "$f"
+done
 export DATABASE_URL="postgres://localhost/cronlite?sslmode=disable"
 ./cronlite create-key default local-dev
 ./cronlite serve
@@ -330,6 +333,8 @@ All tools are namespace-scoped via the API key used for authentication.
 - **Rate limiting**: Two-layer rate limiting — per-IP (default 10 req/sec, before auth) and per-namespace (default 100 req/sec, after auth) on all endpoints except `/health`
 - **Credential safety**: `DATABASE_URL` and `REDIS_ADDR` credentials are masked in `cronlite config` output; startup warns when `sslmode=disable`
 - **Error sanitization**: Database error details are never exposed in API responses
+
+The built-in per-IP limiter keys clients from Go's `RemoteAddr` and deliberately does not trust `X-Forwarded-For`. Behind a TLS reverse proxy, configure client-IP rate limiting at the trusted proxy or ingress; the CronLite limiter then remains defense-in-depth and normally sees the proxy address.
 
 ## Configuration
 

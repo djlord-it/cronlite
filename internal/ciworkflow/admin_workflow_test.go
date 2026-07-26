@@ -135,6 +135,59 @@ func TestAdminWorkflowContract(t *testing.T) {
 	}
 }
 
+func TestAdminCIScriptRunsEveryFuzzHarness(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "admin_ci_test.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read admin CI script: %v", err)
+	}
+
+	script := string(data)
+	for _, harness := range []string{"FuzzParseTags", "FuzzPositivePage", "FuzzPathUUID"} {
+		want := "-fuzz=" + harness + " -fuzztime=5s"
+		if !strings.Contains(script, want) {
+			t.Errorf("admin CI script does not run %s with a fixed fuzz time", harness)
+		}
+	}
+}
+
+func TestDocumentedManualMigrationsFailClosed(t *testing.T) {
+	for _, name := range []string{"README.md", "OPERATORS.md"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join("..", "..", name)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", name, err)
+			}
+			document := string(data)
+			if strings.Contains(document, `psql cronlite < "$f"`) {
+				t.Fatalf("%s documents fail-open migrations without ON_ERROR_STOP", name)
+			}
+			if !strings.Contains(document, `psql -v ON_ERROR_STOP=1 cronlite < "$f"`) {
+				t.Fatalf("%s does not document fail-closed psql migrations", name)
+			}
+		})
+	}
+}
+
+func TestRateLimitProxyGuidanceIsExplicit(t *testing.T) {
+	for _, name := range []string{"README.md", "OPERATORS.md"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join("..", "..", name)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read %s: %v", name, err)
+			}
+			document := string(data)
+			for _, want := range []string{"RemoteAddr", "trusted proxy", "defense-in-depth"} {
+				if !strings.Contains(document, want) {
+					t.Errorf("%s does not contain %q rate-limit guidance", name, want)
+				}
+			}
+		})
+	}
+}
+
 func TestAdminWorkflowContractRejectsMutations(t *testing.T) {
 	data := readAdminWorkflow(t)
 

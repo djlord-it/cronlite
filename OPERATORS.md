@@ -163,7 +163,10 @@ DB mode requires all migrations to be applied. See [Migrations](#migrations).
 Schema migrations live in `schema/` and are numbered sequentially. Apply them in order:
 
 ```bash
-for f in schema/0*.sql; do psql cronlite < "$f"; done
+set -euo pipefail
+for f in schema/0*.sql; do
+  psql -v ON_ERROR_STOP=1 cronlite < "$f"
+done
 ```
 
 Current migrations:
@@ -220,6 +223,8 @@ CronLite uses namespace-scoped API keys with SHA-256 hashed storage.
 **Exempt paths:** `/health`, `/metrics`, `/mcp` (MCP has its own auth via `HTTPContextFunc`)
 
 **Rate limiting:** Two-layer token bucket — per-IP (10 req/sec default, applied before auth) and per-namespace (100 req/sec default, applied after auth) on all endpoints except `/health`. Returns `429 Too Many Requests` when exceeded. Configure via `RATE_LIMIT` and `NAMESPACE_RATE_LIMIT`.
+
+CronLite keys its per-IP limiter from Go's `RemoteAddr` and does not trust `X-Forwarded-For`. When serving through a TLS reverse proxy, enforce client-IP rate limits at the trusted proxy or ingress; treat CronLite's limiter, which normally sees the proxy address, as defense-in-depth.
 
 **`last_used_at` tracking:** Debounced in-memory with background flush every 60 seconds to minimize DB writes under high traffic.
 
