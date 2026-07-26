@@ -34,3 +34,5 @@ Thumbs.db
 .env
 .env.local
 *.log
+**/.venv/
+playground/
