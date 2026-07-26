@@ -62,6 +62,15 @@ func (h *Handler) setupPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) setup(w http.ResponseWriter, r *http.Request) {
+	hasKeys, err := h.service.HasAnyAPIKeys(r.Context())
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
+	if hasKeys {
+		http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
+		return
+	}
 	if !h.validPublicCSRF(r) {
 		h.renderStatus(w, "setup", pageData{Title: "Set up CronLite", Error: "The form expired. Please try again.", CSRFToken: h.issuePublicCSRF(w)}, http.StatusForbidden)
 		return
@@ -86,15 +95,21 @@ func (h *Handler) setup(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, r, err)
 		return
 	}
+	data := pageData{
+		Title: "Setup complete", Namespace: result.Key.Namespace.String(), APIKey: result.PlaintextToken,
+	}
 	if _, err := h.sessions.login(r.Context(), w, r, result.PlaintextToken); err != nil {
-		h.internalError(w, r, err)
-		return
+		h.logger.Printf(
+			"webadmin: event=bootstrap_automatic_login_failed error_class=%s",
+			errorClass(err),
+		)
+		data.Notice = "Automatic sign-in was unavailable. Save this key, then sign in with it."
+	} else {
+		data.SetupAuthenticated = true
 	}
 	h.clearPublicCSRF(w)
 	w.Header().Set("Cache-Control", "no-store")
-	h.renderStatus(w, "setup_complete", pageData{
-		Title: "Setup complete", Namespace: result.Key.Namespace.String(), APIKey: result.PlaintextToken,
-	}, http.StatusOK)
+	h.renderStatus(w, "setup_complete", data, http.StatusOK)
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {

@@ -272,6 +272,31 @@ func TestValidate_ProductionValidConfig(t *testing.T) {
 	}
 }
 
+func TestValidate_ProductionAdminRequiresSecureCookies(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.Environment = "production"
+	cfg.ReconcileEnabled = true
+	cfg.ReconcileInterval = 5 * time.Minute
+	cfg.ReconcileIntervalStr = "5m"
+	cfg.ReconcileThreshold = 15 * time.Minute
+	cfg.ReconcileThresholdStr = "15m"
+	cfg.ReconcileRequeueThreshold = 2 * time.Minute
+	cfg.ReconcileRequeueThresholdStr = "2m"
+	cfg.MetricsEnabled = true
+	cfg.APIKey = "prod-key"
+	cfg.AdminEnabled = true
+	cfg.AdminSessionTTL = 30 * time.Minute
+	cfg.AdminSessionTTLStr = "30m"
+	cfg.AdminSessionAbsoluteTTL = 12 * time.Hour
+	cfg.AdminSessionAbsoluteTTLStr = "12h"
+	cfg.AdminCookieSecure = false
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_COOKIE_SECURE") {
+		t.Fatalf("expected ADMIN_COOKIE_SECURE production validation error, got %v", err)
+	}
+}
+
 func TestValidate_DevelopmentAllowsUnsafeRuntimeSettings(t *testing.T) {
 	cfg := Config{
 		Environment:      "development",

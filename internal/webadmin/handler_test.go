@@ -7,6 +7,7 @@ import (
 	"html"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -503,68 +504,169 @@ func TestPaginationPreservesFilters(t *testing.T) {
 	}
 }
 
-func TestLoginAndSetupStoreFailuresReturnSafe500(t *testing.T) {
+func TestLoginStoreFailureReturnsSafe500(t *testing.T) {
 	const sentinel = "session store failed with do-not-expose"
-	tests := []struct {
-		name     string
-		getPath  string
-		postPath string
-		form     url.Values
-		svc      *fakeAdminService
-	}{
-		{
-			name:     "login",
-			getPath:  "/admin/login",
-			postPath: "/admin/login",
-			form:     url.Values{"api_key": {"ec_valid"}},
-			svc:      &fakeAdminService{hasKeys: true},
-		},
-		{
-			name:     "setup",
-			getPath:  "/admin/setup",
-			postPath: "/admin/setup",
-			form: url.Values{
-				"bootstrap_token": {"install-secret"},
-				"namespace":       {"team"},
-				"label":           {"owner"},
-			},
-			svc: &fakeAdminService{
-				hasKeys: false,
-				bootstrapResult: service.CreateAPIKeyResult{
-					PlaintextToken: "ec_generated",
-					Key:            domain.APIKey{ID: uuid.New(), Namespace: "team", Enabled: true},
-				},
-			},
+	sessions := &fakeAdminSessionStore{createErr: errors.New(sentinel)}
+	keys := &fakeKeyLookup{key: domain.APIKey{ID: uuid.New(), Namespace: "team", Enabled: true}}
+	handler := newTestHandler(t, &fakeAdminService{hasKeys: true}, sessions, keys)
+
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/admin/login", nil))
+	csrfCookie := getRec.Result().Cookies()[0]
+	form := url.Values{
+		"api_key":    {"ec_valid"},
+		"csrf_token": {extractHiddenCSRF(t, getRec.Body.String())},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(csrfCookie)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), sentinel) {
+		t.Fatalf("session store failure leaked: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Something went wrong") {
+		t.Fatalf("safe error page missing: %s", rec.Body.String())
+	}
+}
+
+func TestBootstrapStillDisplaysOneTimeKeyWhenAutomaticLoginFails(t *testing.T) {
+	const (
+		generated = "ec_generated-once"
+		sentinel  = "session store failed with do-not-expose"
+	)
+	key := domain.APIKey{ID: uuid.New(), Namespace: "team", Enabled: true}
+	svc := &fakeAdminService{
+		hasKeys: false,
+		bootstrapResult: service.CreateAPIKeyResult{
+			PlaintextToken: generated,
+			Key:            key,
 		},
 	}
+	sessions := &fakeAdminSessionStore{createErr: errors.New(sentinel)}
+	var logs bytes.Buffer
+	handler := newTestHandlerWithOptions(
+		t,
+		svc,
+		sessions,
+		&fakeKeyLookup{key: key},
+		false,
+		log.New(&logs, "", 0),
+	)
 
-	for _, tt := range tests {
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/admin/setup", nil))
+	csrfCookie := getRec.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token":      {extractHiddenCSRF(t, getRec.Body.String())},
+		"bootstrap_token": {"install-secret"},
+		"namespace":       {"team"},
+		"label":           {"owner"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/admin/setup", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(csrfCookie)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), generated) {
+		t.Fatalf("one-time API key was lost: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Sign in") {
+		t.Fatalf("recoverable sign-in guidance missing: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), sentinel) {
+		t.Fatalf("session failure leaked: %s", rec.Body.String())
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+	if !strings.Contains(logs.String(), "bootstrap_automatic_login_failed") {
+		t.Fatalf("sanitized operational event missing from log: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), sentinel) || strings.Contains(logs.String(), generated) {
+		t.Fatalf("bootstrap key or session failure leaked to log: %s", logs.String())
+	}
+}
+
+func TestAdminRejectsOversizedFormBodies(t *testing.T) {
+	const oversizedValueSize = (1 << 20) + 1
+	oversized := strings.Repeat("x", oversizedValueSize)
+	for _, tt := range []struct {
+		name string
+		path string
+		body url.Values
+	}{
+		{
+			name: "setup",
+			path: "/admin/setup",
+			body: url.Values{"csrf_token": {"csrf"}, "bootstrap_token": {oversized}},
+		},
+		{
+			name: "login",
+			path: "/admin/login",
+			body: url.Values{"csrf_token": {"csrf"}, "api_key": {oversized}},
+		},
+		{
+			name: "job create",
+			path: "/admin/jobs/new",
+			body: url.Values{"csrf_token": {"csrf-token"}, "name": {oversized}},
+		},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
-			sessions := &fakeAdminSessionStore{createErr: errors.New(sentinel)}
-			keys := &fakeKeyLookup{key: domain.APIKey{ID: uuid.New(), Namespace: "team", Enabled: true}}
-			handler := newTestHandler(t, tt.svc, sessions, keys)
-
-			getRec := httptest.NewRecorder()
-			handler.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, tt.getPath, nil))
-			csrfCookie := getRec.Result().Cookies()[0]
-			tt.form.Set("csrf_token", extractHiddenCSRF(t, getRec.Body.String()))
-
-			req := httptest.NewRequest(http.MethodPost, tt.postPath, strings.NewReader(tt.form.Encode()))
+			handler := newTestHandler(t, &fakeAdminService{hasKeys: true}, nil, nil)
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body.Encode()))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			req.AddCookie(csrfCookie)
 			rec := httptest.NewRecorder()
+
 			handler.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusInternalServerError {
-				t.Fatalf("status = %d, want 500: %s", rec.Code, rec.Body.String())
+			if rec.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("status = %d, want 413: %s", rec.Code, rec.Body.String())
 			}
-			if strings.Contains(rec.Body.String(), sentinel) {
-				t.Fatalf("session store failure leaked: %s", rec.Body.String())
+			if !strings.Contains(strings.ToLower(rec.Body.String()), "request body too large") {
+				t.Fatalf("controlled 413 message missing: %s", rec.Body.String())
 			}
-			if !strings.Contains(rec.Body.String(), "Something went wrong") {
-				t.Fatalf("safe error page missing: %s", rec.Body.String())
+			assertRequiredSecurityHeaders(t, rec.Header(), false)
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("Cache-Control = %q, want no-store", got)
 			}
 		})
+	}
+}
+
+func TestAdminRejectsOversizedMultipartFormBody(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormField("api_key")
+	if err != nil {
+		t.Fatalf("create multipart field: %v", err)
+	}
+	if _, err := io.Copy(part, strings.NewReader(strings.Repeat("x", (1<<20)+1))); err != nil {
+		t.Fatalf("write multipart field: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+
+	handler := newTestHandler(t, &fakeAdminService{hasKeys: true}, nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewReader(body.Bytes()))
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.ContentLength = -1
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413: %s", rec.Code, rec.Body.String())
 	}
 }
 

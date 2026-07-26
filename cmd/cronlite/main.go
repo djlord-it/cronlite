@@ -197,8 +197,9 @@ func registerAdminRoutes(mux *http.ServeMux, cfg config.Config, handler http.Han
 		return
 	}
 	rateLimited := api.RateLimitMiddleware(cfg.IPRateLimit, handler)
-	mux.Handle("/admin", rateLimited)
-	mux.Handle("/admin/", rateLimited)
+	protected := webadmin.SecurityHeaders(rateLimited, cfg.AdminCookieSecure)
+	mux.Handle("/admin", protected)
+	mux.Handle("/admin/", protected)
 }
 
 func newWebAdminConfig(

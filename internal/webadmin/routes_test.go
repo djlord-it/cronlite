@@ -279,3 +279,36 @@ func TestBootstrapRejectsWrongInstallationToken(t *testing.T) {
 		t.Fatalf("wrong token reached bootstrap: status=%d namespace=%q", rec.Code, svc.bootstrapNS)
 	}
 }
+
+func TestBootstrapIsUniformlyUnavailableAfterFirstKeyExists(t *testing.T) {
+	for _, token := range []string{"install-secret", "wrong"} {
+		t.Run(token, func(t *testing.T) {
+			svc := &fakeAdminService{hasKeys: true}
+			handler := newTestHandler(t, svc, nil, nil)
+			form := url.Values{
+				"csrf_token":      {"public-csrf"},
+				"bootstrap_token": {token},
+				"namespace":       {"team"},
+				"label":           {"owner"},
+			}
+			req := httptest.NewRequest(http.MethodPost, "/admin/setup", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.AddCookie(&http.Cookie{
+				Name: publicCSRFCookieName, Value: "public-csrf", Path: "/admin",
+			})
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want 303: %s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Location"); got != "/admin/login" {
+				t.Fatalf("Location = %q, want /admin/login", got)
+			}
+			if svc.bootstrapNS != "" || svc.bootstrapLabel != "" {
+				t.Fatalf("unavailable bootstrap reached service: namespace=%q label=%q", svc.bootstrapNS, svc.bootstrapLabel)
+			}
+		})
+	}
+}

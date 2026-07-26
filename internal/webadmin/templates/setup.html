@@ -28,9 +28,14 @@
     <p class="eyebrow">Setup complete</p>
     <h1>Save your API key</h1>
     <p>This key is shown once. Store it in a password manager before continuing.</p>
+    {{template "messages" .}}
     <pre class="secret">{{.APIKey}}</pre>
     <p><strong>Namespace:</strong> {{.Namespace}}</p>
+    {{if .SetupAuthenticated}}
     <a class="button" href="/admin/jobs">Continue to jobs</a>
+    {{else}}
+    <a class="button" href="/admin/login">Sign in</a>
+    {{end}}
   </section>
 </main>
 {{template "foot" .}}

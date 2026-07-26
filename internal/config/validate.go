@@ -193,6 +193,12 @@ func validateProduction(cfg Config) ValidationErrors {
 			Message: "required when CRONLITE_ENV=production",
 		})
 	}
+	if cfg.AdminEnabled && !cfg.AdminCookieSecure {
+		errs = append(errs, ValidationError{
+			Field:   "ADMIN_COOKIE_SECURE",
+			Message: "must be true when admin UI is enabled in production",
+		})
+	}
 
 	return errs
 }
