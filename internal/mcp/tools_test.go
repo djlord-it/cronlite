@@ -1089,6 +1089,41 @@ func TestHandleNextRun_NotFound(t *testing.T) {
 	}
 }
 
+func TestHandleNextRun_DisabledReturnsGenericResumeGuidance(t *testing.T) {
+	job := fixedJob()
+	job.Enabled = false
+	jr := &mockJobRepo{
+		getJobWithScheduleFn: func(context.Context, uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return job, fixedSchedule(), nil
+		},
+	}
+	handler := handleNextRun(newTestService(jr, nil, nil, nil))
+	req := mcpgo.CallToolRequest{
+		Params: mcpgo.CallToolParams{
+			Name: "next-run",
+			Arguments: map[string]any{
+				"id": job.ID.String(),
+			},
+		},
+	}
+
+	result, err := handler(ctxWithNS("t1"), req)
+
+	if err != nil {
+		t.Fatalf("handleNextRun returned error: %v", err)
+	}
+	if !result.IsError {
+		t.Fatal("expected disabled next-run request to return a tool error")
+	}
+	text := resultText(t, result)
+	if !strings.Contains(text, "Use resume-job") || !strings.Contains(text, "then retry the operation") {
+		t.Fatalf("disabled guidance is not actionable and generic: %s", text)
+	}
+	if strings.Contains(strings.ToLower(text), "trigger") {
+		t.Fatalf("next-run guidance incorrectly refers to triggering: %s", text)
+	}
+}
+
 // ── handleResolveSchedule ───────────────────────────────────────────────────
 
 func TestHandleResolveSchedule_Cron(t *testing.T) {

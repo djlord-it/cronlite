@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -1008,6 +1009,55 @@ func TestGetNextRun_NotFound(t *testing.T) {
 
 	if _, ok := resp.(GetNextRun404JSONResponse); !ok {
 		t.Fatalf("expected GetNextRun404JSONResponse, got %T", resp)
+	}
+}
+
+func TestGetNextRun_DisabledReturnsConflict(t *testing.T) {
+	jobID := uuid.New()
+	jr := &mockJobRepo{
+		getJobWithScheduleFn: func(context.Context, uuid.UUID) (domain.Job, domain.Schedule, error) {
+			job := fixedJob(jobID, "t1")
+			job.Enabled = false
+			return job, fixedSchedule(job.ScheduleID), nil
+		},
+	}
+	srv := newTestServer(jr, nil, nil, nil, nil, nil)
+
+	resp, err := srv.GetNextRun(ctxWithNS("t1"), GetNextRunRequestObject{Id: jobID})
+
+	if err != nil {
+		t.Fatalf("GetNextRun returned transport error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("GetNextRun returned nil response")
+	}
+	rec := httptest.NewRecorder()
+	if err := resp.VisitGetNextRunResponse(rec); err != nil {
+		t.Fatalf("write GetNextRun response: %v", err)
+	}
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"job_disabled"`) {
+		t.Fatalf("response missing job_disabled code: %s", rec.Body.String())
+	}
+}
+
+func TestGeneratedSpecDocumentsNextRunDisabledConflict(t *testing.T) {
+	spec, err := GetSpec()
+	if err != nil {
+		t.Fatalf("load generated OpenAPI spec: %v", err)
+	}
+	path := spec.Paths.Find("/jobs/{id}/next-run")
+	if path == nil || path.Get == nil {
+		t.Fatal("generated OpenAPI spec is missing GET /jobs/{id}/next-run")
+	}
+	response := path.Get.Responses.Status(http.StatusConflict)
+	if response == nil || response.Value == nil {
+		t.Fatal("generated OpenAPI spec is missing the 409 response for disabled jobs")
+	}
+	if response.Value.Description == nil || !strings.Contains(strings.ToLower(*response.Value.Description), "disabled") {
+		t.Fatalf("409 description = %v, want disabled-job description", response.Value.Description)
 	}
 }
 

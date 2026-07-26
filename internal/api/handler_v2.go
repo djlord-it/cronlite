@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -273,8 +274,11 @@ func (s *ServerImpl) GetNextRun(ctx context.Context, request GetNextRunRequestOb
 	nextRun, runs, schedule, err := s.svc.GetNextRunTime(ctx, request.Id)
 	if err != nil {
 		he := mapDomainError(err)
-		if he.Status == 404 {
+		switch he.Status {
+		case http.StatusNotFound:
 			return GetNextRun404JSONResponse(newErrorResponse(he)), nil
+		case http.StatusConflict:
+			return GetNextRun409JSONResponse(newErrorResponse(he)), nil
 		}
 		return nil, err
 	}
