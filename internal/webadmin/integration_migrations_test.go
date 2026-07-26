@@ -105,6 +105,39 @@ CREATE TABLE `+schemaName+`.api_keys (
 				tableName.String,
 			)
 		}
+
+		ctx, cancel = integrationContext(t)
+		if _, err := conn.ExecContext(ctx, string(migration)); err != nil {
+			cancel()
+			t.Fatalf("retry migration 007 after rollback: %v", err)
+		}
+		cancel()
+
+		integrationScanRow(
+			t,
+			db,
+			`SELECT to_regclass($1)`,
+			[]any{schemaName + ".admin_sessions"},
+			&tableName,
+		)
+		if !tableName.Valid {
+			t.Fatal("migration retry did not create admin_sessions")
+		}
+
+		var indexCount int
+		integrationScanRow(t, db, `
+SELECT COUNT(*)
+FROM pg_indexes
+WHERE schemaname = $1
+  AND tablename = 'admin_sessions'
+  AND indexname IN (
+    'idx_admin_sessions_api_key_id',
+    'idx_admin_sessions_expires_at'
+  )
+`, []any{schemaName}, &indexCount)
+		if indexCount != 2 {
+			t.Fatalf("migration retry indexes = %d, want 2", indexCount)
+		}
 	})
 
 	if !t.Failed() {
