@@ -1,0 +1,50 @@
+{{define "job_form"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main class="container narrow">
+  <a class="back" href="{{if .Edit}}/admin/jobs/{{.Job.ID}}{{else}}/admin/jobs{{end}}">← Back</a>
+  <h1>{{if .Edit}}Edit job{{else}}Create job{{end}}</h1>
+  {{template "messages" .}}
+  <form method="post" action="{{if .Edit}}/admin/jobs/{{.Job.ID}}/edit{{else}}/admin/jobs/new{{end}}">
+    <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+    <div class="form-grid">
+      <div class="full">
+        <label for="name">Name</label>
+        <input id="name" name="name" value="{{.Form.Name}}" maxlength="200" required autofocus>
+      </div>
+      <div>
+        <label for="cron_expression">Cron expression</label>
+        <input id="cron_expression" name="cron_expression" value="{{.Form.CronExpression}}" placeholder="0 9 * * *" required>
+      </div>
+      <div>
+        <label for="timezone">IANA timezone</label>
+        <input id="timezone" name="timezone" value="{{.Form.Timezone}}" placeholder="UTC" required>
+      </div>
+      <div class="full">
+        <label for="webhook_url">Webhook URL</label>
+        <input id="webhook_url" name="webhook_url" type="url" value="{{.Form.WebhookURL}}" placeholder="https://example.com/hook" required>
+      </div>
+      <div>
+        <label for="webhook_secret">Webhook secret {{if .Edit}}<span class="muted">(leave blank to keep)</span>{{end}}</label>
+        <input id="webhook_secret" name="webhook_secret" type="password" autocomplete="new-password">
+      </div>
+      <div>
+        <label for="timeout_seconds">Timeout in seconds</label>
+        <input id="timeout_seconds" name="timeout_seconds" type="number" min="1" max="60" value="{{.Form.TimeoutSeconds}}" required>
+      </div>
+      {{if .Edit}}
+      <label class="checkbox full"><input name="clear_webhook_secret" type="checkbox" value="true"> Clear the stored webhook secret</label>
+      {{end}}
+      <div class="full">
+        <label for="tags">Tags <span class="muted">(one key=value per line)</span></label>
+        <textarea id="tags" name="tags" rows="5">{{.Form.Tags}}</textarea>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="submit">{{if .Edit}}Save changes{{else}}Create job{{end}}</button>
+      <a href="{{if .Edit}}/admin/jobs/{{.Job.ID}}{{else}}/admin/jobs{{end}}">Cancel</a>
+    </div>
+  </form>
+</main>
+{{template "foot" .}}
+{{end}}

@@ -25,7 +25,7 @@ func toolError(err error) (*mcpgo.CallToolResult, error) {
 	case errors.Is(err, domain.ErrInvalidWebhookURL):
 		return mcpgo.NewToolResultError("Invalid webhook URL. Provide a fully qualified HTTP or HTTPS URL."), nil
 	case errors.Is(err, domain.ErrJobDisabled):
-		return mcpgo.NewToolResultError("Job is disabled. Use resume-job first to re-enable it before triggering."), nil
+		return mcpgo.NewToolResultError("Job is disabled. Use resume-job to re-enable it, then retry the operation."), nil
 	case errors.Is(err, domain.ErrScheduleParseFailure):
 		return mcpgo.NewToolResultError("Could not parse schedule. Try a different phrasing or use a cron expression directly (e.g. \"*/5 * * * *\")."), nil
 	case errors.Is(err, domain.ErrNamespaceRequired):

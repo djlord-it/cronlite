@@ -1,0 +1,347 @@
+name: Admin CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.25.8"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  admin-unit-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run admin unit and security suite
+        run: ADMIN_COVERAGE_FILE=admin-coverage.out ./scripts/admin_ci_test.sh
+
+      - name: Upload admin coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: admin-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: admin-coverage.out
+          if-no-files-found: error
+          retention-days: 7
+
+  admin-postgres-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: cronlite_admin_ci
+      POSTGRES_PASSWORD: admin-ci-password
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: cronlite_admin_ci
+          POSTGRES_PASSWORD: admin-ci-password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U cronlite_admin_ci -d postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Create fresh database and apply all schemas
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER" \
+            psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" \
+              --dbname "$POSTGRES_DB" \
+              --command 'CREATE DATABASE cronlite_admin_ci'
+          for migration in schema/*.sql; do
+            docker exec -i "$POSTGRES_CONTAINER" \
+              psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" \
+                --dbname cronlite_admin_ci < "$migration"
+          done
+
+      - name: Run PostgreSQL integration suite
+        env:
+          ADMIN_TEST_DATABASE_URL: postgresql://cronlite_admin_ci:admin-ci-password@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/cronlite_admin_ci?sslmode=disable
+        run: |
+          set -euo pipefail
+          integration_json=/tmp/admin-integration.json
+          selected=/tmp/admin-integration-selected.txt
+          passed=/tmp/admin-integration-passed.txt
+          skipped=/tmp/admin-integration-skipped.txt
+          marker_bearing=/tmp/admin-integration-markers.txt
+          go test -json -tags=integration -race ./internal/webadmin \
+            -run '^TestIntegration' -count=1 -v |
+            tee /tmp/admin-integration.json
+          jq -r '
+            select(
+              .Action == "run" and
+              ((.Test // "") | test("^TestIntegration[^/]*$"))
+            ) | .Test
+          ' "$integration_json" | sort -u > "$selected"
+          jq -r '
+            select(
+              .Action == "pass" and
+              ((.Test // "") | test("^TestIntegration[^/]*$"))
+            ) | .Test
+          ' "$integration_json" | sort -u > "$passed"
+          jq -r '
+            select(
+              .Action == "skip" and
+              ((.Test // "") | startswith("TestIntegration"))
+            ) | .Test
+          ' "$integration_json" | sort -u > "$skipped"
+          jq -r '
+            select(
+              ((.Output // "") | contains("ADMIN_INTEGRATION_OK")) and
+              ((.Test // "") | startswith("TestIntegration"))
+            ) | .Test | split("/")[0]
+          ' "$integration_json" | sort -u > "$marker_bearing"
+          if [[ ! -s "$selected" ]]; then
+            printf 'admin integration suite selected no top-level tests\n' >&2
+            exit 1
+          fi
+          if [[ -s "$skipped" ]]; then
+            printf 'admin integration suite contained a skipped test\n' >&2
+            exit 1
+          fi
+          if ! cmp -s "$selected" "$passed"; then
+            printf 'admin integration selected and passed test sets differ\n' >&2
+            exit 1
+          fi
+          if ! cmp -s "$selected" "$marker_bearing"; then
+            printf 'admin integration selected and marker-bearing test sets differ\n' >&2
+            exit 1
+          fi
+
+      - name: Collect sanitized integration diagnostics
+        if: failure()
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          diagnostics=/tmp/admin-integration-diagnostics
+          mkdir -p "$diagnostics"
+          if [[ -f /tmp/admin-integration.json ]]; then
+            jq -r 'select(.Output != null) | .Output' \
+              /tmp/admin-integration.json |
+              sed -E \
+                -e 's/ec_[0-9a-fA-F]{64}/[REDACTED_API_KEY]/g' \
+                -e 's#postgres(ql)?://[^[:space:]]+#[REDACTED_DATABASE_URL]#g' \
+                -e 's/admin-ci-password/[REDACTED_PASSWORD]/g' \
+                > "$diagnostics/integration.log"
+          else
+            printf 'integration test log was not created\n' \
+              > "$diagnostics/integration.log"
+          fi
+          {
+            docker exec "$POSTGRES_CONTAINER" \
+              psql --username "$POSTGRES_USER" --dbname cronlite_admin_ci \
+                --command '\dt' || true
+            docker exec "$POSTGRES_CONTAINER" \
+              psql --username "$POSTGRES_USER" --dbname cronlite_admin_ci \
+                --tuples-only --command \
+                "SELECT schemaname, COUNT(*) FROM pg_tables GROUP BY schemaname ORDER BY schemaname" ||
+              true
+          } 2>&1 |
+            sed -E \
+              -e 's/ec_[0-9a-fA-F]{64}/[REDACTED_API_KEY]/g' \
+              -e 's#postgres(ql)?://[^[:space:]]+#[REDACTED_DATABASE_URL]#g' \
+              -e 's/admin-ci-password/[REDACTED_PASSWORD]/g' \
+              > "$diagnostics/database.txt"
+
+      - name: Upload integration diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: admin-integration-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/admin-integration-diagnostics
+          if-no-files-found: error
+          retention-days: 7
+
+  admin-assets-launcher:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check launcher and smoke shell syntax
+        run: |
+          bash -n \
+            scripts/admin-local.sh \
+            scripts/admin_local_test.sh \
+            scripts/admin_smoke_test.sh \
+            scripts/admin_smoke_test_test.sh
+
+      - name: Run launcher contract
+        run: ./scripts/admin_local_test.sh --all
+
+      - name: Run smoke contract
+        run: ./scripts/admin_smoke_test_test.sh
+
+      - name: Lint GitHub Actions workflow
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/admin-ci.yml
+
+      - name: Run focused template, asset, and security header tests
+        run: |
+          go test ./internal/webadmin \
+            -run '(Templates|Assets|SecurityHeaders)' -count=1
+
+  admin-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_PROJECT_NAME: cronlite-admin-${{ github.run_id }}-${{ github.run_attempt }}
+      ADMIN_CI_COMPOSE_FILE: docker-compose.admin-ci.yml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Cross-compile admin binaries
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -o /tmp/cronlite-linux-amd64 ./cmd/cronlite
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -o /tmp/cronlite-linux-arm64 ./cmd/cronlite
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 \
+            go build -o /tmp/cronlite-darwin-amd64 ./cmd/cronlite
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+            go build -o /tmp/cronlite-darwin-arm64 ./cmd/cronlite
+
+      - name: Build admin smoke image
+        run: docker build --tag cronlite:admin-ci .
+
+      - name: Generate masked bootstrap token
+        run: |
+          set -euo pipefail
+          bootstrap_token="$(openssl rand -hex 32)"
+          printf '::add-mask::%s\n' "$bootstrap_token"
+          printf 'ADMIN_BOOTSTRAP_TOKEN=%s\n' "$bootstrap_token" >> "$GITHUB_ENV"
+          unset bootstrap_token
+
+      - name: Start admin smoke stack
+        run: |
+          set -euo pipefail
+          docker compose \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            --file "$ADMIN_CI_COMPOSE_FILE" \
+            up --detach --wait --no-build
+
+      - name: Run admin smoke lifecycle
+        run: |
+          set -euo pipefail
+          published_address="$(
+            docker compose \
+              --project-name "$COMPOSE_PROJECT_NAME" \
+              --file "$ADMIN_CI_COMPOSE_FILE" \
+              port cronlite 8080
+          )"
+          published_port="${published_address##*:}"
+          [[ "$published_port" =~ ^[0-9]+$ ]]
+          ADMIN_BASE_URL="http://127.0.0.1:${published_port}" \
+            ./scripts/admin_smoke_test.sh
+
+      - name: Collect sanitized smoke diagnostics
+        if: failure()
+        run: |
+          set -euo pipefail
+          diagnostics=/tmp/admin-smoke-diagnostics
+          bootstrap_token="${ADMIN_BOOTSTRAP_TOKEN:-}"
+          export ADMIN_BOOTSTRAP_TOKEN="${bootstrap_token:-diagnostics-only}"
+          mkdir -p "$diagnostics"
+          if [[ -n "$bootstrap_token" ]]; then
+            {
+              docker compose \
+                --project-name "$COMPOSE_PROJECT_NAME" \
+                --file "$ADMIN_CI_COMPOSE_FILE" ps || true
+              docker compose \
+                --project-name "$COMPOSE_PROJECT_NAME" \
+                --file "$ADMIN_CI_COMPOSE_FILE" logs --no-color || true
+            } 2>&1 |
+              sed -E \
+                -e "s/${bootstrap_token}/[REDACTED_BOOTSTRAP_TOKEN]/g" \
+                -e 's/ec_[0-9a-fA-F]{64}/[REDACTED_API_KEY]/g' \
+                > "$diagnostics/compose.txt"
+          else
+            {
+              docker compose \
+                --project-name "$COMPOSE_PROJECT_NAME" \
+                --file "$ADMIN_CI_COMPOSE_FILE" ps || true
+              docker compose \
+                --project-name "$COMPOSE_PROJECT_NAME" \
+                --file "$ADMIN_CI_COMPOSE_FILE" logs --no-color || true
+            } 2>&1 |
+              sed -E \
+                -e 's/ec_[0-9a-fA-F]{64}/[REDACTED_API_KEY]/g' \
+                > "$diagnostics/compose.txt"
+          fi
+
+      - name: Upload smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: admin-smoke-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/admin-smoke-diagnostics
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop admin smoke stack
+        if: always()
+        run: |
+          export ADMIN_BOOTSTRAP_TOKEN="${ADMIN_BOOTSTRAP_TOKEN:-cleanup-only}"
+          docker compose \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            --file "$ADMIN_CI_COMPOSE_FILE" \
+            down -v --remove-orphans

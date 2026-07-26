@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,13 +18,15 @@ import (
 // ── Mock repositories ────────────────────────────────────────────────────────
 
 type mockJobRepo struct {
-	insertJobFn          func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
-	getJobFn             func(ctx context.Context, id uuid.UUID) (domain.Job, error)
-	getJobWithScheduleFn func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
-	listJobsFn           func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
-	updateJobFn          func(ctx context.Context, job domain.Job) error
-	deleteJobFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
-	getEnabledJobsFn     func(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
+	insertJobFn             func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
+	getJobFn                func(ctx context.Context, id uuid.UUID) (domain.Job, error)
+	getJobWithScheduleFn    func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
+	listJobsFn              func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listJobsWithSchedulesFn func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
+	updateJobFn             func(ctx context.Context, job domain.Job) error
+	deleteJobFn             func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
+	getEnabledJobsFn        func(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
+	createdTags             []domain.Tag
 }
 
 func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -32,6 +35,11 @@ func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule do
 	}
 	return nil
 }
+func (m *mockJobRepo) CreateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags []domain.Tag) error {
+	m.createdTags = append([]domain.Tag(nil), tags...)
+	return m.InsertJob(ctx, job, schedule)
+}
+
 func (m *mockJobRepo) GetJob(ctx context.Context, id uuid.UUID) (domain.Job, error) {
 	if m.getJobFn != nil {
 		return m.getJobFn(ctx, id)
@@ -53,6 +61,12 @@ func (m *mockJobRepo) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID
 func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, filter)
+	}
+	return nil, nil
+}
+func (m *mockJobRepo) ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+	if m.listJobsWithSchedulesFn != nil {
+		return m.listJobsWithSchedulesFn(ctx, filter)
 	}
 	return nil, nil
 }
@@ -467,8 +481,10 @@ func TestGetHealth_VerboseNoChecker(t *testing.T) {
 // ── CreateJob Tests ──────────────────────────────────────────────────────────
 
 func TestCreateJob_HappyPath(t *testing.T) {
-	srv := newTestServer(nil, nil, nil, nil, nil, nil)
+	jobRepo := &mockJobRepo{}
+	srv := newTestServer(jobRepo, nil, nil, nil, nil, nil)
 	ctx := ctxWithNS("t1")
+	tags := Tag{"env": "prod"}
 
 	resp, err := srv.CreateJob(ctx, CreateJobRequestObject{
 		Body: &CreateJobRequest{
@@ -476,6 +492,7 @@ func TestCreateJob_HappyPath(t *testing.T) {
 			CronExpression: "*/5 * * * *",
 			Timezone:       "UTC",
 			WebhookUrl:     "https://example.com/hook",
+			Tags:           &tags,
 		},
 	})
 	if err != nil {
@@ -497,6 +514,10 @@ func TestCreateJob_HappyPath(t *testing.T) {
 	}
 	if !got.Enabled {
 		t.Fatal("expected Enabled to be true")
+	}
+	if len(jobRepo.createdTags) != 1 ||
+		jobRepo.createdTags[0] != (domain.Tag{Key: "env", Value: "prod"}) {
+		t.Fatalf("aggregate tags = %#v, want env=prod", jobRepo.createdTags)
 	}
 }
 
@@ -525,9 +546,12 @@ func TestCreateJob_InvalidCron(t *testing.T) {
 
 func TestListJobs_HappyPath(t *testing.T) {
 	jobID := uuid.New()
+	scheduleID := uuid.New()
 	jr := &mockJobRepo{
-		listJobsFn: func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
-			return []domain.Job{fixedJob(jobID, "t1")}, nil
+		listJobsWithSchedulesFn: func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+			job := fixedJob(jobID, "t1")
+			job.ScheduleID = scheduleID
+			return []domain.JobWithSchedule{{Job: job, Schedule: fixedSchedule(scheduleID)}}, nil
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)
@@ -549,6 +573,9 @@ func TestListJobs_HappyPath(t *testing.T) {
 	}
 	if got.Jobs[0].Name != "test-job" {
 		t.Fatalf("expected job name %q, got %q", "test-job", got.Jobs[0].Name)
+	}
+	if got.Jobs[0].CronExpression != "*/5 * * * *" || got.Jobs[0].Timezone != "UTC" {
+		t.Fatalf("expected populated schedule, got cron=%q timezone=%q", got.Jobs[0].CronExpression, got.Jobs[0].Timezone)
 	}
 }
 
@@ -982,6 +1009,55 @@ func TestGetNextRun_NotFound(t *testing.T) {
 
 	if _, ok := resp.(GetNextRun404JSONResponse); !ok {
 		t.Fatalf("expected GetNextRun404JSONResponse, got %T", resp)
+	}
+}
+
+func TestGetNextRun_DisabledReturnsConflict(t *testing.T) {
+	jobID := uuid.New()
+	jr := &mockJobRepo{
+		getJobWithScheduleFn: func(context.Context, uuid.UUID) (domain.Job, domain.Schedule, error) {
+			job := fixedJob(jobID, "t1")
+			job.Enabled = false
+			return job, fixedSchedule(job.ScheduleID), nil
+		},
+	}
+	srv := newTestServer(jr, nil, nil, nil, nil, nil)
+
+	resp, err := srv.GetNextRun(ctxWithNS("t1"), GetNextRunRequestObject{Id: jobID})
+
+	if err != nil {
+		t.Fatalf("GetNextRun returned transport error: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("GetNextRun returned nil response")
+	}
+	rec := httptest.NewRecorder()
+	if err := resp.VisitGetNextRunResponse(rec); err != nil {
+		t.Fatalf("write GetNextRun response: %v", err)
+	}
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"job_disabled"`) {
+		t.Fatalf("response missing job_disabled code: %s", rec.Body.String())
+	}
+}
+
+func TestGeneratedSpecDocumentsNextRunDisabledConflict(t *testing.T) {
+	spec, err := GetSpec()
+	if err != nil {
+		t.Fatalf("load generated OpenAPI spec: %v", err)
+	}
+	path := spec.Paths.Find("/jobs/{id}/next-run")
+	if path == nil || path.Get == nil {
+		t.Fatal("generated OpenAPI spec is missing GET /jobs/{id}/next-run")
+	}
+	response := path.Get.Responses.Status(http.StatusConflict)
+	if response == nil || response.Value == nil {
+		t.Fatal("generated OpenAPI spec is missing the 409 response for disabled jobs")
+	}
+	if response.Value.Description == nil || !strings.Contains(strings.ToLower(*response.Value.Description), "disabled") {
+		t.Fatalf("409 description = %v, want disabled-job description", response.Value.Description)
 	}
 }
 
@@ -1458,9 +1534,12 @@ func TestListParamsFromQuery(t *testing.T) {
 func TestListJobs_WithFilters(t *testing.T) {
 	var capturedFilter domain.JobFilter
 	jr := &mockJobRepo{
-		listJobsFn: func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
+		listJobsWithSchedulesFn: func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
 			capturedFilter = filter
-			return []domain.Job{fixedJob(uuid.New(), "t1")}, nil
+			return []domain.JobWithSchedule{{
+				Job:      fixedJob(uuid.New(), "t1"),
+				Schedule: domain.Schedule{CronExpression: "0 * * * *", Timezone: "UTC"},
+			}}, nil
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)

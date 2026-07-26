@@ -15,10 +15,12 @@ import (
 
 type mockJobRepo struct {
 	insertJobFn                func(ctx context.Context, job domain.Job, schedule domain.Schedule) error
+	createJobAggregateFn       func(ctx context.Context, job domain.Job, schedule domain.Schedule, tags []domain.Tag) error
 	getJobFn                   func(ctx context.Context, id uuid.UUID) (domain.Job, error)
 	getJobWithScheduleFn       func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error)
 	getJobWithScheduleScopedFn func(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Job, domain.Schedule, error)
 	listJobsFn                 func(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error)
+	listJobsWithSchedulesFn    func(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
 	updateJobFn                func(ctx context.Context, job domain.Job) error
 	updateJobAggregateFn       func(ctx context.Context, job domain.Job, schedule domain.Schedule, tags *[]domain.Tag) error
 	deleteJobFn                func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
@@ -26,6 +28,7 @@ type mockJobRepo struct {
 
 	// capture last call
 	lastInsertedJob       domain.Job
+	lastCreatedTags       []domain.Tag
 	lastUpdatedJob        domain.Job
 	lastAggregateJob      domain.Job
 	lastAggregateSchedule domain.Schedule
@@ -36,6 +39,15 @@ func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule do
 	m.lastInsertedJob = job
 	if m.insertJobFn != nil {
 		return m.insertJobFn(ctx, job, schedule)
+	}
+	return nil
+}
+
+func (m *mockJobRepo) CreateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags []domain.Tag) error {
+	m.lastInsertedJob = job
+	m.lastCreatedTags = append([]domain.Tag(nil), tags...)
+	if m.createJobAggregateFn != nil {
+		return m.createJobAggregateFn(ctx, job, schedule, tags)
 	}
 	return nil
 }
@@ -68,6 +80,13 @@ func (m *mockJobRepo) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID
 func (m *mockJobRepo) ListJobs(ctx context.Context, filter domain.JobFilter) ([]domain.Job, error) {
 	if m.listJobsFn != nil {
 		return m.listJobsFn(ctx, filter)
+	}
+	return nil, nil
+}
+
+func (m *mockJobRepo) ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+	if m.listJobsWithSchedulesFn != nil {
+		return m.listJobsWithSchedulesFn(ctx, filter)
 	}
 	return nil, nil
 }
@@ -254,11 +273,13 @@ func (m *mockTagRepo) DeleteTags(ctx context.Context, jobID uuid.UUID) error {
 }
 
 type mockAPIKeyRepo struct {
-	insertAPIKeyFn   func(ctx context.Context, key domain.APIKey) error
-	getKeyByHashFn   func(ctx context.Context, tokenHash string) (domain.APIKey, error)
-	listKeysFn       func(ctx context.Context, ns domain.Namespace, params domain.ListParams) ([]domain.APIKey, error)
-	deleteKeyFn      func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
-	updateLastUsedFn func(ctx context.Context, ids []uuid.UUID) error
+	insertAPIKeyFn      func(ctx context.Context, key domain.APIKey) error
+	insertFirstAPIKeyFn func(ctx context.Context, key domain.APIKey) error
+	hasAnyAPIKeysFn     func(ctx context.Context) (bool, error)
+	getKeyByHashFn      func(ctx context.Context, tokenHash string) (domain.APIKey, error)
+	listKeysFn          func(ctx context.Context, ns domain.Namespace, params domain.ListParams) ([]domain.APIKey, error)
+	deleteKeyFn         func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
+	updateLastUsedFn    func(ctx context.Context, ids []uuid.UUID) error
 }
 
 func (m *mockAPIKeyRepo) InsertAPIKey(ctx context.Context, key domain.APIKey) error {
@@ -266,6 +287,20 @@ func (m *mockAPIKeyRepo) InsertAPIKey(ctx context.Context, key domain.APIKey) er
 		return m.insertAPIKeyFn(ctx, key)
 	}
 	return nil
+}
+
+func (m *mockAPIKeyRepo) InsertFirstAPIKey(ctx context.Context, key domain.APIKey) error {
+	if m.insertFirstAPIKeyFn != nil {
+		return m.insertFirstAPIKeyFn(ctx, key)
+	}
+	return nil
+}
+
+func (m *mockAPIKeyRepo) HasAnyAPIKeys(ctx context.Context) (bool, error) {
+	if m.hasAnyAPIKeysFn != nil {
+		return m.hasAnyAPIKeysFn(ctx)
+	}
+	return false, nil
 }
 
 func (m *mockAPIKeyRepo) GetKeyByTokenHash(ctx context.Context, tokenHash string) (domain.APIKey, error) {
@@ -402,6 +437,44 @@ func TestCreateJob_HappyPath(t *testing.T) {
 	}
 	if job.ScheduleID != schedule.ID {
 		t.Error("job.ScheduleID should match schedule.ID")
+	}
+}
+
+func TestCreateJob_PersistsJobScheduleAndTagsAsOneAggregate(t *testing.T) {
+	jobRepo := &mockJobRepo{}
+	tagRepo := &mockTagRepo{
+		upsertTagsFn: func(context.Context, uuid.UUID, []domain.Tag) error {
+			t.Fatal("CreateJob must not persist initial tags in a second repository call")
+			return nil
+		},
+	}
+	svc := newTestServiceFull(jobRepo, nil, nil, tagRepo, nil, nil)
+	tags := []domain.Tag{{Key: "env", Value: "prod"}, {Key: "owner", Value: "ops"}}
+
+	job, schedule, err := svc.CreateJob(ctxWithNS("tenant-1"), CreateJobInput{
+		Name:           "atomic-job",
+		CronExpression: "*/5 * * * *",
+		Timezone:       "UTC",
+		WebhookURL:     "https://example.com/hook",
+		Tags:           tags,
+	})
+
+	if err != nil {
+		t.Fatalf("CreateJob: %v", err)
+	}
+	if jobRepo.lastInsertedJob.ID != job.ID {
+		t.Fatalf("aggregate job ID = %s, want %s", jobRepo.lastInsertedJob.ID, job.ID)
+	}
+	if jobRepo.lastInsertedJob.ScheduleID != schedule.ID {
+		t.Fatalf("aggregate schedule ID = %s, want %s", jobRepo.lastInsertedJob.ScheduleID, schedule.ID)
+	}
+	if len(jobRepo.lastCreatedTags) != len(tags) {
+		t.Fatalf("aggregate tags = %#v, want %#v", jobRepo.lastCreatedTags, tags)
+	}
+	for i := range tags {
+		if jobRepo.lastCreatedTags[i] != tags[i] {
+			t.Fatalf("aggregate tag[%d] = %#v, want %#v", i, jobRepo.lastCreatedTags[i], tags[i])
+		}
 	}
 }
 
@@ -686,6 +759,31 @@ func TestListJobs_NoNamespace(t *testing.T) {
 	_, err := svc.ListJobs(context.Background(), domain.JobFilter{})
 	if !errors.Is(err, domain.ErrNamespaceRequired) {
 		t.Errorf("expected ErrNamespaceRequired, got %v", err)
+	}
+}
+
+func TestListJobsWithSchedules_HappyPath(t *testing.T) {
+	var capturedFilter domain.JobFilter
+	jobRepo := &mockJobRepo{
+		listJobsWithSchedulesFn: func(_ context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+			capturedFilter = filter
+			return []domain.JobWithSchedule{{
+				Job:      domain.Job{ID: uuid.New(), Namespace: "t1", Name: "job-1"},
+				Schedule: domain.Schedule{CronExpression: "*/5 * * * *", Timezone: "UTC"},
+			}}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	jobs, err := svc.ListJobsWithSchedules(ctxWithNS("t1"), domain.JobFilter{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].Schedule.CronExpression != "*/5 * * * *" {
+		t.Fatalf("unexpected jobs: %#v", jobs)
+	}
+	if capturedFilter.Namespace != "t1" || capturedFilter.Limit <= 0 {
+		t.Fatalf("filter defaults were not applied: %#v", capturedFilter)
 	}
 }
 
@@ -1049,6 +1147,30 @@ func TestGetNextRunTime_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetNextRunTime_DisabledJob(t *testing.T) {
+	jobID := uuid.New()
+	scheduleID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+					ID: jobID, Namespace: "t1", ScheduleID: scheduleID, Enabled: false,
+				}, domain.Schedule{
+					ID: scheduleID, CronExpression: "*/5 * * * *", Timezone: "UTC",
+				}, nil
+		},
+	}
+	svc := newTestService(jobRepo)
+
+	next, runs, schedule, err := svc.GetNextRunTime(ctxWithNS("t1"), jobID)
+
+	if !errors.Is(err, domain.ErrJobDisabled) {
+		t.Fatalf("error = %v, want ErrJobDisabled", err)
+	}
+	if !next.IsZero() || len(runs) != 0 || schedule.ID != scheduleID {
+		t.Fatalf("disabled result = (%v, %#v, %#v), want no runs and the job schedule", next, runs, schedule)
+	}
+}
+
 // --- parseNaturalLanguage tests ---
 
 func TestParseNaturalLanguage(t *testing.T) {
@@ -1131,10 +1253,10 @@ func TestParseTime(t *testing.T) {
 
 // --- CreateJob error-path tests ---
 
-func TestCreateJob_InsertJobError(t *testing.T) {
+func TestCreateJob_AggregateErrorWithoutTags(t *testing.T) {
 	insertErr := errors.New("db write failed")
 	jobRepo := &mockJobRepo{
-		insertJobFn: func(_ context.Context, _ domain.Job, _ domain.Schedule) error {
+		createJobAggregateFn: func(_ context.Context, _ domain.Job, _ domain.Schedule, _ []domain.Tag) error {
 			return insertErr
 		},
 	}
@@ -1154,14 +1276,14 @@ func TestCreateJob_InsertJobError(t *testing.T) {
 	}
 }
 
-func TestCreateJob_UpsertTagsError(t *testing.T) {
-	upsertErr := errors.New("tag write failed")
-	tagRepo := &mockTagRepo{
-		upsertTagsFn: func(_ context.Context, _ uuid.UUID, _ []domain.Tag) error {
-			return upsertErr
+func TestCreateJob_AggregateErrorWithTags(t *testing.T) {
+	aggregateErr := errors.New("aggregate write failed")
+	jobRepo := &mockJobRepo{
+		createJobAggregateFn: func(_ context.Context, _ domain.Job, _ domain.Schedule, _ []domain.Tag) error {
+			return aggregateErr
 		},
 	}
-	svc := newTestServiceFull(&mockJobRepo{}, nil, nil, tagRepo, nil, nil)
+	svc := newTestService(jobRepo)
 
 	_, _, err := svc.CreateJob(ctxWithNS("t1"), CreateJobInput{
 		Name:           "my-job",
@@ -1173,8 +1295,8 @@ func TestCreateJob_UpsertTagsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !errors.Is(err, upsertErr) {
-		t.Errorf("expected wrapped upsertErr, got %v", err)
+	if !errors.Is(err, aggregateErr) {
+		t.Errorf("expected wrapped aggregateErr, got %v", err)
 	}
 }
 

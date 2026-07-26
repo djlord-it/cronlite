@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,6 +25,11 @@ type CreateAPIKeyResult struct {
 	Key            domain.APIKey
 }
 
+type apiKeyBootstrapRepository interface {
+	InsertFirstAPIKey(ctx context.Context, key domain.APIKey) error
+	HasAnyAPIKeys(ctx context.Context) (bool, error)
+}
+
 // CreateAPIKey generates a new API key for the namespace in ctx.
 func (s *JobService) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) (CreateAPIKeyResult, error) {
 	ns := domain.NamespaceFromContext(ctx)
@@ -31,6 +37,52 @@ func (s *JobService) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) 
 		return CreateAPIKeyResult{}, domain.ErrNamespaceRequired
 	}
 
+	result, err := newAPIKey(ns, input.Label)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+
+	if err := s.apiKeys.InsertAPIKey(ctx, result.Key); err != nil {
+		return CreateAPIKeyResult{}, fmt.Errorf("insert api key: %w", err)
+	}
+
+	return result, nil
+}
+
+// BootstrapFirstAPIKey atomically creates the first API key in a fresh
+// installation. The repository rejects the operation once any key exists.
+func (s *JobService) BootstrapFirstAPIKey(ctx context.Context, namespace, label string) (CreateAPIKeyResult, error) {
+	ns := domain.Namespace(namespace)
+	if ns.IsZero() {
+		return CreateAPIKeyResult{}, domain.ErrNamespaceRequired
+	}
+
+	result, err := newAPIKey(ns, label)
+	if err != nil {
+		return CreateAPIKeyResult{}, err
+	}
+
+	repo, ok := s.apiKeys.(apiKeyBootstrapRepository)
+	if !ok {
+		return CreateAPIKeyResult{}, errors.New("api key repository does not support bootstrap")
+	}
+	if err := repo.InsertFirstAPIKey(ctx, result.Key); err != nil {
+		return CreateAPIKeyResult{}, fmt.Errorf("insert first api key: %w", err)
+	}
+
+	return result, nil
+}
+
+// HasAnyAPIKeys reports whether bootstrap has already been completed.
+func (s *JobService) HasAnyAPIKeys(ctx context.Context) (bool, error) {
+	repo, ok := s.apiKeys.(apiKeyBootstrapRepository)
+	if !ok {
+		return false, errors.New("api key repository does not support bootstrap")
+	}
+	return repo.HasAnyAPIKeys(ctx)
+}
+
+func newAPIKey(ns domain.Namespace, label string) (CreateAPIKeyResult, error) {
 	// Generate 32 random bytes.
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -45,13 +97,9 @@ func (s *JobService) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput) 
 		ID:        uuid.New(),
 		Namespace: ns,
 		TokenHash: tokenHash,
-		Label:     input.Label,
+		Label:     label,
 		Enabled:   true,
 		CreatedAt: now,
-	}
-
-	if err := s.apiKeys.InsertAPIKey(ctx, key); err != nil {
-		return CreateAPIKeyResult{}, fmt.Errorf("insert api key: %w", err)
 	}
 
 	return CreateAPIKeyResult{

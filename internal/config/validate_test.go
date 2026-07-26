@@ -272,6 +272,31 @@ func TestValidate_ProductionValidConfig(t *testing.T) {
 	}
 }
 
+func TestValidate_ProductionAdminRequiresSecureCookies(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.Environment = "production"
+	cfg.ReconcileEnabled = true
+	cfg.ReconcileInterval = 5 * time.Minute
+	cfg.ReconcileIntervalStr = "5m"
+	cfg.ReconcileThreshold = 15 * time.Minute
+	cfg.ReconcileThresholdStr = "15m"
+	cfg.ReconcileRequeueThreshold = 2 * time.Minute
+	cfg.ReconcileRequeueThresholdStr = "2m"
+	cfg.MetricsEnabled = true
+	cfg.APIKey = "prod-key"
+	cfg.AdminEnabled = true
+	cfg.AdminSessionTTL = 30 * time.Minute
+	cfg.AdminSessionTTLStr = "30m"
+	cfg.AdminSessionAbsoluteTTL = 12 * time.Hour
+	cfg.AdminSessionAbsoluteTTLStr = "12h"
+	cfg.AdminCookieSecure = false
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_COOKIE_SECURE") {
+		t.Fatalf("expected ADMIN_COOKIE_SECURE production validation error, got %v", err)
+	}
+}
+
 func TestValidate_DevelopmentAllowsUnsafeRuntimeSettings(t *testing.T) {
 	cfg := Config{
 		Environment:      "development",
@@ -284,5 +309,49 @@ func TestValidate_DevelopmentAllowsUnsafeRuntimeSettings(t *testing.T) {
 
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("expected development config to remain valid, got: %v", err)
+	}
+}
+
+func TestValidate_AdminSessionTTLPositiveWhenEnabled(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:        "postgres://localhost/test",
+		AdminEnabled:       true,
+		AdminSessionTTLStr: "0s",
+		AdminSessionTTL:    0,
+	}
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_SESSION_TTL") {
+		t.Fatalf("expected ADMIN_SESSION_TTL validation error, got %v", err)
+	}
+}
+
+func TestValidate_AdminAbsoluteTTLPositiveWhenEnabled(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:                "postgres://localhost/test",
+		AdminEnabled:               true,
+		AdminSessionTTL:            30 * time.Minute,
+		AdminSessionTTLStr:         "30m",
+		AdminSessionAbsoluteTTL:    0,
+		AdminSessionAbsoluteTTLStr: "0s",
+	}
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_SESSION_ABSOLUTE_TTL") {
+		t.Fatalf("expected ADMIN_SESSION_ABSOLUTE_TTL validation error, got %v", err)
+	}
+}
+
+func TestValidate_AdminAbsoluteTTLAtLeastIdleTTL(t *testing.T) {
+	cfg := Config{DatabaseURL: "postgres://localhost/cronlite", TickIntervalStr: "30s"}
+	cfg.AdminEnabled = true
+	cfg.AdminSessionTTL = time.Hour
+	cfg.AdminSessionTTLStr = "1h"
+	cfg.AdminSessionAbsoluteTTL = 30 * time.Minute
+	cfg.AdminSessionAbsoluteTTLStr = "30m"
+
+	err := Validate(cfg)
+	if err == nil || !strings.Contains(err.Error(), "ADMIN_SESSION_ABSOLUTE_TTL") {
+		t.Fatalf("expected ADMIN_SESSION_ABSOLUTE_TTL validation error, got %v", err)
 	}
 }

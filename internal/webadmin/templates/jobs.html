@@ -1,0 +1,54 @@
+{{define "jobs"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main class="container">
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Namespace jobs</p>
+      <h1>Jobs</h1>
+    </div>
+    <a class="button" href="/admin/jobs/new">Create job</a>
+  </div>
+  {{template "messages" .}}
+  <form class="filters" method="get" action="/admin/jobs">
+    <div>
+      <label for="name">Search</label>
+      <input id="name" name="name" type="search" value="{{.Form.Name}}" placeholder="Job name">
+    </div>
+    <div>
+      <label for="enabled">Status</label>
+      <select id="enabled" name="enabled">
+        <option value=""{{if eq .EnabledFilter ""}} selected{{end}}>All</option>
+        <option value="true"{{if eq .EnabledFilter "true"}} selected{{end}}>Active</option>
+        <option value="false"{{if eq .EnabledFilter "false"}} selected{{end}}>Paused</option>
+      </select>
+    </div>
+    <button type="submit">Filter</button>
+  </form>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Status</th><th>Schedule</th><th>Timezone</th><th>Webhook</th><th>Updated</th></tr></thead>
+      <tbody>
+      {{range .Jobs}}
+        <tr>
+          <td><a href="/admin/jobs/{{.Job.ID}}">{{.Job.Name}}</a></td>
+          <td>{{if .Job.Enabled}}<span class="badge success">Active</span>{{else}}<span class="badge">Paused</span>{{end}}</td>
+          <td><code>{{.Schedule.CronExpression}}</code></td>
+          <td>{{.Schedule.Timezone}}</td>
+          <td class="truncate">{{.Job.Delivery.WebhookURL}}</td>
+          <td>{{formatTime .Job.UpdatedAt}}</td>
+        </tr>
+      {{else}}
+        <tr><td colspan="6" class="empty">No jobs found.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  <nav class="pagination" aria-label="Jobs pages">
+    {{if .PreviousURL}}<a href="{{.PreviousURL}}">Previous</a>{{end}}
+    <span>Page {{.Page}}</span>
+    {{if .NextURL}}<a href="{{.NextURL}}">Next</a>{{end}}
+  </nav>
+</main>
+{{template "foot" .}}
+{{end}}

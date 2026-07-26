@@ -54,9 +54,12 @@ curl -H "Authorization: Bearer ${CRONLITE_API_KEY}" \
 <summary>Manual setup (without Docker)</summary>
 
 ```bash
+set -euo pipefail
 go build -o cronlite ./cmd/cronlite
 createdb cronlite
-for f in schema/0*.sql; do psql cronlite < "$f"; done
+for f in schema/0*.sql; do
+  psql -v ON_ERROR_STOP=1 cronlite < "$f"
+done
 export DATABASE_URL="postgres://localhost/cronlite?sslmode=disable"
 ./cronlite create-key default local-dev
 ./cronlite serve
@@ -151,6 +154,115 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 > See the [Operator Guide](OPERATORS.md#horizontal-scaling-multi-instance-ha) for configuration, tuning, failover timing, and alerting rules.
 
+## Lightweight Admin UI
+
+CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates and embedded CSS only—no JavaScript, frontend framework, Node runtime, CDN, or separate asset files.
+
+For local development, Docker and Go are the only prerequisites:
+
+```bash
+./scripts/admin-local.sh
+```
+
+The launcher starts PostgreSQL, applies missing admin migrations through 008, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits.
+
+For a manual launch, apply every numbered migration in order through 008, set an installation token, and enable the UI:
+
+```bash
+set -e
+for migration in schema/[0-9][0-9][0-9]_*.sql; do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 < "$migration"
+done
+export ADMIN_ENABLED=true
+export ADMIN_BOOTSTRAP_TOKEN="replace-with-a-long-random-token"
+./cronlite serve
+```
+
+Open `http://localhost:8080/admin`. On a fresh installation, `/admin/setup` accepts the installation token and creates the first namespace-scoped API key. The key is displayed once. Setup is unavailable whenever any API key exists, and users sign in with an existing API key. If operators delete all API keys through an external administrative process, setup becomes available again and still requires `ADMIN_BOOTSTRAP_TOKEN`. Remove the token from the runtime environment immediately after activation; set a new secret and restart CronLite if bootstrap is intentionally needed again.
+
+Admin sessions are opaque, revocable PostgreSQL records, so they survive process restarts. Activity extends the 30-minute idle timeout (`ADMIN_SESSION_TTL`) when half of it remains, but never beyond the 12-hour absolute lifetime (`ADMIN_SESSION_ABSOLUTE_TTL`); either expiry requires sign-in again. A successful login replaces the session presented by that browser. Revoking an API key immediately invalidates its sessions, and deleting the key removes them through the database foreign-key cascade.
+
+Session and public-CSRF cookies are host-only, `HttpOnly`, `SameSite=Strict`, and scoped to `/admin`. `Secure` is disabled for local HTTP and enabled by default when `CRONLITE_ENV=production`; production must serve the admin UI over HTTPS so those cookies work. Secure-cookie mode also emits HSTS. The admin handler uses per-form CSRF tokens, Go's cross-origin request protection, a restrictive Content Security Policy, `no-store` on HTML and authentication responses, and server-side session deletion plus cookie clearing on logout.
+
+## Admin CI
+
+The blocking admin workflow is [`.github/workflows/admin-ci.yml`](.github/workflows/admin-ci.yml). Its four jobs cover:
+
+- `admin-unit-security`: race-enabled unit/security tests, fuzz smoke tests, and an 80% admin coverage gate.
+- `admin-postgres-integration`: tagged integration tests against a fresh dedicated PostgreSQL database with every migration applied.
+- `admin-assets-launcher`: shell contracts, template/assets/header tests, and Actionlint.
+- `admin-smoke`: four CGO-disabled cross-builds and an isolated Docker image lifecycle smoke test.
+
+Run the primary gate locally:
+
+```bash
+./scripts/admin_ci_test.sh
+```
+
+The database suite requires Bash, Go, Docker with Compose v2, and OpenSSL. The following starts only a one-off PostgreSQL service with an ephemeral host port in a uniquely named Compose project. Its fresh volume causes the pinned PostgreSQL entrypoint to apply the mounted migrations 001–008 in lexical order with `ON_ERROR_STOP`; the EXIT trap removes only this disposable project and volume, leaving any normal `cronlite` database untouched.
+
+```bash
+set -euo pipefail
+
+integration_project="cronlite-admin-integration-${UID}-$$"
+export ADMIN_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+cleanup_admin_integration() {
+  docker compose --project-name "$integration_project" \
+    --file docker-compose.admin-ci.yml down -v --remove-orphans
+  unset ADMIN_BOOTSTRAP_TOKEN
+}
+trap cleanup_admin_integration EXIT
+
+db_container="$(
+  docker compose --project-name "$integration_project" \
+    --file docker-compose.admin-ci.yml run --detach --no-deps \
+    --publish 127.0.0.1::5432 postgres
+)"
+for attempt in {1..30}; do
+  health="$(docker inspect --format '{{.State.Health.Status}}' "$db_container")"
+  [[ "$health" == healthy ]] && break
+  if [[ "$health" == unhealthy ]]; then
+    docker logs "$db_container"
+    exit 1
+  fi
+  sleep 1
+done
+[[ "$health" == healthy ]]
+
+published_address="$(docker port "$db_container" 5432/tcp)"
+published_port="${published_address##*:}"
+[[ "$published_port" =~ ^[0-9]+$ ]]
+
+ADMIN_TEST_DATABASE_URL="postgresql://cronlite:cronlite@127.0.0.1:${published_port}/cronlite?sslmode=disable" \
+  go test -tags=integration -race ./internal/webadmin \
+    -run '^TestIntegration' -count=1 -v
+```
+
+Validate the workflow and reproduce the build/smoke checks with:
+
+```bash
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml
+
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/cronlite-linux-amd64 ./cmd/cronlite
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /tmp/cronlite-linux-arm64 ./cmd/cronlite
+CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/cronlite-darwin-amd64 ./cmd/cronlite
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/cronlite-darwin-arm64 ./cmd/cronlite
+
+export ADMIN_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+export COMPOSE_PROJECT_NAME="cronlite-admin-smoke-$UID-$$"
+cleanup_admin_smoke() {
+  docker compose -f docker-compose.admin-ci.yml down -v --remove-orphans
+  unset ADMIN_BOOTSTRAP_TOKEN COMPOSE_PROJECT_NAME
+}
+trap cleanup_admin_smoke EXIT
+
+docker build --tag cronlite:admin-ci .
+docker compose -f docker-compose.admin-ci.yml up --detach --wait --no-build
+published_address="$(docker compose -f docker-compose.admin-ci.yml port cronlite 8080)"
+ADMIN_BASE_URL="http://127.0.0.1:${published_address##*:}" \
+  ./scripts/admin_smoke_test.sh
+```
+
 ## CLI
 
 | Command | Description |
@@ -221,6 +333,8 @@ All tools are namespace-scoped via the API key used for authentication.
 - **Rate limiting**: Two-layer rate limiting — per-IP (default 10 req/sec, before auth) and per-namespace (default 100 req/sec, after auth) on all endpoints except `/health`
 - **Credential safety**: `DATABASE_URL` and `REDIS_ADDR` credentials are masked in `cronlite config` output; startup warns when `sslmode=disable`
 - **Error sanitization**: Database error details are never exposed in API responses
+
+The built-in per-IP limiter keys clients from Go's `RemoteAddr` and deliberately does not trust `X-Forwarded-For`. Behind a TLS reverse proxy, configure client-IP rate limiting at the trusted proxy or ingress; the CronLite limiter then remains defense-in-depth and normally sees the proxy address.
 
 ## Configuration
 

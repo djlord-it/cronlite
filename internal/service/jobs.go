@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"regexp"
@@ -101,14 +102,8 @@ func (s *JobService) CreateJob(ctx context.Context, input CreateJobInput) (domai
 		UpdatedAt: now,
 	}
 
-	if err := s.jobs.InsertJob(ctx, job, schedule); err != nil {
-		return domain.Job{}, domain.Schedule{}, fmt.Errorf("insert job: %w", err)
-	}
-
-	if len(input.Tags) > 0 {
-		if err := s.tags.UpsertTags(ctx, jobID, input.Tags); err != nil {
-			return domain.Job{}, domain.Schedule{}, fmt.Errorf("upsert tags: %w", err)
-		}
+	if err := s.jobs.CreateJobAggregate(ctx, job, schedule, input.Tags); err != nil {
+		return domain.Job{}, domain.Schedule{}, fmt.Errorf("create job: %w", err)
 	}
 
 	return job, schedule, nil
@@ -150,6 +145,28 @@ func (s *JobService) ListJobs(ctx context.Context, filter domain.JobFilter) ([]d
 	filter.ListParams = filter.WithDefaults()
 
 	return s.jobs.ListJobs(ctx, filter)
+}
+
+type jobScheduleListRepository interface {
+	ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error)
+}
+
+// ListJobsWithSchedules returns list rows with schedule data in one repository
+// operation, scoped to the namespace from ctx.
+func (s *JobService) ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+	ns := domain.NamespaceFromContext(ctx)
+	if ns.IsZero() {
+		return nil, domain.ErrNamespaceRequired
+	}
+
+	filter.Namespace = ns
+	filter.ListParams = filter.WithDefaults()
+
+	repo, ok := s.jobs.(jobScheduleListRepository)
+	if !ok {
+		return nil, errors.New("job repository does not support scheduled job lists")
+	}
+	return repo.ListJobsWithSchedules(ctx, filter)
 }
 
 // UpdateJob applies partial updates to an existing job.
@@ -330,9 +347,12 @@ func (s *JobService) GetNextRunTime(ctx context.Context, jobID uuid.UUID) (time.
 		return time.Time{}, nil, domain.Schedule{}, domain.ErrNamespaceRequired
 	}
 
-	_, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, jobID, ns)
+	job, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, jobID, ns)
 	if err != nil {
 		return time.Time{}, nil, domain.Schedule{}, domain.ErrJobNotFound
+	}
+	if !job.Enabled {
+		return time.Time{}, nil, schedule, domain.ErrJobDisabled
 	}
 
 	sched, err := s.parser.Parse(schedule.CronExpression, schedule.Timezone)

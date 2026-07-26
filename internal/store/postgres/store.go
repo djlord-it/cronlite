@@ -22,6 +22,8 @@ type Store struct {
 	opTimeout time.Duration
 }
 
+const adminBootstrapLockKey int64 = 728380
+
 // New creates a new PostgreSQL store with the given database connection.
 // opTimeout specifies the maximum duration for individual DB operations.
 // If opTimeout is 0, no timeout is applied (not recommended for production).
@@ -71,11 +73,16 @@ func (s *Store) GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID
 // InsertJob creates a new job with its schedule in a transaction.
 // Alias for CreateJob to satisfy the domain.JobRepository interface.
 func (s *Store) InsertJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
-	return s.CreateJob(ctx, job, schedule)
+	return s.CreateJobAggregate(ctx, job, schedule, nil)
 }
 
 // CreateJob creates a new job with its schedule in a transaction.
 func (s *Store) CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
+	return s.CreateJobAggregate(ctx, job, schedule, nil)
+}
+
+// CreateJobAggregate creates a schedule, job, and initial tags atomically.
+func (s *Store) CreateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags []domain.Tag) error {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
@@ -115,6 +122,12 @@ func (s *Store) CreateJob(ctx context.Context, job domain.Job, schedule domain.S
 	)
 	if err != nil {
 		return err
+	}
+
+	for _, tag := range tags {
+		if _, err := tx.ExecContext(ctx, queryUpsertTag, job.ID, tag.Key, tag.Value); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()
@@ -312,6 +325,75 @@ LIMIT $%d OFFSET $%d
 		return nil, err
 	}
 
+	return result, nil
+}
+
+// ListJobsWithSchedules returns filtered jobs joined to their schedules.
+func (s *Store) ListJobsWithSchedules(ctx context.Context, filter domain.JobFilter) ([]domain.JobWithSchedule, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	filter.ListParams = filter.WithDefaults()
+
+	var conditions []string
+	var args []interface{}
+	argIdx := 1
+
+	conditions = append(conditions, fmt.Sprintf("j.namespace = $%d", argIdx))
+	args = append(args, string(filter.Namespace))
+	argIdx++
+
+	if filter.Enabled != nil {
+		conditions = append(conditions, fmt.Sprintf("j.enabled = $%d", argIdx))
+		args = append(args, *filter.Enabled)
+		argIdx++
+	}
+	if filter.Name != "" {
+		conditions = append(conditions, fmt.Sprintf("j.name ILIKE $%d", argIdx))
+		args = append(args, "%"+filter.Name+"%")
+		argIdx++
+	}
+	for _, tag := range filter.Tags {
+		conditions = append(conditions, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM tags t WHERE t.job_id = j.id AND t.key = $%d AND t.value = $%d)",
+			argIdx, argIdx+1,
+		))
+		args = append(args, tag.Key, tag.Value)
+		argIdx += 2
+	}
+
+	query := fmt.Sprintf(`
+SELECT
+    j.id, j.namespace, j.name, j.enabled, j.schedule_id,
+    j.delivery_type, j.webhook_url, j.secret, j.timeout_ms,
+    j.analytics_enabled, j.analytics_retention_seconds,
+    j.created_at, j.updated_at,
+    s.id, s.cron_expression, s.timezone, s.created_at, s.updated_at
+FROM jobs j
+JOIN schedules s ON j.schedule_id = s.id
+WHERE %s
+ORDER BY j.created_at DESC
+LIMIT $%d OFFSET $%d
+`, strings.Join(conditions, " AND "), argIdx, argIdx+1)
+
+	args = append(args, filter.Limit, filter.Offset)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []domain.JobWithSchedule
+	for rows.Next() {
+		row, err := scanJobWithScheduleRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -899,6 +981,54 @@ func (s *Store) InsertAPIKey(ctx context.Context, key domain.APIKey) error {
 	return nil
 }
 
+// InsertFirstAPIKey serializes bootstrap attempts and inserts a key only when
+// the installation has no API keys.
+func (s *Store) InsertFirstAPIKey(ctx context.Context, key domain.APIKey) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", adminBootstrapLockKey); err != nil {
+		return err
+	}
+
+	var exists bool
+	if err := tx.QueryRowContext(ctx, queryHasAnyAPIKeys).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return domain.ErrBootstrapAlreadyCompleted
+	}
+
+	if _, err := tx.ExecContext(ctx, queryInsertAPIKey,
+		key.ID,
+		string(key.Namespace),
+		key.TokenHash,
+		key.Label,
+		key.Enabled,
+		key.CreatedAt,
+	); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// HasAnyAPIKeys reports whether the installation has completed key bootstrap.
+func (s *Store) HasAnyAPIKeys(ctx context.Context) (bool, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	var exists bool
+	err := s.db.QueryRowContext(ctx, queryHasAnyAPIKeys).Scan(&exists)
+	return exists, err
+}
+
 // GetKeyByTokenHash returns an enabled API key by its token hash.
 func (s *Store) GetKeyByTokenHash(ctx context.Context, tokenHash string) (domain.APIKey, error) {
 	ctx, cancel := s.withTimeout(ctx)
@@ -997,6 +1127,82 @@ func (s *Store) UpdateLastUsedAt(ctx context.Context, ids []uuid.UUID) error {
 	}
 
 	_, err := s.db.ExecContext(ctx, queryUpdateLastUsedAt, pq.Array(strs))
+	return err
+}
+
+// ── Admin Session Repository ─────────────────────────────────────────────────
+
+func (s *Store) CreateAdminSession(ctx context.Context, session domain.AdminSession) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	_, err := s.db.ExecContext(ctx, queryInsertAdminSession,
+		session.TokenHash,
+		session.APIKeyID,
+		session.CSRFToken,
+		session.CreatedAt,
+		session.LastSeenAt,
+		session.ExpiresAt,
+		session.AbsoluteExpiresAt,
+		session.CreatedAt,
+	)
+	return err
+}
+
+func (s *Store) GetAdminSession(ctx context.Context, tokenHash string, now time.Time) (domain.AdminSession, domain.APIKey, error) {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	var session domain.AdminSession
+	var key domain.APIKey
+	err := s.db.QueryRowContext(ctx, queryGetAdminSession, tokenHash, now).Scan(
+		&session.TokenHash,
+		&session.APIKeyID,
+		&session.CSRFToken,
+		&session.CreatedAt,
+		&session.LastSeenAt,
+		&session.ExpiresAt,
+		&session.AbsoluteExpiresAt,
+		&key.ID,
+		&key.Namespace,
+		&key.TokenHash,
+		&key.Label,
+		&key.Enabled,
+		&key.CreatedAt,
+		&key.LastUsedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.AdminSession{}, domain.APIKey{}, domain.ErrAdminSessionNotFound
+	}
+	if err != nil {
+		return domain.AdminSession{}, domain.APIKey{}, err
+	}
+	return session, key, nil
+}
+
+func (s *Store) RefreshAdminSession(ctx context.Context, tokenHash string, lastSeenAt, expiresAt time.Time) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	result, err := s.db.ExecContext(ctx, queryRefreshAdminSession, lastSeenAt, expiresAt, tokenHash)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return domain.ErrAdminSessionNotFound
+	}
+	return nil
+}
+
+func (s *Store) DeleteAdminSession(ctx context.Context, tokenHash string) error {
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	_, err := s.db.ExecContext(ctx, queryDeleteAdminSession, tokenHash)
 	return err
 }
 
@@ -1221,5 +1427,6 @@ var (
 	_ domain.ExecutionRepository       = (*Store)(nil)
 	_ domain.TagRepository             = (*Store)(nil)
 	_ domain.APIKeyRepository          = (*Store)(nil)
+	_ domain.AdminSessionRepository    = (*Store)(nil)
 	_ domain.DeliveryAttemptRepository = (*Store)(nil)
 )
