@@ -21,8 +21,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-bash -n scripts/admin-local.sh scripts/admin_local_test.sh
+bash -n \
+  scripts/admin-local.sh \
+  scripts/admin_local_test.sh \
+  scripts/container_contract_test.sh
 bash scripts/admin_local_test.sh --all
+bash scripts/container_contract_test.sh
 go test -race ./internal/webadmin ./cmd/cronlite
 go test ./internal/webadmin -coverprofile="$coverage_file" -covermode=atomic
 

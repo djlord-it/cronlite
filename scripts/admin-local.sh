@@ -62,15 +62,8 @@ done
   exit 1
 }
 
-table="$(
-  docker compose exec -T postgres psql -U cronlite -d cronlite -tAc \
-    "SELECT to_regclass('public.admin_sessions')" |
-    tr -d '[:space:]'
-)"
-if [[ "$table" != admin_sessions ]]; then
-  docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U cronlite -d cronlite \
-    < schema/007_admin_sessions.sql
-fi
+docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U cronlite -d cronlite \
+  < schema/007_admin_sessions.sql
 
 absolute_expiry_column="$(
   docker compose exec -T postgres psql -U cronlite -d cronlite -tAc \

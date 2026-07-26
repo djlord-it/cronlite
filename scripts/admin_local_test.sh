@@ -102,8 +102,22 @@ case "$*" in
     ;;
   "compose exec -T postgres psql -v ON_ERROR_STOP=1 -U cronlite -d cronlite")
     migration_input="$(cat)"
-    if [[ "$migration_input" == *"CREATE TABLE admin_sessions"* ]]; then
+    if [[ "$migration_input" == *"admin_sessions"* ]] &&
+      [[ "$migration_input" != *"absolute_expires_at"* ]]; then
       printf 'migration-007-input\n' >> "$FAKE_DOCKER_CALLS"
+      if [[ "$migration_input" == "BEGIN;"$'\n'* ]] &&
+        [[ "$migration_input" == *$'\n'"COMMIT;" ]]; then
+        printf 'migration-007-transaction\n' >> "$FAKE_DOCKER_CALLS"
+      fi
+      if [[ "$migration_input" == *"CREATE TABLE IF NOT EXISTS admin_sessions"* ]] &&
+        [[ "$migration_input" == *"CREATE INDEX IF NOT EXISTS idx_admin_sessions_api_key_id"* ]] &&
+        [[ "$migration_input" == *"CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires_at"* ]]; then
+        printf 'migration-007-idempotent\n' >> "$FAKE_DOCKER_CALLS"
+      fi
+      if [[ "${FAKE_MIGRATION_007_FAIL:-0}" == 1 ]]; then
+        printf 'simulated migration 007 failure\n' >&2
+        exit 1
+      fi
     elif [[ "$migration_input" == *"absolute_expires_at"* ]]; then
       printf 'migration-008-input\n' >> "$FAKE_DOCKER_CALLS"
       if [[ "$migration_input" == *"SET DEFAULT (CURRENT_TIMESTAMP + INTERVAL '12 hours')"* ]]; then
@@ -164,6 +178,7 @@ EOF
       FAKE_GO_ENV="$go_env_file" \
       FAKE_TABLE_EXISTS="${FAKE_TABLE_EXISTS:-0}" \
       FAKE_ABSOLUTE_COLUMN_EXISTS="${FAKE_ABSOLUTE_COLUMN_EXISTS:-0}" \
+      FAKE_MIGRATION_007_FAIL="${FAKE_MIGRATION_007_FAIL:-0}" \
       FAKE_COMPOSE_UNAVAILABLE="${FAKE_COMPOSE_UNAVAILABLE:-0}" \
       FAKE_HEALTH_STATUS="${FAKE_HEALTH_STATUS:-healthy}" \
       ADMIN_LOCAL_HEALTH_ATTEMPTS="${ADMIN_LOCAL_HEALTH_ATTEMPTS:-30}" \
@@ -193,6 +208,8 @@ test_happy_path() {
     "inspect --format={{.State.Health.Status}} container-id"
   assert_contains "$calls" "compose exec -T postgres psql"
   assert_contains "$calls" "migration-007-input"
+  assert_contains "$calls" "migration-007-transaction"
+  assert_contains "$calls" "migration-007-idempotent"
   assert_contains "$calls" \
     "SELECT column_name FROM information_schema.columns"
   assert_contains "$calls" "migration-008-input"
@@ -213,16 +230,31 @@ test_happy_path() {
   printf 'PASS: admin local launcher happy path\n'
 }
 
-test_table_exists() {
+test_existing_table_is_repaired() {
   FAKE_TABLE_EXISTS=1 \
     FAKE_ABSOLUTE_COLUMN_EXISTS=1 \
-    run_launcher table-exists
+    run_launcher existing-table-repaired
 
   assert_equals "$exit_status" 0
-  assert_not_contains "$calls" "migration-007-input"
+  assert_contains "$calls" "migration-007-input"
+  assert_contains "$calls" "migration-007-transaction"
+  assert_contains "$calls" "migration-007-idempotent"
   assert_not_contains "$calls" "migration-008-input"
 
-  printf 'PASS: existing migration is skipped\n'
+  printf 'PASS: existing table is checked and missing indexes can be repaired\n'
+}
+
+test_migration_failure_stops_launch() {
+  FAKE_MIGRATION_007_FAIL=1 \
+    run_launcher migration-007-failure
+
+  [[ "$exit_status" -ne 0 ]] ||
+    fail "failed migration 007 should stop the launcher"
+  assert_contains "$calls" "migration-007-input"
+  assert_contains "$calls" "migration-007-transaction"
+  assert_not_contains "$go_env" "args=run ./cmd/cronlite serve"
+
+  printf 'PASS: transactional migration failure stops launch and is safe to retry\n'
 }
 
 test_compose_unavailable() {
@@ -259,8 +291,11 @@ run_case() {
     happy)
       test_happy_path
       ;;
-    table-exists)
-      test_table_exists
+    existing-table-repaired)
+      test_existing_table_is_repaired
+      ;;
+    migration-007-failure)
+      test_migration_failure_stops_launch
       ;;
     compose-unavailable)
       test_compose_unavailable
@@ -277,7 +312,8 @@ run_case() {
 case "${1:---case}" in
   --all)
     run_case happy
-    run_case table-exists
+    run_case existing-table-repaired
+    run_case migration-007-failure
     run_case compose-unavailable
     run_case unhealthy
     ;;
