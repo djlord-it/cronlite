@@ -25,6 +25,7 @@ type mockJobRepo struct {
 	updateJobFn          func(ctx context.Context, job domain.Job) error
 	deleteJobFn          func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
 	getEnabledJobsFn     func(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
+	createdTags          []domain.Tag
 }
 
 func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -32,6 +33,11 @@ func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule do
 		return m.insertJobFn(ctx, job, schedule)
 	}
 	return nil
+}
+
+func (m *mockJobRepo) CreateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags []domain.Tag) error {
+	m.createdTags = append([]domain.Tag(nil), tags...)
+	return m.InsertJob(ctx, job, schedule)
 }
 
 func (m *mockJobRepo) GetJob(ctx context.Context, id uuid.UUID) (domain.Job, error) {
@@ -1254,7 +1260,8 @@ func TestExecutionToMap(t *testing.T) {
 // ── handleCreateJob — optional params ────────────────────────────────────────
 
 func TestHandleCreateJob_AllOptionalParams(t *testing.T) {
-	svc := newTestService(nil, nil, nil, nil)
+	jobRepo := &mockJobRepo{}
+	svc := newTestService(jobRepo, nil, nil, nil)
 	handler := handleCreateJob(svc)
 
 	req := mcpgo.CallToolRequest{
@@ -1289,6 +1296,10 @@ func TestHandleCreateJob_AllOptionalParams(t *testing.T) {
 	}
 	if !strings.Contains(text, "prod") {
 		t.Errorf("expected tag value in result, got: %s", text)
+	}
+	if len(jobRepo.createdTags) != 1 ||
+		jobRepo.createdTags[0] != (domain.Tag{Key: "env", Value: "prod"}) {
+		t.Fatalf("aggregate tags = %#v, want env=prod", jobRepo.createdTags)
 	}
 }
 

@@ -40,6 +40,7 @@ type fakeAdminService struct {
 	updatedInput    service.UpdateJobInput
 	actionID        uuid.UUID
 	nextRuns        []time.Time
+	nextRunErr      error
 	err             error
 }
 
@@ -86,7 +87,7 @@ func (f *fakeAdminService) GetNextRunTime(context.Context, uuid.UUID) (time.Time
 	if len(f.nextRuns) > 0 {
 		next = f.nextRuns[0]
 	}
-	return next, f.nextRuns, f.schedule, f.err
+	return next, f.nextRuns, f.schedule, f.nextRunErr
 }
 func (f *fakeAdminService) ListExecutions(_ context.Context, filter domain.ExecutionFilter) ([]domain.Execution, error) {
 	f.executionFilter = filter
@@ -368,6 +369,37 @@ func TestCreateAndDetailPagesRender(t *testing.T) {
 	}
 }
 
+func TestPausedJobDetailRendersWithoutUpcomingRuns(t *testing.T) {
+	sessions := &fakeAdminSessionStore{}
+	jobID := uuid.New()
+	svc := &fakeAdminService{
+		hasKeys: true,
+		job: domain.Job{
+			ID: jobID, Namespace: "team", Name: "paused-job", Enabled: false,
+		},
+		schedule:   domain.Schedule{CronExpression: "0 9 * * *", Timezone: "UTC"},
+		nextRuns:   []time.Time{time.Date(2026, 7, 27, 9, 0, 0, 0, time.UTC)},
+		nextRunErr: domain.ErrJobDisabled,
+	}
+	handler := newTestHandler(t, svc, sessions, nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(
+		rec,
+		authenticatedRequest(http.MethodGet, "/admin/jobs/"+jobID.String(), nil, sessions),
+	)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "No upcoming runs while paused.") {
+		t.Fatalf("paused state missing: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "2026-07-27 09:00:00 UTC") {
+		t.Fatalf("paused page rendered a future run: %s", rec.Body.String())
+	}
+}
+
 func TestServiceErrorsMapToSafeStatuses(t *testing.T) {
 	internalErr := errors.New("database failed with do-not-expose")
 	tests := []struct {
@@ -492,6 +524,8 @@ func TestPaginationPreservesFilters(t *testing.T) {
 	for _, want := range []string{
 		"/admin/jobs/" + jobID.String() + "?page=1&status=failed&trigger_type=manual",
 		"/admin/jobs/" + jobID.String() + "?page=3&status=failed&trigger_type=manual",
+		`<option value="failed" selected>Failed</option>`,
+		`<option value="manual" selected>Manual</option>`,
 	} {
 		if !strings.Contains(detailBody, want) {
 			t.Fatalf("detail pagination missing %q: %s", want, detailBody)

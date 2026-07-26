@@ -39,8 +39,8 @@
   <section>
     <div class="section-heading"><h2>Executions</h2></div>
     <form class="filters" method="get" action="/admin/jobs/{{.Job.ID}}">
-      <div><label for="status">Status</label><select id="status" name="status"><option value="">All</option><option value="delivered">Delivered</option><option value="failed">Failed</option><option value="in_progress">In progress</option><option value="emitted">Queued</option></select></div>
-      <div><label for="trigger_type">Trigger</label><select id="trigger_type" name="trigger_type"><option value="">All</option><option value="scheduled">Scheduled</option><option value="manual">Manual</option></select></div>
+      <div><label for="status">Status</label><select id="status" name="status"><option value=""{{if eq .ExecutionStatusFilter ""}} selected{{end}}>All</option><option value="delivered"{{if eq .ExecutionStatusFilter "delivered"}} selected{{end}}>Delivered</option><option value="failed"{{if eq .ExecutionStatusFilter "failed"}} selected{{end}}>Failed</option><option value="in_progress"{{if eq .ExecutionStatusFilter "in_progress"}} selected{{end}}>In progress</option><option value="emitted"{{if eq .ExecutionStatusFilter "emitted"}} selected{{end}}>Queued</option></select></div>
+      <div><label for="trigger_type">Trigger</label><select id="trigger_type" name="trigger_type"><option value=""{{if eq .TriggerTypeFilter ""}} selected{{end}}>All</option><option value="scheduled"{{if eq .TriggerTypeFilter "scheduled"}} selected{{end}}>Scheduled</option><option value="manual"{{if eq .TriggerTypeFilter "manual"}} selected{{end}}>Manual</option></select></div>
       <button type="submit">Filter</button>
     </form>
     <div class="table-wrap">

@@ -82,27 +82,29 @@ type Handler struct {
 }
 
 type pageData struct {
-	Title              string
-	Namespace          string
-	CSRFToken          string
-	Notice             string
-	Error              string
-	APIKey             string
-	Jobs               []domain.JobWithSchedule
-	Job                domain.Job
-	Schedule           domain.Schedule
-	Tags               []domain.Tag
-	Executions         []domain.Execution
-	Execution          domain.Execution
-	Attempts           []domain.DeliveryAttempt
-	NextRuns           []time.Time
-	Form               jobFormValues
-	Edit               bool
-	EnabledFilter      string
-	Page               int
-	PreviousURL        string
-	NextURL            string
-	SetupAuthenticated bool
+	Title                 string
+	Namespace             string
+	CSRFToken             string
+	Notice                string
+	Error                 string
+	APIKey                string
+	Jobs                  []domain.JobWithSchedule
+	Job                   domain.Job
+	Schedule              domain.Schedule
+	Tags                  []domain.Tag
+	Executions            []domain.Execution
+	Execution             domain.Execution
+	Attempts              []domain.DeliveryAttempt
+	NextRuns              []time.Time
+	Form                  jobFormValues
+	Edit                  bool
+	EnabledFilter         string
+	ExecutionStatusFilter string
+	TriggerTypeFilter     string
+	Page                  int
+	PreviousURL           string
+	NextURL               string
+	SetupAuthenticated    bool
 }
 
 func NewHandler(cfg Config) (http.Handler, error) {

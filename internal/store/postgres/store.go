@@ -73,11 +73,16 @@ func (s *Store) GetEnabledJobs(ctx context.Context, limit int, afterID uuid.UUID
 // InsertJob creates a new job with its schedule in a transaction.
 // Alias for CreateJob to satisfy the domain.JobRepository interface.
 func (s *Store) InsertJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
-	return s.CreateJob(ctx, job, schedule)
+	return s.CreateJobAggregate(ctx, job, schedule, nil)
 }
 
 // CreateJob creates a new job with its schedule in a transaction.
 func (s *Store) CreateJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
+	return s.CreateJobAggregate(ctx, job, schedule, nil)
+}
+
+// CreateJobAggregate creates a schedule, job, and initial tags atomically.
+func (s *Store) CreateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags []domain.Tag) error {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
@@ -117,6 +122,12 @@ func (s *Store) CreateJob(ctx context.Context, job domain.Job, schedule domain.S
 	)
 	if err != nil {
 		return err
+	}
+
+	for _, tag := range tags {
+		if _, err := tx.ExecContext(ctx, queryUpsertTag, job.ID, tag.Key, tag.Value); err != nil {
+			return err
+		}
 	}
 
 	return tx.Commit()

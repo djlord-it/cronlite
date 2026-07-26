@@ -25,6 +25,7 @@ type mockJobRepo struct {
 	updateJobFn             func(ctx context.Context, job domain.Job) error
 	deleteJobFn             func(ctx context.Context, id uuid.UUID, ns domain.Namespace) error
 	getEnabledJobsFn        func(ctx context.Context, limit int, afterID uuid.UUID) ([]domain.JobWithSchedule, error)
+	createdTags             []domain.Tag
 }
 
 func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule domain.Schedule) error {
@@ -33,6 +34,11 @@ func (m *mockJobRepo) InsertJob(ctx context.Context, job domain.Job, schedule do
 	}
 	return nil
 }
+func (m *mockJobRepo) CreateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags []domain.Tag) error {
+	m.createdTags = append([]domain.Tag(nil), tags...)
+	return m.InsertJob(ctx, job, schedule)
+}
+
 func (m *mockJobRepo) GetJob(ctx context.Context, id uuid.UUID) (domain.Job, error) {
 	if m.getJobFn != nil {
 		return m.getJobFn(ctx, id)
@@ -474,8 +480,10 @@ func TestGetHealth_VerboseNoChecker(t *testing.T) {
 // ── CreateJob Tests ──────────────────────────────────────────────────────────
 
 func TestCreateJob_HappyPath(t *testing.T) {
-	srv := newTestServer(nil, nil, nil, nil, nil, nil)
+	jobRepo := &mockJobRepo{}
+	srv := newTestServer(jobRepo, nil, nil, nil, nil, nil)
 	ctx := ctxWithNS("t1")
+	tags := Tag{"env": "prod"}
 
 	resp, err := srv.CreateJob(ctx, CreateJobRequestObject{
 		Body: &CreateJobRequest{
@@ -483,6 +491,7 @@ func TestCreateJob_HappyPath(t *testing.T) {
 			CronExpression: "*/5 * * * *",
 			Timezone:       "UTC",
 			WebhookUrl:     "https://example.com/hook",
+			Tags:           &tags,
 		},
 	})
 	if err != nil {
@@ -504,6 +513,10 @@ func TestCreateJob_HappyPath(t *testing.T) {
 	}
 	if !got.Enabled {
 		t.Fatal("expected Enabled to be true")
+	}
+	if len(jobRepo.createdTags) != 1 ||
+		jobRepo.createdTags[0] != (domain.Tag{Key: "env", Value: "prod"}) {
+		t.Fatalf("aggregate tags = %#v, want env=prod", jobRepo.createdTags)
 	}
 }
 

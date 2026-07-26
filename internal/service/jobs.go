@@ -102,14 +102,8 @@ func (s *JobService) CreateJob(ctx context.Context, input CreateJobInput) (domai
 		UpdatedAt: now,
 	}
 
-	if err := s.jobs.InsertJob(ctx, job, schedule); err != nil {
-		return domain.Job{}, domain.Schedule{}, fmt.Errorf("insert job: %w", err)
-	}
-
-	if len(input.Tags) > 0 {
-		if err := s.tags.UpsertTags(ctx, jobID, input.Tags); err != nil {
-			return domain.Job{}, domain.Schedule{}, fmt.Errorf("upsert tags: %w", err)
-		}
+	if err := s.jobs.CreateJobAggregate(ctx, job, schedule, input.Tags); err != nil {
+		return domain.Job{}, domain.Schedule{}, fmt.Errorf("create job: %w", err)
 	}
 
 	return job, schedule, nil
@@ -353,9 +347,12 @@ func (s *JobService) GetNextRunTime(ctx context.Context, jobID uuid.UUID) (time.
 		return time.Time{}, nil, domain.Schedule{}, domain.ErrNamespaceRequired
 	}
 
-	_, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, jobID, ns)
+	job, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, jobID, ns)
 	if err != nil {
 		return time.Time{}, nil, domain.Schedule{}, domain.ErrJobNotFound
+	}
+	if !job.Enabled {
+		return time.Time{}, nil, schedule, domain.ErrJobDisabled
 	}
 
 	sched, err := s.parser.Parse(schedule.CronExpression, schedule.Timezone)

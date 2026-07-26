@@ -118,13 +118,18 @@ func (h *Handler) jobPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, nextRuns, _, nextErr := h.service.GetNextRunTime(r.Context(), id)
-	if nextErr != nil && !errors.Is(nextErr, domain.ErrJobDisabled) {
-		h.internalError(w, r, nextErr)
-		return
+	if nextErr != nil {
+		if !errors.Is(nextErr, domain.ErrJobDisabled) {
+			h.internalError(w, r, nextErr)
+			return
+		}
+		nextRuns = nil
 	}
 	data := h.authPage(auth, job.Name)
 	data.Job, data.Schedule, data.Tags = job, schedule, tags
 	data.Notice, data.NextRuns = noticeText(r.URL.Query().Get("notice")), nextRuns
+	data.ExecutionStatusFilter = r.URL.Query().Get("status")
+	data.TriggerTypeFilter = r.URL.Query().Get("trigger_type")
 	if len(executions) > 25 {
 		executions = executions[:25]
 		data.NextURL = withPage(r, page+1)
