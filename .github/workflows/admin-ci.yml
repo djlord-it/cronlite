@@ -105,7 +105,7 @@ jobs:
           skipped=/tmp/admin-integration-skipped.txt
           marker_bearing=/tmp/admin-integration-markers.txt
           go test -json -tags=integration -race ./internal/webadmin \
-            -run '^TestIntegration' -count=1 -v 2>&1 |
+            -run '^TestIntegration' -count=1 -v |
             tee /tmp/admin-integration.json
           jq -r '
             select(

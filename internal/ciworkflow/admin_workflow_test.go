@@ -151,6 +151,35 @@ func TestAdminCIScriptRunsEveryFuzzHarness(t *testing.T) {
 	}
 }
 
+func TestAdminPostgresJSONStreamExcludesStderr(t *testing.T) {
+	var workflow adminWorkflow
+	if err := yaml.UnmarshalStrict(readAdminWorkflow(t), &workflow); err != nil {
+		t.Fatalf("parse admin workflow: %v", err)
+	}
+
+	step := findStep(workflow.Jobs["admin-postgres-integration"], "Run PostgreSQL integration suite")
+	if strings.Contains(step.Run, "2>&1") {
+		t.Fatal("PostgreSQL integration suite merges stderr into the go test JSON stream")
+	}
+}
+
+func TestMainCIPinsOpenAPIGenerator(t *testing.T) {
+	path := filepath.Join("..", "..", ".github", "workflows", "ci.yml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read main CI workflow: %v", err)
+	}
+
+	workflow := string(data)
+	const generator = "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen"
+	if strings.Contains(workflow, generator+"@latest") {
+		t.Fatal("main CI installs a floating OpenAPI generator version")
+	}
+	if !strings.Contains(workflow, generator+"@v2.7.0") {
+		t.Fatal("main CI does not pin the OpenAPI generator version used by committed generated code")
+	}
+}
+
 func TestDocumentedManualMigrationsFailClosed(t *testing.T) {
 	for _, name := range []string{"README.md", "OPERATORS.md"} {
 		t.Run(name, func(t *testing.T) {
