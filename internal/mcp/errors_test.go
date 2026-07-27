@@ -57,7 +57,7 @@ func TestToolError(t *testing.T) {
 		{
 			name:        "ErrJobDisabled",
 			err:         domain.ErrJobDisabled,
-			wantSubstr:  "Job is disabled",
+			wantSubstr:  "then retry the operation",
 			wantIsError: true,
 		},
 		{

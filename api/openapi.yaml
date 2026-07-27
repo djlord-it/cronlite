@@ -540,6 +540,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "409":
+          description: Job is disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /jobs/{id}/executions:
     get:

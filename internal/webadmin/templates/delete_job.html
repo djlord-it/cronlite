@@ -1,0 +1,18 @@
+{{define "delete_job"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main class="container narrow">
+  <a class="back" href="/admin/jobs/{{.Job.ID}}">← Back</a>
+  <section class="card danger-card">
+    <h1>Delete {{.Job.Name}}?</h1>
+    <p>This permanently removes the job, its executions and delivery attempts. This action cannot be undone.</p>
+    <p><code>{{.Schedule.CronExpression}}</code> · {{.Schedule.Timezone}}</p>
+    <form method="post" action="/admin/jobs/{{.Job.ID}}/delete">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <button class="danger" type="submit">Delete job</button>
+      <a href="/admin/jobs/{{.Job.ID}}">Cancel</a>
+    </form>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

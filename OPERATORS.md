@@ -107,6 +107,11 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 | `MAX_FIRES_PER_TICK` | `1000` | Max executions a single job can emit per scheduler tick |
 | `RATE_LIMIT` | `10` | Per-IP request rate limit (requests/sec) |
 | `NAMESPACE_RATE_LIMIT` | `100` | Per-namespace request rate limit (requests/sec, after auth) |
+| `ADMIN_ENABLED` | `false` | Enable the server-rendered admin UI at `/admin` |
+| `ADMIN_BOOTSTRAP_TOKEN` | *(empty)* | Secret required by `/admin/setup` when no API key exists; never printed by `cronlite config` |
+| `ADMIN_SESSION_TTL` | `30m` | Idle timeout for PostgreSQL-backed admin sessions; activity refreshes it after half the timeout |
+| `ADMIN_SESSION_ABSOLUTE_TTL` | `12h` | Maximum session lifetime; requires sign-in again even if the session remains active |
+| `ADMIN_COOKIE_SECURE` | production-aware | Secure cookie flag; defaults to `true` in production and `false` otherwise |
 
 ### Required in Production
 
@@ -158,7 +163,10 @@ DB mode requires all migrations to be applied. See [Migrations](#migrations).
 Schema migrations live in `schema/` and are numbered sequentially. Apply them in order:
 
 ```bash
-for f in schema/0*.sql; do psql cronlite < "$f"; done
+set -euo pipefail
+for f in schema/0*.sql; do
+  psql -v ON_ERROR_STOP=1 cronlite < "$f"
+done
 ```
 
 Current migrations:
@@ -171,8 +179,30 @@ Current migrations:
 | `004_agent_platform.sql` | API keys, namespaces, tags, execution acknowledgment |
 | `005_drop_scopes.sql` | Removes unused `scopes` column from api_keys |
 | `006_add_claimed_at_index.sql` | Partial index for reconciler crash recovery queries |
+| `007_admin_sessions.sql` | Revocable browser sessions for the optional admin UI |
+| `008_admin_session_absolute_expiry.sql` | Absolute lifetime cap for admin sessions |
 
-Current releases require all migrations through 006. Skipping migrations may cause auth failures, missing columns, or degraded reconciler performance.
+Current releases require all migrations through 008 when the admin UI is enabled. Skipping migrations may cause auth failures, missing columns, or degraded reconciler performance.
+
+## Admin UI Operations
+
+The admin UI is disabled unless `ADMIN_ENABLED=true`. It is embedded in the existing `cronlite` binary and serves English HTML/CSS at `/admin`.
+
+For a fresh database:
+
+1. Apply migrations through `008_admin_session_absolute_expiry.sql`.
+2. Set a long random `ADMIN_BOOTSTRAP_TOKEN`.
+3. Start CronLite and open `/admin/setup`.
+4. Enter the installation token, namespace, and first key label.
+5. Save the API key shown once, then remove `ADMIN_BOOTSTRAP_TOKEN` from the runtime environment.
+
+The bootstrap token is an installation secret. Keep it out of application logs, support bundles, and CI artifacts. The bootstrap transaction takes a PostgreSQL advisory lock and refuses creation while any API key exists, so a retained token is dormant during normal operation. If operators delete every API key, setup becomes available again and the configured token regains authority. Remove `ADMIN_BOOTSTRAP_TOKEN` immediately after activation. Before any intentional bootstrap reuse, generate and configure a new token, restart CronLite, complete setup, and remove it again.
+
+Regular sign-in hashes the supplied API key, creates an opaque session tied to that key, and deletes the session token already presented by that browser. Sessions are stored in PostgreSQL and remain valid across CronLite restarts. The 30-minute idle expiry refreshes on activity once half the idle window remains, capped by the 12-hour absolute expiry. Either expiry requires sign-in again. Disabling a key makes its sessions unusable immediately; deleting it cascades to its session rows.
+
+Session and public-CSRF cookies are host-only, `HttpOnly`, `SameSite=Strict`, and scoped to `/admin`. `ADMIN_COOKIE_SECURE=false` supports local HTTP only. In production, terminate TLS before CronLite, use HTTPS externally, leave `ADMIN_COOKIE_SECURE=true`, and verify the resulting one-year HSTS header is appropriate for the host.
+
+All state-changing requests require CSRF tokens and pass through Go's `CrossOriginProtection`; login and setup also use the normal per-IP rate limit. The admin UI sends a restrictive CSP and `no-store` on HTML/authentication responses. Logout deletes the server-side session, expires its cookie, and clears browser cache data.
 
 ## Auth Model
 
@@ -193,6 +223,8 @@ CronLite uses namespace-scoped API keys with SHA-256 hashed storage.
 **Exempt paths:** `/health`, `/metrics`, `/mcp` (MCP has its own auth via `HTTPContextFunc`)
 
 **Rate limiting:** Two-layer token bucket — per-IP (10 req/sec default, applied before auth) and per-namespace (100 req/sec default, applied after auth) on all endpoints except `/health`. Returns `429 Too Many Requests` when exceeded. Configure via `RATE_LIMIT` and `NAMESPACE_RATE_LIMIT`.
+
+CronLite keys its per-IP limiter from Go's `RemoteAddr` and does not trust `X-Forwarded-For`. When serving through a TLS reverse proxy, enforce client-IP rate limits at the trusted proxy or ingress; treat CronLite's limiter, which normally sees the proxy address, as defense-in-depth.
 
 **`last_used_at` tracking:** Debounced in-memory with background flush every 60 seconds to minimize DB writes under high traffic.
 
@@ -277,11 +309,15 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 
 **Credential masking:** `cronlite config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
 
+**Admin secret handling:** `cronlite config` omits `ADMIN_BOOTSTRAP_TOKEN`, and admin startup logs report only idle/absolute session TTLs and the Secure-cookie setting. Do not put bootstrap tokens or one-time API keys in logs, build output, diagnostics, or retained artifacts.
+
 **SSL mode warning:** Startup emits a warning when `DATABASE_URL` uses `sslmode=disable`. Production deployments should use `sslmode=require` or stricter.
 
 **Error sanitization:** Database error details (constraint names, query fragments) are never leaked in API responses. Internal errors return generic `500 Internal Server Error`.
 
 **API key storage:** Tokens are SHA-256 hashed before storage. The plaintext token is returned exactly once at creation time and never persisted.
+
+**Admin transport:** Production admin traffic must use HTTPS with `ADMIN_COOKIE_SECURE=true`. In that mode CronLite adds `Strict-Transport-Security: max-age=31536000`; local HTTP intentionally uses insecure cookies and does not emit HSTS.
 
 ## MCP Transport
 
@@ -506,6 +542,58 @@ leader: released advisory lock 728379              # Lost leadership
 | Executions per minute | < 50 | 50–100 | > 100 |
 | Buffer utilization | < 50% | 50–80% | > 80% |
 | Webhook p99 latency | < 5s | 5–15s | > 15s |
+
+## Admin CI Gates
+
+The blocking [admin workflow](.github/workflows/admin-ci.yml) has four independent jobs:
+
+| Job | Gate |
+|-----|------|
+| `admin-unit-security` | Workflow contract, launcher contract, race-enabled admin/CLI tests, fuzz smoke tests, and admin coverage of at least 80% |
+| `admin-postgres-integration` | Every tagged top-level integration test must run, pass under the race detector, and emit its `ADMIN_INTEGRATION_OK` marker against a fresh dedicated database migrated through 008 |
+| `admin-assets-launcher` | Shell syntax/contracts, template/asset/security-header tests, and Actionlint |
+| `admin-smoke` | Linux/Darwin amd64/arm64 CGO-disabled builds and the isolated Docker admin lifecycle |
+
+Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–008 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
+
+```bash
+set -euo pipefail
+
+integration_project="cronlite-admin-integration-${UID}-$$"
+export ADMIN_BOOTSTRAP_TOKEN="$(openssl rand -hex 32)"
+cleanup_admin_integration() {
+  docker compose --project-name "$integration_project" \
+    --file docker-compose.admin-ci.yml down -v --remove-orphans
+  unset ADMIN_BOOTSTRAP_TOKEN
+}
+trap cleanup_admin_integration EXIT
+
+db_container="$(
+  docker compose --project-name "$integration_project" \
+    --file docker-compose.admin-ci.yml run --detach --no-deps \
+    --publish 127.0.0.1::5432 postgres
+)"
+for attempt in {1..30}; do
+  health="$(docker inspect --format '{{.State.Health.Status}}' "$db_container")"
+  [[ "$health" == healthy ]] && break
+  if [[ "$health" == unhealthy ]]; then
+    docker logs "$db_container"
+    exit 1
+  fi
+  sleep 1
+done
+[[ "$health" == healthy ]]
+
+published_address="$(docker port "$db_container" 5432/tcp)"
+published_port="${published_address##*:}"
+[[ "$published_port" =~ ^[0-9]+$ ]]
+
+ADMIN_TEST_DATABASE_URL="postgresql://cronlite:cronlite@127.0.0.1:${published_port}/cronlite?sslmode=disable" \
+  go test -tags=integration -race ./internal/webadmin \
+    -run '^TestIntegration' -count=1 -v
+```
+
+When their diagnostic collection steps run, integration and smoke failures upload sanitized diagnostics retained for seven days. Failures before a job reaches diagnostic collection may not produce an artifact. Redaction is defense in depth: bootstrap tokens, plaintext API keys, database URLs, and database passwords must never be written intentionally to logs or artifacts. The coverage profile is retained for seven days only when profile generation was reached; early contract, setup, or test failures may leave no coverage file to upload.
 
 ## Deployment
 

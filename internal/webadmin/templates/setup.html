@@ -1,0 +1,45 @@
+{{define "setup"}}
+{{template "head" .}}
+<main class="auth-shell">
+  <section class="card auth-card">
+    <p class="eyebrow">First-time setup</p>
+    <h1>Set up CronLite</h1>
+    <p class="muted">This is one-time installation setup, not signup. It creates the first namespace-scoped API key and then closes permanently.</p>
+    {{template "messages" .}}
+    <form method="post" action="/admin/setup">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label for="bootstrap_token">Installation token <span class="field-info" aria-hidden="true">(i)</span></label>
+      <input id="bootstrap_token" name="bootstrap_token" type="password" autocomplete="off" aria-describedby="bootstrap_token_help" required>
+      <p class="field-help" id="bootstrap_token_help">Paste the <code>ADMIN_BOOTSTRAP_TOKEN</code> configured on the server.</p>
+      <label for="namespace">Namespace <span class="field-info" aria-hidden="true">(i)</span></label>
+      <input id="namespace" name="namespace" type="text" maxlength="128" aria-describedby="namespace_help" required>
+      <p class="field-help" id="namespace_help">Choose the isolated workspace name, for example <code>team-prod</code>.</p>
+      <label for="label">Key label <span class="field-info" aria-hidden="true">(i)</span></label>
+      <input id="label" name="label" type="text" maxlength="128" value="owner" aria-describedby="label_help" required>
+      <p class="field-help" id="label_help">Give this key a recognizable name, for example <code>owner</code>.</p>
+      <button type="submit">Create first key</button>
+    </form>
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "setup_complete"}}
+{{template "head" .}}
+<main class="auth-shell">
+  <section class="card auth-card">
+    <p class="eyebrow">Setup complete</p>
+    <h1>Save your API key</h1>
+    <p>This key is shown once. Store it in a password manager before continuing.</p>
+    {{template "messages" .}}
+    <pre class="secret">{{.APIKey}}</pre>
+    <p><strong>Namespace:</strong> {{.Namespace}}</p>
+    {{if .SetupAuthenticated}}
+    <a class="button" href="/admin/jobs">Continue to jobs</a>
+    {{else}}
+    <a class="button" href="/admin/login">Sign in</a>
+    {{end}}
+  </section>
+</main>
+{{template "foot" .}}
+{{end}}

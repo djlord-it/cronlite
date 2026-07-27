@@ -11,6 +11,7 @@ import (
 
 type JobRepository interface {
 	InsertJob(ctx context.Context, job Job, schedule Schedule) error
+	CreateJobAggregate(ctx context.Context, job Job, schedule Schedule, tags []Tag) error
 	GetJob(ctx context.Context, id uuid.UUID) (Job, error)
 	// GetJobWithSchedule retrieves a job by ID without namespace filtering.
 	// Used by system components (scheduler, reconciler) that operate cross-namespace.

@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
     environment:
       POSTGRES_DB: cronlite
       POSTGRES_USER: cronlite
@@ -13,8 +13,10 @@ services:
       - ./schema/004_agent_platform.sql:/docker-entrypoint-initdb.d/004_agent_platform.sql
       - ./schema/005_drop_scopes.sql:/docker-entrypoint-initdb.d/005_drop_scopes.sql
       - ./schema/006_add_claimed_at_index.sql:/docker-entrypoint-initdb.d/006_add_claimed_at_index.sql
+      - ./schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql
+      - ./schema/008_admin_session_absolute_expiry.sql:/docker-entrypoint-initdb.d/008_admin_session_absolute_expiry.sql
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cronlite"]
       interval: 2s

@@ -2,9 +2,12 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/djlord-it/cronlite/internal/domain"
 )
@@ -217,6 +220,52 @@ func TestRateLimitMiddleware_PerIPIsolation(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 for different IP, got %d", w.Code)
+	}
+}
+
+func TestIPRateLimiterEvictsStaleClients(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	limiter := newIPRateLimiterWithClock(2, func() time.Time { return now })
+	if !limiter.allow("stale-1") || !limiter.allow("stale-2") {
+		t.Fatal("initial clients were rejected")
+	}
+
+	now = now.Add(ipRateLimiterClientTTL + ipRateLimiterCleanupInterval)
+
+	if !limiter.allow("fresh") {
+		t.Fatal("fresh client was rejected after stale clients should have been evicted")
+	}
+	if _, exists := limiter.clients["stale-1"]; exists {
+		t.Fatal("stale client was not evicted")
+	}
+	if _, exists := limiter.clients["stale-2"]; exists {
+		t.Fatal("stale client was not evicted")
+	}
+	if _, exists := limiter.clients["fresh"]; !exists {
+		t.Fatal("fresh client was not recorded")
+	}
+}
+
+func TestIPRateLimiterEnforcesHardClientCap(t *testing.T) {
+	limiter := newIPRateLimiter(1)
+	const (
+		workers          = 100
+		clientsPerWorker = 110
+	)
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for client := 0; client < clientsPerWorker; client++ {
+				limiter.allow(fmt.Sprintf("client-%d-%d", worker, client))
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := len(limiter.clients); got != ipRateLimiterMaxClients {
+		t.Fatalf("tracked clients = %d, want exactly %d", got, ipRateLimiterMaxClients)
 	}
 }
 

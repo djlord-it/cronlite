@@ -33,6 +33,7 @@ import (
 	"github.com/djlord-it/cronlite/internal/service"
 	"github.com/djlord-it/cronlite/internal/store/postgres"
 	"github.com/djlord-it/cronlite/internal/transport/channel"
+	"github.com/djlord-it/cronlite/internal/webadmin"
 
 	_ "github.com/lib/pq"
 )
@@ -67,6 +68,10 @@ const (
 	exitSuccess       = 0
 	exitRuntimeError  = 1
 	exitInvalidConfig = 2
+
+	httpReadHeaderTimeout = 5 * time.Second
+	httpReadTimeout       = 30 * time.Second
+	httpIdleTimeout       = 60 * time.Second
 )
 
 func main() {
@@ -145,6 +150,12 @@ Environment Variables:
   METRICS_PATH              Metrics endpoint path (default: "/metrics")
   METRICS_PUBLIC            Allow unauthenticated metrics access (default: "false")
 
+  ADMIN_ENABLED             Enable server-rendered admin UI at /admin (default: "false")
+  ADMIN_BOOTSTRAP_TOKEN     Secret required by /admin/setup when no API key exists
+  ADMIN_SESSION_TTL         Idle admin session timeout (default: "30m")
+  ADMIN_SESSION_ABSOLUTE_TTL Maximum admin session lifetime (default: "12h")
+  ADMIN_COOKIE_SECURE       Force Secure admin cookies (default: true in production)
+
   RECONCILE_ENABLED         Enable orphan execution reconciler (default: "false")
   RECONCILE_INTERVAL        How often to scan for orphans (default: "5m")
   RECONCILE_THRESHOLD       Age before emitted execution is orphaned (default: "15m")
@@ -183,6 +194,42 @@ func newMetricsHandler(
 		return metricsHandler
 	}
 	return api.MultiKeyAuthMiddleware(appCtx, keyRepo, fallbackKey, metricsHandler)
+}
+
+func registerAdminRoutes(mux *http.ServeMux, cfg config.Config, handler http.Handler) {
+	if !cfg.AdminEnabled {
+		return
+	}
+	rateLimited := api.RateLimitMiddleware(cfg.IPRateLimit, handler)
+	protected := webadmin.SecurityHeaders(rateLimited, cfg.AdminCookieSecure)
+	mux.Handle("/admin", protected)
+	mux.Handle("/admin/", protected)
+}
+
+func newWebAdminConfig(
+	cfg config.Config,
+	jobService *service.JobService,
+	store *postgres.Store,
+) webadmin.Config {
+	return webadmin.Config{
+		Service:            jobService,
+		Sessions:           store,
+		Keys:               store,
+		BootstrapToken:     cfg.AdminBootstrapToken,
+		SessionTTL:         cfg.AdminSessionTTL,
+		SessionAbsoluteTTL: cfg.AdminSessionAbsoluteTTL,
+		CookieSecure:       cfg.AdminCookieSecure,
+		Logger:             log.Default(),
+	}
+}
+
+func logAdminStartup(cfg config.Config) {
+	log.Printf(
+		"cronlite: admin UI mounted at /admin (idle_session_ttl=%s, absolute_session_ttl=%s, secure_cookie=%t)",
+		cfg.AdminSessionTTL,
+		cfg.AdminSessionAbsoluteTTL,
+		cfg.AdminCookieSecure,
+	)
 }
 
 func (lr *leaderRuntime) start(leaderCtx context.Context) {
@@ -260,6 +307,13 @@ func (lr *leaderRuntime) stop() {
 }
 
 func runServe() int {
+	for _, arg := range os.Args[2:] {
+		if arg == "--help" || arg == "-h" {
+			printUsage()
+			return exitSuccess
+		}
+	}
+
 	cfg := config.Load()
 
 	if err := config.Validate(cfg); err != nil {
@@ -414,14 +468,20 @@ func runServe() int {
 	if cfg.MetricsEnabled {
 		httpMux.Handle(cfg.MetricsPath, newMetricsHandler(appCtx, store, cfg.APIKey, cfg.MetricsPublic))
 	}
+	if cfg.AdminEnabled {
+		adminHandler, err := webadmin.NewHandler(newWebAdminConfig(cfg, jobService, store))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to initialize admin UI: %v\n", err)
+			return exitRuntimeError
+		}
+		registerAdminRoutes(httpMux, cfg, adminHandler)
+		logAdminStartup(cfg)
+	}
 	httpMux.Handle("/mcp", mcpHandler)
 	httpMux.Handle("/", rootHandler)
 
 	// HTTP server runs on all instances regardless of dispatch mode.
-	httpServer := &http.Server{
-		Addr:    cfg.HTTPAddr,
-		Handler: httpMux,
-	}
+	httpServer := newHTTPServer(cfg.HTTPAddr, httpMux)
 
 	go func() {
 		log.Printf("cronlite: http server listening on %s", cfg.HTTPAddr)
@@ -572,6 +632,18 @@ func runServe() int {
 
 	log.Println("cronlite: stopped")
 	return exitSuccess
+}
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: httpReadHeaderTimeout,
+		// ReadTimeout bounds header and request-body reads; SSE streams responses.
+		ReadTimeout: httpReadTimeout,
+		IdleTimeout: httpIdleTimeout,
+		// WriteTimeout intentionally remains zero because MCP uses long-lived SSE.
+	}
 }
 
 func runValidate() int {
