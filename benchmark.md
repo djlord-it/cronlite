@@ -2,7 +2,7 @@
 
 ## Scheduled webhooks you can trust
 
-CronLite delivers reliably through normal traffic, retries, slow receivers, service restarts, leader changes, and database interruptions. This benchmark measures the full API-trigger-to-signed-webhook lifecycle—not just synthetic requests per second.
+CronLite delivers reliably through normal traffic, retries, slow receivers, service restarts, leader changes, and database interruptions. This benchmark measures the full API-trigger-to-webhook lifecycle, including HMAC signature verification—not just synthetic requests per second.
 
 | Result | Measured baseline |
 | --- | --- |
@@ -13,11 +13,11 @@ CronLite delivers reliably through normal traffic, retries, slow receivers, serv
 | PostgreSQL recovery | 2.2 s |
 | Maximum retry timing error | Within 37 ms |
 | Concurrent duplicate findings | 0 |
-| Signature-verification failures | 0 |
+| Signed canary signature failures | 0 |
 
 ## Reliable delivery, end to end
 
-The 707-callback suite covered cold and warm starts, sequential and concurrent workloads, control-plane operations, and slow receivers. Every webhook HMAC was verified, with no concurrent duplicate findings and no signature-verification failures.
+The 707-callback suite covered cold and warm starts, sequential and concurrent workloads, control-plane operations, and slow receivers. The separate 20-execution signed canary verified every webhook HMAC. Across the measured suite, no signature-verification failure or concurrent duplicate finding was observed.
 
 ## Built to recover
 
@@ -39,5 +39,3 @@ CronLite exercised 500, 503, 429, timeout, connection failure, non-retryable 400
 ## Test environment
 
 Measured on macOS arm64 with 8 logical CPUs, 8 GiB memory, Docker 29.4.0, PostgreSQL 16.13, and three CronLite instances with two database dispatch workers each. These results are a measured, reproducible local regression baseline and may vary by environment.
-
-Ready to run CronLite? See the [Quick Start](README.md#quick-start) or the [benchmark harness](tools/benchmark/README.md).
