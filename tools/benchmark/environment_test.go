@@ -41,7 +41,7 @@ func TestComposeUsesProductionRequeueThresholdUnlessFailureRunOverridesIt(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	const setting = `RECONCILE_REQUEUE_THRESHOLD: "${BENCHMARK_REQUEUE_THRESHOLD:-2m}"`
+	const setting = `RECONCILE_REQUEUE_THRESHOLD: "${BENCHMARK_REQUEUE_THRESHOLD:-19m}"`
 	if !strings.Contains(string(compose), setting) {
 		t.Fatalf("benchmark compose is missing configurable safe default %s", setting)
 	}

@@ -200,12 +200,12 @@ func TestValidate_ReconcileThresholdBelowMaxRetry(t *testing.T) {
 func TestValidate_ReconcileThresholdSafe(t *testing.T) {
 	cfg := validDBConfig()
 	cfg.ReconcileEnabled = true
-	cfg.ReconcileThreshold = 15 * time.Minute
-	cfg.ReconcileThresholdStr = "15m"
+	cfg.ReconcileThreshold = 19 * time.Minute
+	cfg.ReconcileThresholdStr = "19m"
 	cfg.ReconcileInterval = 5 * time.Minute
 	cfg.ReconcileIntervalStr = "5m"
-	cfg.ReconcileRequeueThreshold = 2 * time.Minute
-	cfg.ReconcileRequeueThresholdStr = "2m"
+	cfg.ReconcileRequeueThreshold = 19 * time.Minute
+	cfg.ReconcileRequeueThresholdStr = "19m"
 
 	if err := Validate(cfg); err != nil {
 		t.Errorf("valid reconciler config should not error: %v", err)
@@ -260,10 +260,10 @@ func TestValidate_ProductionValidConfig(t *testing.T) {
 	cfg.ReconcileEnabled = true
 	cfg.ReconcileInterval = 5 * time.Minute
 	cfg.ReconcileIntervalStr = "5m"
-	cfg.ReconcileThreshold = 15 * time.Minute
-	cfg.ReconcileThresholdStr = "15m"
-	cfg.ReconcileRequeueThreshold = 2 * time.Minute
-	cfg.ReconcileRequeueThresholdStr = "2m"
+	cfg.ReconcileThreshold = 19 * time.Minute
+	cfg.ReconcileThresholdStr = "19m"
+	cfg.ReconcileRequeueThreshold = 19 * time.Minute
+	cfg.ReconcileRequeueThresholdStr = "19m"
 	cfg.MetricsEnabled = true
 	cfg.APIKey = "prod-key"
 
@@ -278,10 +278,10 @@ func TestValidate_ProductionAdminRequiresSecureCookies(t *testing.T) {
 	cfg.ReconcileEnabled = true
 	cfg.ReconcileInterval = 5 * time.Minute
 	cfg.ReconcileIntervalStr = "5m"
-	cfg.ReconcileThreshold = 15 * time.Minute
-	cfg.ReconcileThresholdStr = "15m"
-	cfg.ReconcileRequeueThreshold = 2 * time.Minute
-	cfg.ReconcileRequeueThresholdStr = "2m"
+	cfg.ReconcileThreshold = 19 * time.Minute
+	cfg.ReconcileThresholdStr = "19m"
+	cfg.ReconcileRequeueThreshold = 19 * time.Minute
+	cfg.ReconcileRequeueThresholdStr = "19m"
 	cfg.MetricsEnabled = true
 	cfg.APIKey = "prod-key"
 	cfg.AdminEnabled = true

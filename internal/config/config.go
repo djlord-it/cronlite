@@ -283,10 +283,10 @@ func Load() Config {
 		cfg.ReconcileIntervalStr = "5m"
 	}
 	if cfg.ReconcileThresholdStr == "" {
-		cfg.ReconcileThresholdStr = "15m"
+		cfg.ReconcileThresholdStr = "19m"
 	}
 	if cfg.ReconcileRequeueThresholdStr == "" {
-		cfg.ReconcileRequeueThresholdStr = "2m"
+		cfg.ReconcileRequeueThresholdStr = "19m"
 	}
 	if cfg.CircuitBreakerCooldownStr == "" {
 		cfg.CircuitBreakerCooldownStr = "2m"
