@@ -80,10 +80,11 @@ func TestProductionRetryCasesRunConcurrently(t *testing.T) {
 	api := &concurrentRetryScenarioAPI{}
 	env := &scenarioEnvironment{
 		Config: Config{
-			RetryProfile:  "real-policy",
-			Timeout:       time.Second,
-			PollInterval:  time.Millisecond,
-			WebhookSecret: "secret",
+			RetryProfile:      "real-policy",
+			Timeout:           time.Second,
+			PollInterval:      time.Millisecond,
+			WebhookSecret:     "secret",
+			ReceiverPublicURL: "http://host.docker.internal:19090",
 		},
 		RunID:    "run-1",
 		API:      api,
@@ -96,6 +97,16 @@ func TestProductionRetryCasesRunConcurrently(t *testing.T) {
 	}
 	if api.maximum.Load() < 2 {
 		t.Fatalf("retry cases ran sequentially; max concurrent polls = %d", api.maximum.Load())
+	}
+}
+
+func TestConnectionFailureTargetUsesApprovedReceiverHostAndClosedPort(t *testing.T) {
+	target, err := connectionFailureTarget("http://host.docker.internal:19090")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "http://host.docker.internal:1/hook" {
+		t.Fatalf("connection failure target = %q", target)
 	}
 }
 
