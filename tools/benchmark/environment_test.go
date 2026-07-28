@@ -81,6 +81,33 @@ func TestComposeControllerTargetsFileAndProjectWithoutShell(t *testing.T) {
 	}
 }
 
+func TestComposeControllerCapturesPostgresVersion(t *testing.T) {
+	runner := &recordingCommandRunner{
+		output: []byte("postgres (PostgreSQL) 16.10\n"),
+	}
+	controller := &composeController{
+		File:        "tools/benchmark/docker-compose.yml",
+		Project:     benchmarkComposePrefix + "run-1",
+		OwnedPrefix: benchmarkComposePrefix,
+		Runner:      runner,
+	}
+
+	version := controller.postgresVersion(context.Background())
+
+	if version != "postgres (PostgreSQL) 16.10" {
+		t.Fatalf("postgres version = %q", version)
+	}
+	want := []string{
+		"compose",
+		"--file", "tools/benchmark/docker-compose.yml",
+		"--project-name", benchmarkComposePrefix + "run-1",
+		"exec", "--no-TTY", "postgres", "postgres", "--version",
+	}
+	if !reflect.DeepEqual(runner.args, want) {
+		t.Fatalf("args: want=%v got=%v", want, runner.args)
+	}
+}
+
 func TestComposeControllerRejectsUnknownService(t *testing.T) {
 	controller := &composeController{
 		File:        "tools/benchmark/docker-compose.yml",
@@ -94,13 +121,14 @@ func TestComposeControllerRejectsUnknownService(t *testing.T) {
 }
 
 type recordingCommandRunner struct {
-	name string
-	args []string
-	err  error
+	name   string
+	args   []string
+	output []byte
+	err    error
 }
 
 func (r *recordingCommandRunner) run(_ context.Context, name string, args ...string) ([]byte, error) {
 	r.name = name
 	r.args = append([]string(nil), args...)
-	return nil, r.err
+	return r.output, r.err
 }
