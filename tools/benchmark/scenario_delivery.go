@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const productionRetryCaseTimeout = 18 * time.Minute
+
 func runSmoke(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 	return runSequential(ctx, env, "smoke", 0, env.Config.SampleCount, BehaviorPlan{
 		Statuses: []int{http.StatusNoContent},
@@ -271,15 +273,16 @@ func runRetry(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 	var observations []Observation
 	var errs []error
 	for index, retryCase := range cases {
+		caseCtx, cancel := productionRetryCaseContext(ctx)
 		var job APIJob
 		var target string
 		var observation Observation
 		var err error
 		if retryCase.targetOverride != "" {
 			target = retryCase.targetOverride
-			job, observation, err = env.createJobWithTarget(ctx, retryCase.name, target)
+			job, observation, err = env.createJobWithTarget(caseCtx, retryCase.name, target)
 		} else {
-			job, target, observation, err = env.createJob(ctx, retryCase.name, BehaviorPlan{
+			job, target, observation, err = env.createJob(caseCtx, retryCase.name, BehaviorPlan{
 				Statuses: retryCase.statuses,
 				Delay:    retryCase.delay,
 			})
@@ -287,10 +290,11 @@ func runRetry(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 		observations = append(observations, observation)
 		if err != nil {
 			errs = append(errs, err)
+			cancel()
 			continue
 		}
 		record, err := runSingleManual(
-			ctx,
+			caseCtx,
 			env,
 			retryCase.name,
 			job.ID,
@@ -298,10 +302,15 @@ func runRetry(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 			index+1,
 			false,
 		)
+		cancel()
 		records = append(records, record)
 		errs = appendIfError(errs, err)
 	}
 	return finalizeScenario("retry", started, records, observations, errs)
+}
+
+func productionRetryCaseContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, productionRetryCaseTimeout)
 }
 
 func runRecurring(ctx context.Context, env *scenarioEnvironment) ScenarioResult {

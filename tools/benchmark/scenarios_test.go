@@ -60,6 +60,19 @@ func TestFastRetryProfileIsExplicitlySkipped(t *testing.T) {
 	}
 }
 
+func TestProductionRetryCaseAllowsFullBackoffSchedule(t *testing.T) {
+	ctx, cancel := productionRetryCaseContext(context.Background())
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("production retry case has no deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining < 17*time.Minute || remaining > 19*time.Minute {
+		t.Fatalf("production retry case timeout = %s", remaining)
+	}
+}
+
 func TestRunSelectedScenariosPreservesFailureAndContinues(t *testing.T) {
 	original := scenarioRegistryOverride
 	scenarioRegistryOverride = map[string]scenarioFunc{
