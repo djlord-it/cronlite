@@ -108,6 +108,27 @@ func TestComposeControllerCapturesPostgresVersion(t *testing.T) {
 	}
 }
 
+func TestCaptureEnvironmentRecognizesAttachedComposeStack(t *testing.T) {
+	controller := &composeController{
+		File:        "tools/benchmark/docker-compose.yml",
+		Project:     benchmarkComposePrefix + "run-1",
+		OwnedPrefix: benchmarkComposePrefix,
+		Runner: &recordingCommandRunner{
+			output: []byte("postgres (PostgreSQL) 16.10\n"),
+		},
+	}
+
+	info := captureEnvironment(context.Background(), Config{
+		DispatchMode:     "db",
+		RetryProfile:     "real-policy",
+		RequeueThreshold: 19,
+	}, controller)
+
+	if info.CronLiteInstances != 3 {
+		t.Fatalf("CronLite instances = %d, want 3", info.CronLiteInstances)
+	}
+}
+
 func TestComposeControllerRejectsUnknownService(t *testing.T) {
 	controller := &composeController{
 		File:        "tools/benchmark/docker-compose.yml",
