@@ -53,6 +53,7 @@ type Config struct {
 	Concurrency       []int
 	Timeout           time.Duration
 	PollInterval      time.Duration
+	RequeueThreshold  time.Duration
 	DatabaseURL       string
 	Diagnostic        bool
 	MetricsURL        string
@@ -80,6 +81,7 @@ type RedactedConfig struct {
 	Concurrency             []int         `json:"concurrency"`
 	Timeout                 time.Duration `json:"timeout_ns"`
 	PollInterval            time.Duration `json:"poll_interval_ns"`
+	RequeueThreshold        time.Duration `json:"requeue_threshold_ns"`
 	DatabaseTarget          string        `json:"database_target,omitempty"`
 	Diagnostic              bool          `json:"diagnostic"`
 	MetricsURL              string        `json:"metrics_url,omitempty"`
@@ -106,6 +108,7 @@ func defaultConfig() Config {
 		Concurrency:       []int{1, 5, 10, 25, 50},
 		Timeout:           45 * time.Second,
 		PollInterval:      100 * time.Millisecond,
+		RequeueThreshold:  2 * time.Minute,
 		MetricsURL:        "http://127.0.0.1:8080/metrics",
 		OutputDir:         "./benchmark-output",
 		RandomSeed:        1,
@@ -135,6 +138,9 @@ func (c Config) Validate() error {
 	}
 	if c.PollInterval <= 0 {
 		return fmt.Errorf("poll interval must be positive")
+	}
+	if c.RequeueThreshold <= 0 {
+		return fmt.Errorf("requeue threshold must be positive")
 	}
 	if len(c.Scenarios) == 0 {
 		return fmt.Errorf("at least one scenario is required")
@@ -172,6 +178,7 @@ func (c Config) Redacted() RedactedConfig {
 		Concurrency:             slices.Clone(c.Concurrency),
 		Timeout:                 c.Timeout,
 		PollInterval:            c.PollInterval,
+		RequeueThreshold:        c.RequeueThreshold,
 		DatabaseTarget:          redactDatabaseTarget(c.DatabaseURL),
 		Diagnostic:              c.Diagnostic,
 		MetricsURL:              c.MetricsURL,

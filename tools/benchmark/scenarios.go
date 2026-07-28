@@ -33,14 +33,16 @@ type metricsReader interface {
 }
 
 type scenarioEnvironment struct {
-	Config      Config
-	RunID       string
-	API         scenarioAPI
-	Receiver    *callbackStore
-	Diagnostic  diagnosticReader
-	Metrics     metricsReader
-	createdMu   sync.Mutex
-	createdJobs []string
+	Config       Config
+	RunID        string
+	API          scenarioAPI
+	Receiver     *callbackStore
+	Diagnostic   diagnosticReader
+	Metrics      metricsReader
+	Capabilities Capabilities
+	Controller   *composeController
+	createdMu    sync.Mutex
+	createdJobs  []string
 }
 
 type scenarioFunc func(context.Context, *scenarioEnvironment) ScenarioResult
@@ -258,20 +260,4 @@ func skippedScenario(name, reason string) ScenarioResult {
 		StartedAt:  now,
 		FinishedAt: now,
 	}
-}
-
-func runDuplicateRace(context.Context, *scenarioEnvironment) ScenarioResult {
-	return skippedScenario("duplicate-race", "resilience controller is unavailable")
-}
-
-func runCrashRecovery(context.Context, *scenarioEnvironment) ScenarioResult {
-	return skippedScenario("crash-recovery", "resilience controller is unavailable")
-}
-
-func runLeaderFailover(context.Context, *scenarioEnvironment) ScenarioResult {
-	return skippedScenario("leader-failover", "resilience controller is unavailable")
-}
-
-func runDatabaseOutage(context.Context, *scenarioEnvironment) ScenarioResult {
-	return skippedScenario("database-outage", "resilience controller is unavailable")
 }
