@@ -246,6 +246,12 @@ type terminalFailedScenarioAPI struct {
 	failingScenarioAPI
 }
 
+type deadlineCapturingScenarioAPI struct {
+	failingScenarioAPI
+	deadline    time.Time
+	hasDeadline bool
+}
+
 func (terminalFailedScenarioAPI) trigger(
 	context.Context,
 	string,
@@ -312,6 +318,27 @@ func (f pollFailingScenarioAPI) trigger(
 func (f failingScenarioAPI) health(context.Context, bool) (Observation, error) {
 	return Observation{}, f.err
 }
+
+func (f *deadlineCapturingScenarioAPI) health(ctx context.Context, _ bool) (Observation, error) {
+	f.deadline, f.hasDeadline = ctx.Deadline()
+	return Observation{}, context.DeadlineExceeded
+}
+
+func TestDatabaseOutageHealthProbeUsesShortDeadline(t *testing.T) {
+	api := &deadlineCapturingScenarioAPI{}
+	started := time.Now()
+
+	_, _ = probeDegradedHealth(context.Background(), api)
+
+	if !api.hasDeadline {
+		t.Fatal("database outage health probe has no deadline")
+	}
+	timeout := api.deadline.Sub(started)
+	if timeout < time.Second || timeout > 3*time.Second {
+		t.Fatalf("database outage health probe timeout = %s, want about 2s", timeout)
+	}
+}
+
 func (f failingScenarioAPI) createJob(context.Context, CreateJobInput) (APIJob, Observation, error) {
 	return APIJob{}, Observation{}, f.err
 }
