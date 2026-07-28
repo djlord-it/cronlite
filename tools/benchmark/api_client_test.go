@@ -88,6 +88,42 @@ func TestPollTerminalPreservesObservationBounds(t *testing.T) {
 	}
 }
 
+func TestPollTerminalRetriesAndRecordsTransientConnectionFailure(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if requests.Add(1) == 1 {
+			hijacker, ok := w.(http.Hijacker)
+			if !ok {
+				t.Fatal("test server does not support hijacking")
+			}
+			connection, _, err := hijacker.Hijack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = connection.Close()
+			return
+		}
+		_, _ = fmt.Fprint(w, executionJSON("delivered"))
+	}))
+	t.Cleanup(server.Close)
+
+	client := newAPIClient(server.URL, "key", time.Second)
+	got, err := client.pollTerminal(
+		context.Background(),
+		"11111111-1111-1111-1111-111111111111",
+		time.Millisecond,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PollCount != 1 || got.TransientErrorCount != 1 {
+		t.Fatalf("poll result = %+v", got)
+	}
+	if got.LastTransientError == "" {
+		t.Fatalf("transient error was not preserved: %+v", got)
+	}
+}
+
 func TestAPIClientCreateAndDeleteJob(t *testing.T) {
 	var deleted atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
