@@ -184,6 +184,12 @@ func runConcurrent(ctx context.Context, env *scenarioEnvironment) ScenarioResult
 	return finalizeScenario("concurrent", started, allRecords, observations, errs)
 }
 
+func runLoad(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
+	result := runConcurrent(ctx, env)
+	result.Name = "load"
+	return result
+}
+
 func runControlPlane(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 	started := time.Now()
 	job, _, createObservation, err := env.createJob(ctx, "control-plane", BehaviorPlan{})

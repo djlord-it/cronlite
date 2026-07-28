@@ -67,7 +67,7 @@ func scenarioRegistry() map[string]scenarioFunc {
 		"crash-recovery":  runCrashRecovery,
 		"leader-failover": runLeaderFailover,
 		"database-outage": runDatabaseOutage,
-		"load":            runConcurrent,
+		"load":            runLoad,
 	}
 }
 
