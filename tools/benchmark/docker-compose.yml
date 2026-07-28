@@ -38,6 +38,10 @@ services:
       DATABASE_URL: postgres://cronlite:cronlite@postgres:5432/cronlite?sslmode=disable
       API_KEY: benchmark-local-key
       HTTP_ADDR: ":8080"
+      # Keep the benchmark client from measuring middleware throttling instead
+      # of scheduler and dispatcher capacity.
+      RATE_LIMIT: "100000"
+      NAMESPACE_RATE_LIMIT: "100000"
       DISPATCH_MODE: db
       DISPATCHER_WORKERS: "2"
       DB_POLL_INTERVAL: 100ms

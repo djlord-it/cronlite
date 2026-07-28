@@ -79,6 +79,37 @@ func TestRunSingleManualPreservesTriggerFailure(t *testing.T) {
 	}
 }
 
+func TestRunSingleManualDoesNotReportMissingCallbackWhenPollingFails(t *testing.T) {
+	pollErr := errors.New("poll failed")
+	env := &scenarioEnvironment{
+		Config: Config{
+			PollInterval: time.Millisecond,
+		},
+		RunID: "run-1",
+		API: pollFailingScenarioAPI{
+			failingScenarioAPI: failingScenarioAPI{err: pollErr},
+		},
+		Receiver: newCallbackStore(),
+	}
+	record, err := runSingleManual(
+		context.Background(),
+		env,
+		"smoke",
+		"job-1",
+		"target",
+		1,
+		false,
+	)
+	if !errors.Is(err, pollErr) {
+		t.Fatalf("expected poll error, got %v", err)
+	}
+	for _, finding := range record.Findings {
+		if finding.Code == "missing_callback" {
+			t.Fatalf("unexpected missing-callback finding after poll failure: %+v", finding)
+		}
+	}
+}
+
 func TestReceiverClientBaseURLUsesLoopbackForWildcardListener(t *testing.T) {
 	for input, want := range map[string]string{
 		"127.0.0.1:9090": "http://127.0.0.1:9090",
@@ -105,6 +136,17 @@ func TestComposeControllerListsAllDispatcherServices(t *testing.T) {
 
 type failingScenarioAPI struct {
 	err error
+}
+
+type pollFailingScenarioAPI struct {
+	failingScenarioAPI
+}
+
+func (f pollFailingScenarioAPI) trigger(
+	context.Context,
+	string,
+) (APIExecution, Observation, error) {
+	return APIExecution{ID: "execution-1"}, Observation{}, nil
 }
 
 func (f failingScenarioAPI) health(context.Context, bool) (Observation, error) {

@@ -240,6 +240,8 @@ func captureEnvironment(
 	}
 	if cfg.StartCompose {
 		info.CronLiteInstances = 3
+		info.RelevantConfig["ip_rate_limit"] = "100000 req/s"
+		info.RelevantConfig["namespace_rate_limit"] = "100000 req/s"
 	}
 	runner := osCommandRunner{}
 	if output, err := runner.run(ctx, "git", "rev-parse", "HEAD"); err == nil {
