@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestScenarioRegistryContainsRequiredScenarios(t *testing.T) {
@@ -70,6 +73,29 @@ func TestProductionRetryCaseAllowsFullBackoffSchedule(t *testing.T) {
 	remaining := time.Until(deadline)
 	if remaining < 17*time.Minute || remaining > 19*time.Minute {
 		t.Fatalf("production retry case timeout = %s", remaining)
+	}
+}
+
+func TestProductionRetryCasesRunConcurrently(t *testing.T) {
+	api := &concurrentRetryScenarioAPI{}
+	env := &scenarioEnvironment{
+		Config: Config{
+			RetryProfile:  "real-policy",
+			Timeout:       time.Second,
+			PollInterval:  time.Millisecond,
+			WebhookSecret: "secret",
+		},
+		RunID:    "run-1",
+		API:      api,
+		Receiver: newCallbackStore(),
+	}
+
+	result := runRetry(context.Background(), env)
+	if len(result.Executions) != 7 {
+		t.Fatalf("retry executions = %d, want 7", len(result.Executions))
+	}
+	if api.maximum.Load() < 2 {
+		t.Fatalf("retry cases ran sequentially; max concurrent polls = %d", api.maximum.Load())
 	}
 }
 
@@ -169,6 +195,48 @@ type failingScenarioAPI struct {
 
 type pollFailingScenarioAPI struct {
 	failingScenarioAPI
+}
+
+type concurrentRetryScenarioAPI struct {
+	failingScenarioAPI
+	current atomic.Int32
+	maximum atomic.Int32
+}
+
+func (f *concurrentRetryScenarioAPI) createJob(
+	context.Context,
+	CreateJobInput,
+) (APIJob, Observation, error) {
+	return APIJob{ID: uuid.NewString()}, Observation{}, nil
+}
+
+func (f *concurrentRetryScenarioAPI) trigger(
+	context.Context,
+	string,
+) (APIExecution, Observation, error) {
+	return APIExecution{ID: uuid.NewString()}, Observation{}, nil
+}
+
+func (f *concurrentRetryScenarioAPI) pollTerminal(
+	context.Context,
+	string,
+	time.Duration,
+) (PollBounds, error) {
+	current := f.current.Add(1)
+	for {
+		maximum := f.maximum.Load()
+		if current <= maximum || f.maximum.CompareAndSwap(maximum, current) {
+			break
+		}
+	}
+	time.Sleep(25 * time.Millisecond)
+	f.current.Add(-1)
+	now := time.Now().UTC()
+	return PollBounds{
+		PollCount:       1,
+		FirstTerminalAt: &now,
+		FinalExecution:  APIExecution{Status: "delivered"},
+	}, nil
 }
 
 func (f pollFailingScenarioAPI) trigger(
