@@ -156,15 +156,19 @@ type EnvironmentInfo struct {
 }
 
 type RunResult struct {
-	SchemaVersion string           `json:"schema_version"`
-	RunID         string           `json:"run_id"`
-	RandomSeed    int64            `json:"random_seed"`
-	Command       string           `json:"command"`
-	StartedAt     time.Time        `json:"started_at"`
-	FinishedAt    time.Time        `json:"finished_at"`
-	Environment   EnvironmentInfo  `json:"environment"`
-	Config        RedactedConfig   `json:"config"`
-	Scenarios     []ScenarioResult `json:"scenarios"`
-	Findings      []Finding        `json:"findings"`
-	Limitations   []string         `json:"limitations"`
+	SchemaVersion string              `json:"schema_version"`
+	RunID         string              `json:"run_id"`
+	RandomSeed    int64               `json:"random_seed"`
+	Command       string              `json:"command"`
+	StartedAt     time.Time           `json:"started_at"`
+	FinishedAt    time.Time           `json:"finished_at"`
+	Environment   EnvironmentInfo     `json:"environment"`
+	Config        RedactedConfig      `json:"config"`
+	Scenarios     []ScenarioResult    `json:"scenarios"`
+	MetricsBefore metricSnapshot      `json:"metrics_before,omitempty"`
+	MetricsAfter  metricSnapshot      `json:"metrics_after,omitempty"`
+	MetricsDelta  metricSnapshot      `json:"metrics_delta,omitempty"`
+	Resources     []DatabaseResources `json:"resources,omitempty"`
+	Findings      []Finding           `json:"findings"`
+	Limitations   []string            `json:"limitations"`
 }
