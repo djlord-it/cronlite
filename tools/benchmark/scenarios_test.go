@@ -176,6 +176,34 @@ func TestRunSingleManualDoesNotReportMissingCallbackWhenPollingFails(t *testing.
 	}
 }
 
+func TestRunSingleManualAllowsFailedConnectionWithoutCallback(t *testing.T) {
+	env := &scenarioEnvironment{
+		Config: Config{
+			PollInterval: time.Millisecond,
+		},
+		RunID:    "run-1",
+		API:      terminalFailedScenarioAPI{},
+		Receiver: newCallbackStore(),
+	}
+	record, err := runSingleManual(
+		context.Background(),
+		env,
+		"connection-failure",
+		"job-1",
+		"http://host.docker.internal:1/hook",
+		1,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, finding := range record.Findings {
+		if finding.Code == "missing_callback" {
+			t.Fatalf("failed connection produced false missing-callback finding: %+v", finding)
+		}
+	}
+}
+
 func TestReceiverClientBaseURLUsesLoopbackForWildcardListener(t *testing.T) {
 	for input, want := range map[string]string{
 		"127.0.0.1:9090": "http://127.0.0.1:9090",
@@ -212,6 +240,30 @@ type concurrentRetryScenarioAPI struct {
 	failingScenarioAPI
 	current atomic.Int32
 	maximum atomic.Int32
+}
+
+type terminalFailedScenarioAPI struct {
+	failingScenarioAPI
+}
+
+func (terminalFailedScenarioAPI) trigger(
+	context.Context,
+	string,
+) (APIExecution, Observation, error) {
+	return APIExecution{ID: "execution-1"}, Observation{}, nil
+}
+
+func (terminalFailedScenarioAPI) pollTerminal(
+	context.Context,
+	string,
+	time.Duration,
+) (PollBounds, error) {
+	now := time.Now().UTC()
+	return PollBounds{
+		PollCount:       1,
+		FirstTerminalAt: &now,
+		FinalExecution:  APIExecution{Status: "failed"},
+	}, nil
 }
 
 func (f *concurrentRetryScenarioAPI) createJob(
