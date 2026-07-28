@@ -128,12 +128,12 @@ and database size where permissions allow.
 | `concurrent` | Configured concurrency levels and queue/tail behavior | minutes | bounded by flags |
 | `control-plane` | Get/list/update/pause/resume/delete latency | seconds | none |
 | `slow-receiver` | 100 ms, 500 ms, 2 s, and near-timeout responses | minutes | none |
-| `retry` | 500/503/429/400, timeout, connection failure, eventual success | over 12 minutes | real production policy |
+| `retry` | 500/503/429/400, timeout, connection failure, eventual success | about 15 minutes | real production policy |
 | `recurring` | Multiple real minute-resolution cron ticks | multiple minutes | none |
 | `duplicate-race` | Stale requeue versus active delivery | minutes | `--allow-disruptive` |
 | `crash-recovery` | Stop/restart a dispatcher during delivery | minutes | `--allow-disruptive` |
 | `leader-failover` | Stop the leader and observe takeover | minutes | `--allow-disruptive` |
-| `database-outage` | Pause/unpause harness-owned PostgreSQL | minutes | `--allow-disruptive` |
+| `database-outage` | Pause/unpause harness-owned PostgreSQL | seconds | `--allow-disruptive` |
 | `load` | Explicit high-load concurrent run | workload-dependent | `--allow-disruptive` |
 
 Select more than one scenario with a comma:
@@ -149,6 +149,92 @@ go run ./tools/benchmark \
 `--scenario all` expands to every scenario and therefore requires
 `--allow-disruptive`. It includes real recurring ticks and production retry
 backoff, so it is intentionally long-running.
+
+## Full local suite profiles
+
+Use separate profiles for steady-state, saturation, real retry timing, and
+fault injection. Keeping them separate prevents a destructive case from
+contaminating the latency baseline and makes failures easier to reproduce.
+The commands are standalone profiles; stop the prior managed stack or use
+`--cleanup-environment --allow-disruptive` before starting another one because
+managed stacks use fixed local ports.
+
+Steady-state and edge-case coverage:
+
+```bash
+go run ./tools/benchmark \
+  --start-compose \
+  --diagnostic \
+  --scenario baseline,smoke,cold-warm,warm-sequential,concurrent,control-plane,slow-receiver \
+  --sample-count 100 \
+  --concurrency 1,5,10,25,50,100 \
+  --timeout 120s \
+  --fail-on-correctness \
+  --output ./benchmark-output/steady
+```
+
+Real minute-resolution scheduler ticks:
+
+```bash
+go run ./tools/benchmark \
+  --start-compose \
+  --diagnostic \
+  --scenario recurring \
+  --sample-count 3 \
+  --timeout 4m \
+  --fail-on-correctness \
+  --output ./benchmark-output/recurring
+```
+
+The complete production retry policy takes roughly 15 minutes because attempts
+use the unchanged 30-second, 2-minute, and 10-minute backoffs:
+
+```bash
+go run ./tools/benchmark \
+  --start-compose \
+  --diagnostic \
+  --scenario retry \
+  --retry-profile real-policy \
+  --timeout 120s \
+  --fail-on-correctness \
+  --output ./benchmark-output/retry
+```
+
+Saturation profile, producing 1,000 executions at each configured concurrency:
+
+```bash
+go run ./tools/benchmark \
+  --start-compose \
+  --diagnostic \
+  --scenario load \
+  --sample-count 1000 \
+  --concurrency 100,250,500,1000 \
+  --timeout 5m \
+  --allow-disruptive \
+  --fail-on-correctness \
+  --output ./benchmark-output/saturation
+```
+
+Crash, failover, duplicate-race, and database-outage profile:
+
+```bash
+BENCHMARK_REQUEUE_THRESHOLD=5s \
+go run ./tools/benchmark \
+  --start-compose \
+  --diagnostic \
+  --scenario duplicate-race,crash-recovery,leader-failover,database-outage \
+  --sample-count 1 \
+  --timeout 120s \
+  --requeue-threshold 5s \
+  --allow-disruptive \
+  --fail-on-correctness \
+  --output ./benchmark-output/resilience
+```
+
+The five-second requeue threshold is deliberately unsafe and is accepted only
+by the managed `CRONLITE_ENV=benchmark` stack. CronLite emits a P0 warning when
+it is active. Normal environments reject a requeue threshold shorter than the
+complete dispatcher retry window.
 
 ### Retry profiles
 
