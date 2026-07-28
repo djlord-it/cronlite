@@ -44,31 +44,32 @@ var disruptiveScenarios = []string{
 }
 
 type Config struct {
-	BaseURL           string
-	APIKey            string
-	ReceiverAddr      string
-	ReceiverPublicURL string
-	Scenarios         []string
-	SampleCount       int
-	Concurrency       []int
-	Timeout           time.Duration
-	PollInterval      time.Duration
-	RequeueThreshold  time.Duration
-	DatabaseURL       string
-	Diagnostic        bool
-	MetricsURL        string
-	OutputDir         string
-	RandomSeed        int64
-	WebhookSecret     string
-	RetryProfile      string
-	AllowDisruptive   bool
-	AllowNonLocal     bool
-	FailOnCorrectness bool
-	KeepData          bool
-	StartCompose      bool
-	ComposeFile       string
-	ComposeProject    string
-	DispatchMode      string
+	BaseURL            string
+	APIKey             string
+	ReceiverAddr       string
+	ReceiverPublicURL  string
+	Scenarios          []string
+	SampleCount        int
+	Concurrency        []int
+	Timeout            time.Duration
+	PollInterval       time.Duration
+	RequeueThreshold   time.Duration
+	DatabaseURL        string
+	Diagnostic         bool
+	MetricsURL         string
+	OutputDir          string
+	RandomSeed         int64
+	WebhookSecret      string
+	RetryProfile       string
+	AllowDisruptive    bool
+	AllowNonLocal      bool
+	FailOnCorrectness  bool
+	KeepData           bool
+	StartCompose       bool
+	CleanupEnvironment bool
+	ComposeFile        string
+	ComposeProject     string
+	DispatchMode       string
 }
 
 type RedactedConfig struct {
@@ -94,6 +95,7 @@ type RedactedConfig struct {
 	FailOnCorrectness       bool          `json:"fail_on_correctness"`
 	KeepData                bool          `json:"keep_data"`
 	StartCompose            bool          `json:"start_compose"`
+	CleanupEnvironment      bool          `json:"cleanup_environment"`
 	ComposeProject          string        `json:"compose_project,omitempty"`
 	DispatchMode            string        `json:"dispatch_mode"`
 }
@@ -164,6 +166,9 @@ func (c Config) Validate() error {
 	if c.RetryProfile != "real-policy" && c.RetryProfile != "fast-test" {
 		return fmt.Errorf("retry profile must be real-policy or fast-test")
 	}
+	if c.CleanupEnvironment && (!c.StartCompose || !c.AllowDisruptive) {
+		return fmt.Errorf("environment cleanup requires --start-compose and --allow-disruptive")
+	}
 	return nil
 }
 
@@ -191,6 +196,7 @@ func (c Config) Redacted() RedactedConfig {
 		FailOnCorrectness:       c.FailOnCorrectness,
 		KeepData:                c.KeepData,
 		StartCompose:            c.StartCompose,
+		CleanupEnvironment:      c.CleanupEnvironment,
 		ComposeProject:          c.ComposeProject,
 		DispatchMode:            c.DispatchMode,
 	}
