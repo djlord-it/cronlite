@@ -157,6 +157,18 @@ func (c *composeController) cronLiteServices() []string {
 	return []string{"cronlite_1", "cronlite_2", "cronlite_3"}
 }
 
+func (c *composeController) postgresVersion(ctx context.Context) string {
+	output, err := c.Runner.run(
+		ctx,
+		"docker",
+		c.composeArgs("exec", "--no-TTY", "postgres", "postgres", "--version")...,
+	)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
 func (c *composeController) leaderService(ctx context.Context) (string, error) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	var leaders []string
@@ -250,7 +262,11 @@ func captureEnvironment(
 	if output, err := runner.run(ctx, "docker", "version", "--format", "{{.Server.Version}}"); err == nil {
 		info.DockerVersion = strings.TrimSpace(string(output))
 	}
-	_ = controller
+	if controller != nil {
+		versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		info.PostgreSQLVersion = controller.postgresVersion(versionCtx)
+		cancel()
+	}
 	return info
 }
 
