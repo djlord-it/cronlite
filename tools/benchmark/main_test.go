@@ -55,6 +55,14 @@ func TestRunRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestRunHelpExitsSuccessfully(t *testing.T) {
+	deps := fixtureRuntimeDependencies(false)
+	code := run(context.Background(), []string{"--help"}, deps)
+	if code != exitSuccess {
+		t.Fatalf("exit code = %d; stderr=%s", code, deps.Stderr.(*bytes.Buffer))
+	}
+}
+
 func TestParseConfigReadsEnvironmentSecretsWithoutPrintingThem(t *testing.T) {
 	t.Setenv("CRONLITE_API_KEY", "environment-secret")
 	var stderr bytes.Buffer
