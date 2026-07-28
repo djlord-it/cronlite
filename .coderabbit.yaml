@@ -121,5 +121,34 @@ knowledge_base:
   pull_requests:
     scope: "local"
 
+issue_enrichment:
+  auto_enrich:
+    enabled: true
+  planning:
+    enabled: true
+    auto_planning:
+      enabled: true
+      labels:
+        - "plan-me"
+  labeling:
+    auto_apply_labels: true
+    labeling_instructions:
+      - label: "bug"
+        instructions: |
+          Apply when the issue reports incorrect behavior, a regression, a crash,
+          a reliability failure, or behavior that differs from documented intent.
+      - label: "enhancement"
+        instructions: |
+          Apply when the issue requests a new capability or a meaningful
+          improvement to existing behavior.
+      - label: "documentation"
+        instructions: |
+          Apply when the requested outcome is primarily a correction, addition,
+          or clarification to documentation.
+      - label: "question"
+        instructions: |
+          Apply when the issue primarily asks for information or clarification
+          and does not yet establish a concrete bug or enhancement.
+
 chat:
   auto_reply: true
