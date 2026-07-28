@@ -192,7 +192,7 @@ func runSingleManual(
 		}
 	}
 	record = correlate(record)
-	if len(record.Callbacks) == 0 {
+	if err == nil && len(record.Callbacks) == 0 {
 		record.Findings = append(record.Findings, Finding{
 			Severity:    SeverityCritical,
 			Code:        "missing_callback",

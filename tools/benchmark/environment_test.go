@@ -20,6 +20,22 @@ func TestComposePostgresHealthcheckWaitsForFinalServerProcess(t *testing.T) {
 	}
 }
 
+func TestComposeBenchmarkStackDoesNotThrottleDispatcherMeasurements(t *testing.T) {
+	compose, err := os.ReadFile("docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configuration := string(compose)
+	for _, setting := range []string{
+		`RATE_LIMIT: "100000"`,
+		`NAMESPACE_RATE_LIMIT: "100000"`,
+	} {
+		if !strings.Contains(configuration, setting) {
+			t.Errorf("benchmark compose is missing %s", setting)
+		}
+	}
+}
+
 func TestComposeControllerRejectsUnownedProject(t *testing.T) {
 	controller := &composeController{
 		File:        "tools/benchmark/docker-compose.yml",
