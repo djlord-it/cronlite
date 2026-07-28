@@ -71,11 +71,25 @@ func diagnosticMeasurements(diagnostic *DiagnosticExecution) []Measurement {
 		}
 	}
 
+	attempts := append([]DiagnosticAttempt(nil), diagnostic.Attempts...)
+	sort.Slice(attempts, func(i, j int) bool {
+		if attempts[i].Attempt == attempts[j].Attempt {
+			return attempts[i].StartedAt.Before(attempts[j].StartedAt)
+		}
+		return attempts[i].Attempt < attempts[j].Attempt
+	})
+
 	var measurements []Measurement
 	if diagnostic.ClaimedAt == nil {
 		measurements = append(measurements,
 			unavailableMeasurement("queue_wait_ms", "execution has no claimed_at observation"),
 			unavailableMeasurement("claim_to_dispatch_ms", "execution has no claimed_at observation"),
+		)
+	} else if len(attempts) > 0 && diagnostic.ClaimedAt.After(attempts[0].StartedAt) {
+		const reason = "claimed_at was overwritten by a later reclaim"
+		measurements = append(measurements,
+			unavailableMeasurement("queue_wait_ms", reason),
+			unavailableMeasurement("claim_to_dispatch_ms", reason),
 		)
 	} else {
 		measurements = append(measurements, betweenMeasurement(
@@ -94,13 +108,6 @@ func diagnosticMeasurements(diagnostic *DiagnosticExecution) []Measurement {
 		}
 	}
 
-	attempts := append([]DiagnosticAttempt(nil), diagnostic.Attempts...)
-	sort.Slice(attempts, func(i, j int) bool {
-		if attempts[i].Attempt == attempts[j].Attempt {
-			return attempts[i].StartedAt.Before(attempts[j].StartedAt)
-		}
-		return attempts[i].Attempt < attempts[j].Attempt
-	})
 	for index, attempt := range attempts {
 		name := "webhook_rtt_ms"
 		if len(attempts) > 1 {
