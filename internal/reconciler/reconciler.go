@@ -48,15 +48,14 @@ type Config struct {
 	// Threshold is the age after which an emitted execution is considered orphaned.
 	// Must be >= dispatcher.MaxRetryDuration() to avoid re-emitting executions
 	// that are still being actively retried.
-	// Default: MaxRetryDuration + SafetyMargin (~15 minutes).
+	// Default: MaxRetryDuration + SafetyMargin (~19 minutes).
 	Threshold time.Duration
 
 	// RequeueThreshold is the age after which an in_progress execution is
 	// considered stale and requeued back to emitted (DB dispatch mode crash
-	// recovery). This can be much more aggressive than Threshold because the
-	// SQL query uses FOR UPDATE SKIP LOCKED — if a dispatcher IS actively
-	// processing the row, the lock prevents premature requeue.
-	// Default: 2 minutes.
+	// recovery). It must exceed the complete dispatcher retry window because
+	// dequeue locks are released before webhook attempts and backoffs begin.
+	// Default: MaxRetryDuration + SafetyMargin.
 	RequeueThreshold time.Duration
 
 	// BatchSize is the maximum number of orphans to process per cycle.
@@ -69,9 +68,8 @@ type Config struct {
 // a safety margin, ensuring the reconciler never re-emits executions that are
 // still being actively retried.
 // DefaultRequeueThreshold is the default age after which in_progress executions
-// are requeued. Safe to be aggressive because FOR UPDATE SKIP LOCKED prevents
-// requeuing rows that a dispatcher is actively holding.
-const DefaultRequeueThreshold = 2 * time.Minute
+// are requeued. It includes the same retry safety margin as Threshold.
+var DefaultRequeueThreshold = dispatcher.MaxRetryDuration() + SafetyMargin
 
 func DefaultConfig() Config {
 	return Config{
@@ -134,10 +132,10 @@ func (r *Reconciler) runCycle(ctx context.Context) {
 	now := r.clock().UTC()
 
 	// Use separate thresholds for the two recovery operations:
-	// - RequeueThreshold (aggressive, default 2m): safe because FOR UPDATE SKIP LOCKED
-	//   prevents requeuing rows a dispatcher is actively holding.
-	// - Threshold (conservative, default 15m): must exceed MaxRetryDuration to avoid
-	//   re-emitting executions still being retried.
+	// - RequeueThreshold (default 19m): must exceed MaxRetryDuration because
+	//   dequeue row locks are released while the dispatcher retries.
+	// - Threshold (conservative, default 19m): must exceed MaxRetryDuration to
+	//   avoid re-emitting executions still being retried.
 	requeueThreshold := r.config.RequeueThreshold
 	if requeueThreshold == 0 {
 		requeueThreshold = r.config.Threshold // backward compat

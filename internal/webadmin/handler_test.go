@@ -561,7 +561,7 @@ func TestPaginationPreservesFilters(t *testing.T) {
 			t.Fatalf("jobs pagination missing %q: %s", want, jobsBody)
 		}
 	}
-	if svc.listFilter.ListParams.Offset != 25 || svc.listFilter.ListParams.Limit != 26 ||
+	if svc.listFilter.Offset != 25 || svc.listFilter.Limit != 26 ||
 		svc.listFilter.Enabled == nil || *svc.listFilter.Enabled {
 		t.Fatalf("jobs filter/pagination not forwarded: %#v", svc.listFilter)
 	}
@@ -587,7 +587,7 @@ func TestPaginationPreservesFilters(t *testing.T) {
 			t.Fatalf("detail pagination missing %q: %s", want, detailBody)
 		}
 	}
-	if svc.executionFilter.ListParams.Offset != 25 || svc.executionFilter.ListParams.Limit != 26 ||
+	if svc.executionFilter.Offset != 25 || svc.executionFilter.Limit != 26 ||
 		svc.executionFilter.Status == nil || *svc.executionFilter.Status != domain.ExecutionStatusFailed ||
 		svc.executionFilter.TriggerType == nil || *svc.executionFilter.TriggerType != "manual" {
 		t.Fatalf("execution filter/pagination not forwarded: %#v", svc.executionFilter)

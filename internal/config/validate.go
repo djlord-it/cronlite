@@ -123,6 +123,15 @@ func Validate(cfg Config) error {
 					maxRetry),
 			})
 		}
+		if cfg.Environment != "benchmark" &&
+			cfg.ReconcileRequeueThreshold > 0 &&
+			cfg.ReconcileRequeueThreshold < maxRetry {
+			errs = append(errs, ValidationError{
+				Field: "RECONCILE_REQUEUE_THRESHOLD",
+				Message: fmt.Sprintf("must be >= dispatcher max retry duration (%s) to prevent concurrent retry workers",
+					maxRetry),
+			})
+		}
 	}
 
 	// Circuit breaker: cooldown must be positive when enabled

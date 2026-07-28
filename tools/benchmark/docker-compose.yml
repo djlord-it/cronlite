@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
+    environment:
+      POSTGRES_DB: cronlite
+      POSTGRES_USER: cronlite
+      POSTGRES_PASSWORD: cronlite
+    ports:
+      - "15432:5432"
+    volumes:
+      - benchmark_pgdata:/var/lib/postgresql/data
+      - ../../schema/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql:ro
+      - ../../schema/002_add_indexes.sql:/docker-entrypoint-initdb.d/002_add_indexes.sql:ro
+      - ../../schema/003_add_claimed_at.sql:/docker-entrypoint-initdb.d/003_add_claimed_at.sql:ro
+      - ../../schema/004_agent_platform.sql:/docker-entrypoint-initdb.d/004_agent_platform.sql:ro
+      - ../../schema/005_drop_scopes.sql:/docker-entrypoint-initdb.d/005_drop_scopes.sql:ro
+      - ../../schema/006_add_claimed_at_index.sql:/docker-entrypoint-initdb.d/006_add_claimed_at_index.sql:ro
+      - ../../schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql:ro
+      - ../../schema/008_admin_session_absolute_expiry.sql:/docker-entrypoint-initdb.d/008_admin_session_absolute_expiry.sql:ro
+    healthcheck:
+      # The image starts a temporary Postgres process while applying init
+      # scripts, then replaces it with the final PID 1 server. Waiting for PID
+      # 1 avoids a brief healthy window followed by connection refusals.
+      test: ["CMD-SHELL", "test \"$$(head -1 \"$$PGDATA/postmaster.pid\")\" = \"1\" && pg_isready -U cronlite -d cronlite"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  cronlite_1: &cronlite
+    build:
+      context: ../..
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment: &cronlite_environment
+      CRONLITE_ENV: benchmark
+      DATABASE_URL: postgres://cronlite:cronlite@postgres:5432/cronlite?sslmode=disable
+      API_KEY: benchmark-local-key
+      HTTP_ADDR: ":8080"
+      # Keep the benchmark client from measuring middleware throttling instead
+      # of scheduler and dispatcher capacity.
+      RATE_LIMIT: "100000"
+      NAMESPACE_RATE_LIMIT: "100000"
+      DISPATCH_MODE: db
+      DISPATCHER_WORKERS: "2"
+      DB_POLL_INTERVAL: 100ms
+      TICK_INTERVAL: 1s
+      METRICS_ENABLED: "true"
+      METRICS_PUBLIC: "true"
+      RECONCILE_ENABLED: "true"
+      RECONCILE_INTERVAL: 1s
+      RECONCILE_THRESHOLD: 19m
+      RECONCILE_REQUEUE_THRESHOLD: "${BENCHMARK_REQUEUE_THRESHOLD:-19m}"
+      LEADER_RETRY_INTERVAL: 1s
+      LEADER_HEARTBEAT_INTERVAL: 500ms
+    ports:
+      - "18080:8080"
+
+  cronlite_2:
+    <<: *cronlite
+    environment:
+      <<: *cronlite_environment
+    ports:
+      - "18081:8080"
+
+  cronlite_3:
+    <<: *cronlite
+    environment:
+      <<: *cronlite_environment
+    ports:
+      - "18082:8080"
+
+volumes:
+  benchmark_pgdata:

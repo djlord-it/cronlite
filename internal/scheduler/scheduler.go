@@ -12,7 +12,7 @@ import (
 	"github.com/djlord-it/cronlite/internal/domain"
 )
 
-var ErrDuplicateExecution = errors.New("execution already exists")
+var ErrDuplicateExecution = domain.ErrDuplicateExecution
 
 // Pagination defaults for scheduler job loading.
 const (
