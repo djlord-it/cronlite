@@ -39,3 +39,5 @@ CronLite exercised 500, 503, 429, timeout, connection failure, non-retryable 400
 ## Test environment
 
 Measured on macOS arm64 with 8 logical CPUs, 8 GiB memory, Docker 29.4.0, PostgreSQL 16.13, and three CronLite instances with two database dispatch workers each. These results are a measured, reproducible local regression baseline and may vary by environment.
+
+Ready to run CronLite? See the [Quick Start](README.md#quick-start) or the [benchmark harness](tools/benchmark/README.md).
