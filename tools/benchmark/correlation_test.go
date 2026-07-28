@@ -114,6 +114,19 @@ func TestCorrelateComputesRetryBackoffError(t *testing.T) {
 	assertMeasurement(t, got.Measurements, "retry_backoff_error_ms_attempt_2", 50, ProvenanceDerived)
 }
 
+func TestCorrelateDoesNotCompareStatusAfterIncompletePoll(t *testing.T) {
+	record := fixtureExecutionRecord()
+	record.PollBounds = &PollBounds{
+		FinalExecution: APIExecution{Status: "emitted"},
+	}
+	record.Diagnostic = &DiagnosticExecution{Status: "delivered"}
+
+	got := correlate(record)
+	if hasFinding(got.Findings, SeverityCritical, "api_database_status_mismatch") {
+		t.Fatalf("incomplete poll produced a false status mismatch: %+v", got.Findings)
+	}
+}
+
 func fixtureExecutionRecord() ExecutionRecord {
 	return ExecutionRecord{
 		RunID:         "run-1",
