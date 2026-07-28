@@ -245,24 +245,6 @@ func handleCallback(
 	executionID := r.Header.Get("X-CronLite-Execution-ID")
 	attemptID := r.Header.Get("X-CronLite-Event-ID")
 	active, afterTerminal := store.begin(executionID)
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			store.finish(CallbackObservation{
-				ReceivedAt:             arrivedAt,
-				ResponseStartedAt:      time.Now().UTC(),
-				ResponseCompletedAt:    time.Now().UTC(),
-				ExecutionID:            executionID,
-				AttemptID:              attemptID,
-				SignatureValid:         verifySignature(secret, body, r.Header.Get("X-CronLite-Signature")),
-				StatusCode:             http.StatusInternalServerError,
-				BodySHA256:             hashBody(body),
-				Body:                   string(body),
-				ConcurrentForExecution: active,
-				AfterTerminal:          afterTerminal,
-			}, limits.MaxCallbacks)
-			panic(recovered)
-		}
-	}()
 
 	if delay > 0 {
 		timer := time.NewTimer(delay)

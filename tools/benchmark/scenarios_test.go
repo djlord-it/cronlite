@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -75,6 +76,30 @@ func TestRunSingleManualPreservesTriggerFailure(t *testing.T) {
 	}
 	if record.CorrelationID == "" || record.SampleIndex != 1 {
 		t.Fatalf("record=%+v", record)
+	}
+}
+
+func TestReceiverClientBaseURLUsesLoopbackForWildcardListener(t *testing.T) {
+	for input, want := range map[string]string{
+		"127.0.0.1:9090": "http://127.0.0.1:9090",
+		"0.0.0.0:19090":  "http://127.0.0.1:19090",
+		":9090":          "http://127.0.0.1:9090",
+	} {
+		got, err := receiverClientBaseURL(input)
+		if err != nil {
+			t.Fatalf("%s: %v", input, err)
+		}
+		if got != want {
+			t.Fatalf("%s: want %s got %s", input, want, got)
+		}
+	}
+}
+
+func TestComposeControllerListsAllDispatcherServices(t *testing.T) {
+	controller := &composeController{}
+	want := []string{"cronlite_1", "cronlite_2", "cronlite_3"}
+	if got := controller.cronLiteServices(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("services: want=%v got=%v", want, got)
 	}
 }
 

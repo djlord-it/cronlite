@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -152,6 +153,10 @@ func (c *composeController) down(ctx context.Context, removeVolumes bool) error 
 	return err
 }
 
+func (c *composeController) cronLiteServices() []string {
+	return []string{"cronlite_1", "cronlite_2", "cronlite_3"}
+}
+
 func (c *composeController) leaderService(ctx context.Context) (string, error) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	var leaders []string
@@ -164,10 +169,12 @@ func (c *composeController) leaderService(ctx context.Context) (string, error) {
 		if err != nil {
 			continue
 		}
-		body := make([]byte, maxPrometheusBodyBytes)
-		count, _ := response.Body.Read(body)
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, maxPrometheusBodyBytes))
 		_ = response.Body.Close()
-		metrics := parsePrometheus(body[:count])
+		if readErr != nil {
+			continue
+		}
+		metrics := parsePrometheus(body)
 		if metrics["cronlite_leader_is_leader"] == 1 {
 			leaders = append(leaders, service)
 		}
