@@ -3,9 +3,22 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestComposePostgresHealthcheckWaitsForFinalServerProcess(t *testing.T) {
+	compose, err := os.ReadFile("docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	healthcheck := string(compose)
+	if !strings.Contains(healthcheck, `test \"$$(head -1 \"$$PGDATA/postmaster.pid\")\" = \"1\"`) {
+		t.Fatal("postgres healthcheck must reject the temporary init server")
+	}
+}
 
 func TestComposeControllerRejectsUnownedProject(t *testing.T) {
 	controller := &composeController{

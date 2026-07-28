@@ -18,7 +18,10 @@ services:
       - ../../schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql:ro
       - ../../schema/008_admin_session_absolute_expiry.sql:/docker-entrypoint-initdb.d/008_admin_session_absolute_expiry.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cronlite"]
+      # The image starts a temporary Postgres process while applying init
+      # scripts, then replaces it with the final PID 1 server. Waiting for PID
+      # 1 avoids a brief healthy window followed by connection refusals.
+      test: ["CMD-SHELL", "test \"$$(head -1 \"$$PGDATA/postmaster.pid\")\" = \"1\" && pg_isready -U cronlite -d cronlite"]
       interval: 1s
       timeout: 3s
       retries: 30
