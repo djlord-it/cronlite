@@ -27,6 +27,7 @@ func TestComposeBenchmarkStackDoesNotThrottleDispatcherMeasurements(t *testing.T
 	}
 	configuration := string(compose)
 	for _, setting := range []string{
+		`CRONLITE_ENV: benchmark`,
 		`RATE_LIMIT: "100000"`,
 		`NAMESPACE_RATE_LIMIT: "100000"`,
 	} {
