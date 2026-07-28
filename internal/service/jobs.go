@@ -302,20 +302,38 @@ func (s *JobService) TriggerNow(ctx context.Context, jobID uuid.UUID) (domain.Ex
 		return domain.Execution{}, domain.ErrJobDisabled
 	}
 
-	now := time.Now().UTC()
-	exec := domain.Execution{
-		ID:          uuid.New(),
-		JobID:       jobID,
-		Namespace:   ns,
-		TriggerType: domain.TriggerTypeManual,
-		ScheduledAt: now,
-		FiredAt:     now,
-		Status:      domain.ExecutionStatusEmitted,
-		CreatedAt:   now,
+	const maxInsertAttempts = 5
+	var (
+		exec          domain.Execution
+		insertErr     error
+		lastTimestamp time.Time
+	)
+	for attempt := 0; attempt < maxInsertAttempts; attempt++ {
+		now := time.Now().UTC().Truncate(time.Microsecond)
+		if !lastTimestamp.IsZero() && !now.After(lastTimestamp) {
+			now = lastTimestamp.Add(time.Microsecond)
+		}
+		lastTimestamp = now
+		exec = domain.Execution{
+			ID:          uuid.New(),
+			JobID:       jobID,
+			Namespace:   ns,
+			TriggerType: domain.TriggerTypeManual,
+			ScheduledAt: now,
+			FiredAt:     now,
+			Status:      domain.ExecutionStatusEmitted,
+			CreatedAt:   now,
+		}
+		insertErr = s.executions.InsertExecution(ctx, exec)
+		if insertErr == nil {
+			break
+		}
+		if !errors.Is(insertErr, domain.ErrDuplicateExecution) {
+			return domain.Execution{}, fmt.Errorf("insert execution: %w", insertErr)
+		}
 	}
-
-	if err := s.executions.InsertExecution(ctx, exec); err != nil {
-		return domain.Execution{}, fmt.Errorf("insert execution: %w", err)
+	if insertErr != nil {
+		return domain.Execution{}, fmt.Errorf("insert execution: %w", insertErr)
 	}
 
 	// Emit to dispatch pipeline for immediate delivery.
