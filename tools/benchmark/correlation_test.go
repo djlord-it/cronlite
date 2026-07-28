@@ -57,6 +57,19 @@ func TestCorrelateComputesManualEndToEndAndReceiverProcessing(t *testing.T) {
 	assertMeasurement(t, got.Measurements, "receiver_processing_ms", 10, ProvenanceDirect)
 }
 
+func TestCorrelateOmitsManualTriggerLatencyForScheduledExecution(t *testing.T) {
+	record := fixtureExecutionRecord()
+	record.TriggerRequest = Observation{}
+	record.APIExecution.TriggerType = "scheduled"
+
+	got := correlate(record)
+	for _, measurement := range got.Measurements {
+		if measurement.Name == "api_trigger_latency_ms" {
+			t.Fatalf("scheduled execution has a fake trigger measurement: %+v", measurement)
+		}
+	}
+}
+
 func TestCorrelateReportsConcurrentDuplicate(t *testing.T) {
 	record := fixtureExecutionRecord()
 	record.Callbacks = append(record.Callbacks, CallbackObservation{

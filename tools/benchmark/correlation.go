@@ -17,11 +17,13 @@ func correlate(record ExecutionRecord) ExecutionRecord {
 	record.Measurements = nil
 	record.Findings = nil
 
-	record.Measurements = append(record.Measurements, durationMeasurement(
-		"api_trigger_latency_ms",
-		record.TriggerRequest.Duration,
-		ProvenanceDirect,
-	))
+	if !record.TriggerRequest.StartedAt.IsZero() {
+		record.Measurements = append(record.Measurements, durationMeasurement(
+			"api_trigger_latency_ms",
+			record.TriggerRequest.Duration,
+			ProvenanceDirect,
+		))
+	}
 
 	if !record.APIExecution.ScheduledAt.IsZero() && !record.APIExecution.CreatedAt.IsZero() {
 		record.Measurements = append(record.Measurements, betweenMeasurement(

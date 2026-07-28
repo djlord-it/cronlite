@@ -64,6 +64,21 @@ func TestReportIncludesNamedControlPlaneAPIObservation(t *testing.T) {
 	}
 }
 
+func TestReportCountsScheduledDeliveredExecutionAsSuccessful(t *testing.T) {
+	result := fixtureRunResult()
+	record := result.Scenarios[0].Executions[0]
+	record.PollBounds = nil
+	record.APIExecution.Status = "delivered"
+	record.APIExecution.TriggerType = "scheduled"
+	result.Scenarios[0].Name = "recurring"
+	result.Scenarios[0].Executions = []ExecutionRecord{record}
+
+	report := renderReport(result, OutputPaths{})
+	if !strings.Contains(report, "| recurring | 1.000 | 1.000 | 100.00% |") {
+		t.Fatalf("scheduled success missing from throughput:\n%s", report)
+	}
+}
+
 func fixtureRunResult() RunResult {
 	record := correlate(fixtureExecutionRecord())
 	record.Findings = append(record.Findings, Finding{

@@ -258,8 +258,7 @@ func writeThroughputSection(report *strings.Builder, result RunResult) {
 			}
 			executions++
 			callbacks += len(execution.Callbacks)
-			if execution.PollBounds != nil &&
-				execution.PollBounds.FinalExecution.Status == "delivered" {
+			if executionTerminalStatus(execution) == "delivered" {
 				successes++
 			}
 			if len(execution.Callbacks) > 1 {
@@ -293,8 +292,7 @@ func writeFailureSection(report *strings.Builder, result RunResult) {
 					signatureFailures++
 				}
 			}
-			if execution.PollBounds != nil &&
-				execution.PollBounds.FinalExecution.Status == "failed" {
+			if executionTerminalStatus(execution) == "failed" {
 				permanentFailures++
 			}
 			if execution.Diagnostic != nil {
@@ -308,6 +306,14 @@ func writeFailureSection(report *strings.Builder, result RunResult) {
 	fmt.Fprintf(report, "- Signature-verification failures: %d\n", signatureFailures)
 	fmt.Fprintf(report, "- HTTP status distribution: `%s`\n", formatIntDistribution(statuses))
 	fmt.Fprintf(report, "- Error classification: `%s`\n\n", formatStringDistribution(errorsByClass))
+}
+
+func executionTerminalStatus(execution ExecutionRecord) string {
+	if execution.PollBounds != nil &&
+		execution.PollBounds.FinalExecution.Status != "" {
+		return execution.PollBounds.FinalExecution.Status
+	}
+	return execution.APIExecution.Status
 }
 
 func writeDuplicateSection(report *strings.Builder, result RunResult) {
