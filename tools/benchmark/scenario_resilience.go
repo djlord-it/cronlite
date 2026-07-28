@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const databaseOutageHealthProbeTimeout = 2 * time.Second
+
 func runDuplicateRace(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 	if !env.Capabilities.DockerCompose || env.Controller == nil {
 		return skippedScenario("duplicate-race", "Docker Compose process control is unavailable")
@@ -217,7 +219,7 @@ func runDatabaseOutage(ctx context.Context, env *scenarioEnvironment) ScenarioRe
 		)
 	}
 	defer func() { _ = env.Controller.unpauseService(context.Background(), "postgres") }()
-	degradedObservation, _ := env.API.health(ctx, true)
+	degradedObservation, _ := probeDegradedHealth(ctx, env.API)
 	unpauseObservation, unpauseErr := observeControl(
 		"unpause_postgres",
 		func() error { return env.Controller.unpauseService(ctx, "postgres") },
@@ -238,6 +240,15 @@ func runDatabaseOutage(ctx context.Context, env *scenarioEnvironment) ScenarioRe
 		},
 		errs,
 	)
+}
+
+func probeDegradedHealth(
+	ctx context.Context,
+	api scenarioAPI,
+) (Observation, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, databaseOutageHealthProbeTimeout)
+	defer cancel()
+	return api.health(probeCtx, true)
 }
 
 func waitForActiveCallback(
