@@ -250,7 +250,7 @@ func captureEnvironment(
 			"requeue_threshold": cfg.RequeueThreshold.String(),
 		},
 	}
-	if cfg.StartCompose {
+	if controller != nil {
 		info.CronLiteInstances = 3
 		info.RelevantConfig["ip_rate_limit"] = "100000 req/s"
 		info.RelevantConfig["namespace_rate_limit"] = "100000 req/s"
