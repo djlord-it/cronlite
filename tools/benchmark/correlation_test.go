@@ -87,8 +87,25 @@ func TestCorrelateReportsConcurrentDuplicate(t *testing.T) {
 	if !hasFinding(got.Findings, SeverityCritical, "concurrent_duplicate_delivery") {
 		t.Fatalf("findings: %+v", got.Findings)
 	}
-	if !hasFinding(got.Findings, SeverityWarning, "duplicate_execution_delivery") {
-		t.Fatalf("findings: %+v", got.Findings)
+}
+
+func TestCorrelateDoesNotClassifyDistinctRetryAttemptsAsDuplicates(t *testing.T) {
+	record := fixtureExecutionRecord()
+	record.Callbacks = append(record.Callbacks, CallbackObservation{
+		ReceivedAt:             fixtureTime(70),
+		ResponseStartedAt:      fixtureTime(71),
+		ResponseCompletedAt:    fixtureTime(72),
+		ExecutionID:            "exec-1",
+		AttemptID:              "attempt-2",
+		SignatureValid:         true,
+		StatusCode:             204,
+		BodySHA256:             "same",
+		ConcurrentForExecution: 1,
+	})
+
+	got := correlate(record)
+	if hasDuplicateFinding(got.Findings) {
+		t.Fatalf("distinct retry attempts were classified as duplicates: %+v", got.Findings)
 	}
 }
 

@@ -240,15 +240,6 @@ func callbackFindings(record ExecutionRecord) []Finding {
 			))
 		}
 	}
-	if len(record.Callbacks) > 1 {
-		findings = append(findings, finding(
-			SeverityWarning,
-			"duplicate_execution_delivery",
-			fmt.Sprintf("execution produced %d callbacks", len(record.Callbacks)),
-			record,
-			"",
-		))
-	}
 	return deduplicateFindings(findings)
 }
 
