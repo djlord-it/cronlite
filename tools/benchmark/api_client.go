@@ -95,6 +95,7 @@ func (c *apiClient) health(ctx context.Context, verbose bool) (Observation, erro
 		path += "?verbose=true"
 	}
 	observation, _, err := c.do(ctx, http.MethodGet, path, nil, http.StatusOK)
+	observation.Name = "baseline_cronlite_health_rtt_ms"
 	return observation, err
 }
 
@@ -104,6 +105,7 @@ func (c *apiClient) createJob(
 ) (APIJob, Observation, error) {
 	var job APIJob
 	observation, body, err := c.do(ctx, http.MethodPost, "/jobs", input, http.StatusCreated)
+	observation.Name = "api_create_latency_ms"
 	if err != nil {
 		return job, observation, err
 	}
@@ -122,6 +124,7 @@ func (c *apiClient) getJob(ctx context.Context, jobID string) (APIJob, Observati
 		nil,
 		http.StatusOK,
 	)
+	observation.Name = "api_get_job_latency_ms"
 	if err != nil {
 		return job, observation, err
 	}
@@ -144,6 +147,7 @@ func (c *apiClient) updateJob(
 		input,
 		http.StatusOK,
 	)
+	observation.Name = "api_update_latency_ms"
 	if err != nil {
 		return job, observation, err
 	}
@@ -161,6 +165,7 @@ func (c *apiClient) pauseJob(ctx context.Context, jobID string) (Observation, er
 		nil,
 		http.StatusOK,
 	)
+	observation.Name = "api_pause_latency_ms"
 	return observation, err
 }
 
@@ -172,6 +177,7 @@ func (c *apiClient) resumeJob(ctx context.Context, jobID string) (Observation, e
 		nil,
 		http.StatusOK,
 	)
+	observation.Name = "api_resume_latency_ms"
 	return observation, err
 }
 
@@ -184,6 +190,7 @@ func (c *apiClient) deleteJob(ctx context.Context, jobID string) (Observation, e
 		http.StatusNoContent,
 		http.StatusNotFound,
 	)
+	observation.Name = "api_delete_latency_ms"
 	return observation, err
 }
 
@@ -199,6 +206,7 @@ func (c *apiClient) trigger(
 		nil,
 		http.StatusCreated,
 	)
+	observation.Name = "api_trigger_latency_ms"
 	if err != nil {
 		return execution, observation, err
 	}
@@ -220,6 +228,7 @@ func (c *apiClient) getExecution(
 		nil,
 		http.StatusOK,
 	)
+	observation.Name = "api_get_execution_latency_ms"
 	if err != nil {
 		return execution, observation, err
 	}
@@ -243,6 +252,7 @@ func (c *apiClient) listExecutions(
 		nil,
 		http.StatusOK,
 	)
+	observation.Name = "api_list_executions_latency_ms"
 	if err != nil {
 		return nil, observation, err
 	}

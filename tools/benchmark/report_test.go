@@ -51,6 +51,19 @@ func TestReportStatesSmallSamplePercentilesAreUnstable(t *testing.T) {
 	}
 }
 
+func TestReportIncludesNamedControlPlaneAPIObservation(t *testing.T) {
+	result := fixtureRunResult()
+	result.Scenarios[0].Observations = append(result.Scenarios[0].Observations, Observation{
+		Kind:     "api",
+		Name:     "api_create_latency_ms",
+		Duration: 12 * time.Millisecond,
+	})
+	report := renderReport(result, OutputPaths{})
+	if !strings.Contains(report, "| api_create_latency_ms | 1 |") {
+		t.Fatalf("API observation missing from report:\n%s", report)
+	}
+}
+
 func fixtureRunResult() RunResult {
 	record := correlate(fixtureExecutionRecord())
 	record.Findings = append(record.Findings, Finding{

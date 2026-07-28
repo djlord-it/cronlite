@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -81,10 +82,14 @@ func runBaseline(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 }
 
 func baselineRequest(ctx context.Context, cfg Config) (Observation, error) {
+	baseURL, err := receiverClientBaseURL(cfg.ReceiverAddr)
+	if err != nil {
+		return Observation{}, err
+	}
 	request, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
-		cfg.ReceiverPublicURL+"/baseline",
+		baseURL+"/baseline",
 		nil,
 	)
 	if err != nil {
@@ -113,6 +118,17 @@ func baselineRequest(ctx context.Context, cfg Config) (Observation, error) {
 		return observation, fmt.Errorf("receiver baseline returned HTTP %d", response.StatusCode)
 	}
 	return observation, nil
+}
+
+func receiverClientBaseURL(addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", fmt.Errorf("parse receiver address: %w", err)
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port), nil
 }
 
 func runColdWarm(ctx context.Context, env *scenarioEnvironment) ScenarioResult {

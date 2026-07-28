@@ -34,6 +34,9 @@ func TestAPIClientTriggerCapturesExecutionAndTiming(t *testing.T) {
 	if exec.ID == "" || observation.Duration <= 0 || observation.StatusCode != http.StatusCreated {
 		t.Fatalf("execution=%+v observation=%+v", exec, observation)
 	}
+	if observation.Name != "api_trigger_latency_ms" {
+		t.Fatalf("observation name = %q", observation.Name)
+	}
 }
 
 func TestAPIClientBoundsErrorBodies(t *testing.T) {

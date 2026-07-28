@@ -22,7 +22,7 @@ func renderReport(result RunResult, paths OutputPaths) string {
 	writeCorrectnessSection(&report, result)
 	writeScenarioSection(&report, result)
 	writeObservationStatsSection(&report, "Baseline HTTP Latency", result, "baseline")
-	writeMeasurementStatsSection(&report, "API Latency", result, []string{
+	writeAPIStatsSection(&report, result, []string{
 		"api_create_latency_ms",
 		"api_trigger_latency_ms",
 		"api_get_execution_latency_ms",
@@ -144,7 +144,8 @@ func writeObservationStatsSection(
 	groups := make(map[string][]float64)
 	for _, scenario := range result.Scenarios {
 		for _, observation := range scenario.Observations {
-			if observation.Kind == kind {
+			if observation.Kind == kind ||
+				(kind == "baseline" && observation.Name == "baseline_cronlite_health_rtt_ms") {
 				groups[observation.Name] = append(
 					groups[observation.Name],
 					float64(observation.Duration)/float64(time.Millisecond),
@@ -155,12 +156,35 @@ func writeObservationStatsSection(
 	writeStatsSection(report, title, groups)
 }
 
+func writeAPIStatsSection(
+	report *strings.Builder,
+	result RunResult,
+	prefixes []string,
+) {
+	groups := measurementGroups(result, prefixes)
+	for _, scenario := range result.Scenarios {
+		for _, observation := range scenario.Observations {
+			if observation.Kind == "api" && matchesMeasurement(observation.Name, prefixes) {
+				groups[observation.Name] = append(
+					groups[observation.Name],
+					float64(observation.Duration)/float64(time.Millisecond),
+				)
+			}
+		}
+	}
+	writeStatsSection(report, "API Latency", groups)
+}
+
 func writeMeasurementStatsSection(
 	report *strings.Builder,
 	title string,
 	result RunResult,
 	prefixes []string,
 ) {
+	writeStatsSection(report, title, measurementGroups(result, prefixes))
+}
+
+func measurementGroups(result RunResult, prefixes []string) map[string][]float64 {
 	groups := make(map[string][]float64)
 	for _, scenario := range result.Scenarios {
 		for _, execution := range scenario.Executions {
@@ -175,7 +199,7 @@ func writeMeasurementStatsSection(
 			}
 		}
 	}
-	writeStatsSection(report, title, groups)
+	return groups
 }
 
 func writeStatsSection(report *strings.Builder, title string, groups map[string][]float64) {

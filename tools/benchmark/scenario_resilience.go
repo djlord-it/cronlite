@@ -110,14 +110,13 @@ func runCrashRecovery(ctx context.Context, env *scenarioEnvironment) ScenarioRes
 		)
 	}
 
-	stopObservation, stopErr := observeControl(
-		"stop_dispatcher",
-		func() error { return env.Controller.stopService(ctx, "cronlite_1") },
-	)
-	startObservation, startErr := observeControl(
-		"restart_dispatcher",
-		func() error { return env.Controller.startService(ctx, "cronlite_1") },
-	)
+	defer func() {
+		for _, service := range env.Controller.cronLiteServices() {
+			_ = env.Controller.startService(context.Background(), service)
+		}
+	}()
+	stopObservations, stopErrs := controlCronLiteServices(ctx, env.Controller, "stop")
+	startObservations, startErrs := controlCronLiteServices(ctx, env.Controller, "start")
 	bounds, pollErr := env.API.pollTerminal(ctx, execution.ID, env.Config.PollInterval)
 	record := ExecutionRecord{
 		RunID:          env.RunID,
@@ -140,14 +139,17 @@ func runCrashRecovery(ctx context.Context, env *scenarioEnvironment) ScenarioRes
 	}
 	record = correlate(record)
 	errs := []error{}
-	errs = appendIfError(errs, stopErr)
-	errs = appendIfError(errs, startErr)
+	errs = append(errs, stopErrs...)
+	errs = append(errs, startErrs...)
 	errs = appendIfError(errs, pollErr)
+	observations := []Observation{createObservation, triggerObservation}
+	observations = append(observations, stopObservations...)
+	observations = append(observations, startObservations...)
 	return finalizeScenario(
 		"crash-recovery",
 		started,
 		[]ExecutionRecord{record},
-		[]Observation{createObservation, triggerObservation, stopObservation, startObservation},
+		observations,
 		errs,
 	)
 }
@@ -294,4 +296,27 @@ func observeControl(name string, action func() error) (Observation, error) {
 		observation.ErrorClass = "process_control_error"
 	}
 	return observation, err
+}
+
+func controlCronLiteServices(
+	ctx context.Context,
+	controller *composeController,
+	action string,
+) ([]Observation, []error) {
+	var observations []Observation
+	var errs []error
+	for _, service := range controller.cronLiteServices() {
+		observation, err := observeControl(
+			action+"_"+service,
+			func() error {
+				if action == "stop" {
+					return controller.stopService(ctx, service)
+				}
+				return controller.startService(ctx, service)
+			},
+		)
+		observations = append(observations, observation)
+		errs = appendIfError(errs, err)
+	}
+	return observations, errs
 }
