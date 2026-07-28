@@ -24,10 +24,26 @@ func TestScenarioRegistryContainsRequiredScenarios(t *testing.T) {
 		"crash-recovery",
 		"leader-failover",
 		"database-outage",
+		"load",
 	} {
 		if _, ok := registry[name]; !ok {
 			t.Errorf("missing scenario %q", name)
 		}
+	}
+}
+
+func TestLoadScenarioKeepsItsOwnReportName(t *testing.T) {
+	env := &scenarioEnvironment{
+		Config: Config{
+			Concurrency: []int{1},
+			SampleCount: 1,
+		},
+		API:      failingScenarioAPI{err: errors.New("expected")},
+		Receiver: newCallbackStore(),
+	}
+	result := scenarioRegistry()["load"](context.Background(), env)
+	if result.Name != "load" {
+		t.Fatalf("load scenario reported name %q", result.Name)
 	}
 }
 
