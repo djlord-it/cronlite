@@ -763,6 +763,15 @@ func logConfigWarnings(cfg *config.Config) {
 		log.Printf("INFO: DISPATCH_MODE=db with DISPATCHER_WORKERS=1 — consider increasing to 2-4 for production workloads.")
 	}
 
+	if cfg.Environment == "benchmark" &&
+		cfg.ReconcileRequeueThreshold > 0 &&
+		cfg.ReconcileRequeueThreshold < dispatcher.MaxRetryDuration() {
+		log.Printf(
+			"WARNING [P0]: RECONCILE_REQUEUE_THRESHOLD=%s is an unsafe benchmark-only fault-injection setting; active retry workers may deliver the same execution concurrently.",
+			cfg.ReconcileRequeueThreshold,
+		)
+	}
+
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
 		log.Printf("WARNING [P1]: DATABASE_URL contains sslmode=disable — database connections are NOT encrypted. Use sslmode=require or sslmode=verify-full for production.")
 	}

@@ -131,6 +131,23 @@ func TestLogConfigWarnings_DBWithReconciler(t *testing.T) {
 	}
 }
 
+func TestLogConfigWarnings_BenchmarkUnsafeRequeueThreshold(t *testing.T) {
+	cfg := &config.Config{
+		Environment:               "benchmark",
+		DispatchMode:              "db",
+		ReconcileEnabled:          true,
+		ReconcileRequeueThreshold: 5 * time.Second,
+		MetricsEnabled:            true,
+		DispatcherWorkers:         4,
+	}
+	output := captureLogOutput(cfg)
+
+	if !strings.Contains(output, "WARNING [P0]") ||
+		!strings.Contains(output, "benchmark-only") {
+		t.Error("expected benchmark-only unsafe requeue warning, got:", output)
+	}
+}
+
 func TestLogConfigWarnings_MetricsDisabled(t *testing.T) {
 	cfg := &config.Config{
 		DispatchMode:      "db",

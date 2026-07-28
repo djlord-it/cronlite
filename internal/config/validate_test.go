@@ -233,6 +233,22 @@ func TestValidate_ReconcileRequeueThresholdBelowMaxRetry(t *testing.T) {
 	}
 }
 
+func TestValidate_BenchmarkAllowsUnsafeRequeueThreshold(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.Environment = "benchmark"
+	cfg.ReconcileEnabled = true
+	cfg.ReconcileThreshold = 19 * time.Minute
+	cfg.ReconcileThresholdStr = "19m"
+	cfg.ReconcileRequeueThreshold = 5 * time.Second
+	cfg.ReconcileRequeueThresholdStr = "5s"
+	cfg.ReconcileInterval = time.Second
+	cfg.ReconcileIntervalStr = "1s"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("benchmark environment should allow explicit fault injection: %v", err)
+	}
+}
+
 func TestValidate_CircuitBreakerCooldownRequired(t *testing.T) {
 	cfg := Config{
 		DatabaseURL:               "postgres://localhost/test",
