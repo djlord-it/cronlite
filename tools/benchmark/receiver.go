@@ -26,7 +26,7 @@ func defaultReceiverLimits() ReceiverLimits {
 	return ReceiverLimits{
 		MaxBodyBytes: 64 << 10,
 		MaxCallbacks: 1_000_000,
-		MaxDelay:     2 * time.Minute,
+		MaxDelay:     15 * time.Minute,
 	}
 }
 
@@ -197,6 +197,12 @@ func (s *callbackStore) summary(executionID string) CallbackSummary {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.summaries[executionID]
+}
+
+func (s *callbackStore) activeCount(executionID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.active[executionID]
 }
 
 func newReceiverHandler(store *callbackStore, secret string, limits ReceiverLimits) http.Handler {

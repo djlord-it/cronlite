@@ -145,6 +145,7 @@ type EnvironmentInfo struct {
 	OS                string            `json:"os"`
 	Architecture      string            `json:"architecture"`
 	CPUCount          int               `json:"cpu_count"`
+	MemoryBytes       uint64            `json:"memory_bytes,omitempty"`
 	GoVersion         string            `json:"go_version"`
 	CommitSHA         string            `json:"commit_sha"`
 	DockerVersion     string            `json:"docker_version,omitempty"`
