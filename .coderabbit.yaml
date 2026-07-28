@@ -1,0 +1,125 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  assess_linked_issues: true
+
+  review_status: true
+  review_details: false
+  commit_status: true
+  fail_commit_status: false
+  collapse_walkthrough: true
+
+  poem: false
+  in_progress_fortune: false
+  enable_prompt_for_ai_agents: false
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    simplify:
+      enabled: false
+    autofix:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+
+  path_filters:
+    - "!internal/api/server.gen.go"
+
+  path_instructions:
+    - path: "**/*.go"
+      instructions: |
+        Focus on concrete correctness, security, concurrency, resource lifecycle,
+        and backward-compatibility risks. Do not report formatting, naming,
+        documentation style, line length, complexity metrics, or findings already
+        enforced by golangci-lint and CI unless they cause a specific defect.
+
+    - path: "internal/{scheduler,dispatcher,reconciler,leaderelection}/**"
+      instructions: |
+        Prioritize race safety, idempotency, duplicate execution prevention,
+        lease ownership, retry semantics, crash recovery, context cancellation,
+        and cleanup. Prefer high-confidence actionable findings over speculative
+        refactors.
+
+    - path: "internal/store/postgres/**"
+      instructions: |
+        Verify namespace isolation, parameterized SQL, transaction boundaries,
+        concurrent-update behavior, row and resource cleanup, error propagation,
+        and data-integrity assumptions.
+
+    - path: "internal/{api,webadmin,webhookurl}/**"
+      instructions: |
+        Check authorization and namespace boundaries, SSRF, redirects, DNS
+        rebinding, credential exposure, request limits, timeouts, and backward-
+        compatible API behavior.
+
+    - path: "schema/**"
+      instructions: |
+        Check sequential migration numbering, compatibility with existing
+        installations, locking and downtime risk, data preservation, mixed-
+        version rollout safety, and edits to previously released migrations.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Check least-privilege permissions, supply-chain risks, action pinning,
+        unsafe use of pull-request input, secret exposure, timeouts, and bounded
+        failure behavior. Avoid cosmetic YAML feedback.
+
+    - path: "**/*_test.go"
+      instructions: |
+        Check determinism, meaningful assertions, failure paths, edge cases, race
+        safety, cleanup, isolation, and timing-dependent success criteria. Do not
+        request tests solely to increase coverage percentage.
+
+  tools:
+    golangci-lint:
+      enabled: false
+    yamllint:
+      enabled: false
+    github-checks:
+      enabled: true
+    actionlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    gitleaks:
+      enabled: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+  learnings:
+    scope: "local"
+  issues:
+    scope: "local"
+  pull_requests:
+    scope: "local"
+
+chat:
+  auto_reply: true
