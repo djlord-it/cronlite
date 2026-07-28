@@ -12,6 +12,13 @@ import (
 	"github.com/djlord-it/cronlite/internal/domain"
 )
 
+func TestMaxRetryDurationIncludesAttemptTimeoutsAndBackoffs(t *testing.T) {
+	const want = 16*time.Minute + 30*time.Second
+	if got := MaxRetryDuration(); got != want {
+		t.Fatalf("MaxRetryDuration() = %s, want %s", got, want)
+	}
+}
+
 // mockStore tracks execution status transitions and enforces terminal state guards.
 type mockStore struct {
 	mu               sync.Mutex

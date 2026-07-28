@@ -666,6 +666,54 @@ func TestTriggerNow_HappyPath(t *testing.T) {
 	}
 }
 
+func TestTriggerNowRetriesTimestampCollision(t *testing.T) {
+	jobID := uuid.New()
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(
+			_ context.Context,
+			id uuid.UUID,
+		) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID:        id,
+				Namespace: "t1",
+				Enabled:   true,
+			}, domain.Schedule{}, nil
+		},
+	}
+	var inserted []domain.Execution
+	execRepo := &mockExecutionRepo{
+		insertExecutionFn: func(_ context.Context, execution domain.Execution) error {
+			inserted = append(inserted, execution)
+			if len(inserted) == 1 {
+				return domain.ErrDuplicateExecution
+			}
+			return nil
+		},
+	}
+	svc := newTestServiceFull(jobRepo, nil, execRepo, nil, nil, nil)
+
+	execution, err := svc.TriggerNow(ctxWithNS("t1"), jobID)
+	if err != nil {
+		t.Fatalf("TriggerNow: %v", err)
+	}
+	if len(inserted) != 2 {
+		t.Fatalf("insert attempts = %d, want 2", len(inserted))
+	}
+	if !inserted[1].ScheduledAt.After(inserted[0].ScheduledAt) {
+		t.Fatalf(
+			"retry timestamp %s is not after collision timestamp %s",
+			inserted[1].ScheduledAt,
+			inserted[0].ScheduledAt,
+		)
+	}
+	if inserted[1].ID == inserted[0].ID {
+		t.Fatal("retry reused the colliding execution ID")
+	}
+	if execution.ID != inserted[1].ID {
+		t.Fatalf("returned execution %s, want successful retry %s", execution.ID, inserted[1].ID)
+	}
+}
+
 func TestResolveSchedule_CronPassthrough(t *testing.T) {
 	svc := newTestService(nil)
 

@@ -88,8 +88,8 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 | `DB_POLL_INTERVAL` | `500ms` | Sleep between polls when idle (DB mode) |
 | `RECONCILE_ENABLED` | `false` | Enable orphan recovery |
 | `RECONCILE_INTERVAL` | `5m` | Orphan scan frequency |
-| `RECONCILE_THRESHOLD` | `15m` | Age before execution is considered orphaned |
-| `RECONCILE_REQUEUE_THRESHOLD` | `2m` | Age before in-progress execution is requeued (crash recovery) |
+| `RECONCILE_THRESHOLD` | `19m` | Age before execution is considered orphaned |
+| `RECONCILE_REQUEUE_THRESHOLD` | `19m` | Age before in-progress execution is requeued (crash recovery); must exceed the full retry window |
 | `RECONCILE_BATCH_SIZE` | `100` | Max orphans per cycle |
 | `METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` |
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures to open circuit (0 = disabled) |
