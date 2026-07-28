@@ -27,6 +27,9 @@ go.work.sum
 !.github/ISSUE_TEMPLATE/bug_report.md
 !.github/ISSUE_TEMPLATE/feature_request.md
 !.github/PULL_REQUEST_TEMPLATE.md
+!tools/benchmark/README.md
+!tools/benchmark/example-output/
+!tools/benchmark/example-output/benchmark-report.md
 
 .claude/
 .idea/
@@ -40,6 +43,7 @@ __pycache__/
 # Playground artifacts
 playground/.env
 playground/reports/
+benchmark-output/
 
 # Env files (secrets)
 .env
