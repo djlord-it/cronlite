@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.0",
+  "run_id": "example-docker-unavailable",
+  "random_seed": 1,
+  "command": "go run ./tools/benchmark --start-compose --diagnostic --scenario smoke --sample-count 10 --output tools/benchmark/example-output",
+  "started_at": "2026-07-28T04:38:55.800288Z",
+  "finished_at": "2026-07-28T04:38:55.944438Z",
+  "environment": {
+    "os": "darwin",
+    "architecture": "arm64",
+    "cpu_count": 8,
+    "memory_bytes": 8589934592,
+    "go_version": "go1.25.8",
+    "commit_sha": "1fe908c7443d1a63bd3bf204a0073d436b482236",
+    "dispatch_mode": "db",
+    "cronlite_instances": 3,
+    "relevant_config": {
+      "example_kind": "capability-limited local example",
+      "requeue_threshold": "2m0s",
+      "retry_profile": "real-policy"
+    }
+  },
+  "config": {
+    "base_url": "http://127.0.0.1:18080",
+    "api_key_configured": false,
+    "receiver_addr": "0.0.0.0:19090",
+    "receiver_public_url": "http://host.docker.internal:19090",
+    "scenarios": [
+      "smoke"
+    ],
+    "sample_count": 10,
+    "concurrency": [
+      1,
+      5,
+      10,
+      25,
+      50
+    ],
+    "timeout_ns": 45000000000,
+    "poll_interval_ns": 100000000,
+    "requeue_threshold_ns": 120000000000,
+    "database_target": "postgres://127.0.0.1:15432/cronlite",
+    "diagnostic": true,
+    "metrics_url": "http://127.0.0.1:18080/metrics",
+    "output_dir": "./benchmark-output",
+    "random_seed": 1,
+    "webhook_secret_configured": true,
+    "retry_profile": "real-policy",
+    "allow_disruptive": false,
+    "allow_non_local": false,
+    "fail_on_correctness": false,
+    "keep_data": false,
+    "start_compose": true,
+    "cleanup_environment": false,
+    "dispatch_mode": "db"
+  },
+  "scenarios": [
+    {
+      "name": "smoke",
+      "status": "skipped",
+      "reason": "managed local smoke skipped: Docker daemon was unavailable",
+      "started_at": "2026-07-28T04:38:55.800288Z",
+      "finished_at": "2026-07-28T04:38:55.944461Z",
+      "executions": null,
+      "observations": null,
+      "findings": null
+    }
+  ],
+  "findings": null,
+  "limitations": [
+    "CronLite recurring cron resolution is one minute; manual and recurring measurements are separate.",
+    "Cross-process wall-clock measurements depend on clock synchronization.",
+    "Same-machine Docker results include operating-system, virtualization, and resource-contention noise.",
+    "Local results are regression baselines, not universal production capacity guarantees.",
+    "High percentiles are unstable at small sample counts.",
+    "Production network conditions may differ substantially.",
+    "Diagnostic database inspection is internal test visibility, not the customer experience.",
+    "A benchmark can reveal duplicates but cannot prove the absence of every race.",
+    "Terminal status update time and worker identity are not persisted by current instrumentation.",
+    "The public execution API does not expose delivery attempts or claimed_at.",
+    "Fast retry injection is unavailable; real-policy retries use production backoff durations.",
+    "Unavailable Docker, PostgreSQL, permission, and platform capabilities are reported as skipped."
+  ]
+}
