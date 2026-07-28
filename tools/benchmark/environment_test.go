@@ -36,6 +36,17 @@ func TestComposeBenchmarkStackDoesNotThrottleDispatcherMeasurements(t *testing.T
 	}
 }
 
+func TestComposeUsesProductionRequeueThresholdUnlessFailureRunOverridesIt(t *testing.T) {
+	compose, err := os.ReadFile("docker-compose.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const setting = `RECONCILE_REQUEUE_THRESHOLD: "${BENCHMARK_REQUEUE_THRESHOLD:-2m}"`
+	if !strings.Contains(string(compose), setting) {
+		t.Fatalf("benchmark compose is missing configurable safe default %s", setting)
+	}
+}
+
 func TestComposeControllerRejectsUnownedProject(t *testing.T) {
 	controller := &composeController{
 		File:        "tools/benchmark/docker-compose.yml",

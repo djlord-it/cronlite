@@ -28,6 +28,28 @@ func TestCorrelateComputesDiagnosticLifecycle(t *testing.T) {
 	assertMeasurement(t, got.Measurements, "webhook_rtt_ms", 25, ProvenanceDatabase)
 }
 
+func TestCorrelateRejectsClaimTimestampOverwrittenByReclaim(t *testing.T) {
+	record := fixtureExecutionRecord()
+	claimed := fixtureTime(200)
+	record.Diagnostic = &DiagnosticExecution{
+		CreatedAt: fixtureTime(100),
+		ClaimedAt: &claimed,
+		Attempts: []DiagnosticAttempt{{
+			Attempt:    1,
+			StartedAt:  fixtureTime(125),
+			FinishedAt: fixtureTime(150),
+		}},
+	}
+
+	got := correlate(record)
+	for _, name := range []string{"queue_wait_ms", "claim_to_dispatch_ms"} {
+		measurement := findMeasurement(got.Measurements, name)
+		if measurement.Provenance != ProvenanceUnavailable || measurement.ValueMS != nil {
+			t.Fatalf("%s should be unavailable after reclaim: %+v", name, measurement)
+		}
+	}
+}
+
 func TestCorrelateComputesManualEndToEndAndReceiverProcessing(t *testing.T) {
 	record := fixtureExecutionRecord()
 	got := correlate(record)
@@ -152,6 +174,15 @@ func assertMeasurement(
 		return
 	}
 	t.Fatalf("measurement %q not found: %+v", name, measurements)
+}
+
+func findMeasurement(measurements []Measurement, name string) Measurement {
+	for _, measurement := range measurements {
+		if measurement.Name == name {
+			return measurement
+		}
+	}
+	return Measurement{}
 }
 
 func hasFinding(findings []Finding, severity Severity, code string) bool {
