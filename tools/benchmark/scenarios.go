@@ -224,7 +224,8 @@ func finalizeScenario(
 		Executions:   records,
 		Observations: observations,
 	}
-	for _, record := range records {
+	for index := range records {
+		record := &records[index]
 		result.Findings = append(result.Findings, record.Findings...)
 	}
 	if len(errs) > 0 {

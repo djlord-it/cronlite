@@ -104,10 +104,12 @@ func writeScenarioSection(report *strings.Builder, result RunResult) {
 	report.WriteString("## Scenario Summary\n\n")
 	report.WriteString("| Scenario | Status | Executions | Callbacks | Failures | Duplicates | Duration |\n")
 	report.WriteString("|---|---:|---:|---:|---:|---:|---:|\n")
-	for _, scenario := range result.Scenarios {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
 		callbacks := 0
 		duplicates := 0
-		for _, execution := range scenario.Executions {
+		for executionIndex := range scenario.Executions {
+			execution := &scenario.Executions[executionIndex]
 			callbacks += len(execution.Callbacks)
 			if hasDuplicateFinding(execution.Findings) {
 				duplicates++
@@ -142,8 +144,10 @@ func writeObservationStatsSection(
 	kind string,
 ) {
 	groups := make(map[string][]float64)
-	for _, scenario := range result.Scenarios {
-		for _, observation := range scenario.Observations {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
+		for observationIndex := range scenario.Observations {
+			observation := &scenario.Observations[observationIndex]
 			if observation.Kind == kind ||
 				(kind == "baseline" && observation.Name == "baseline_cronlite_health_rtt_ms") {
 				groups[observation.Name] = append(
@@ -162,8 +166,10 @@ func writeAPIStatsSection(
 	prefixes []string,
 ) {
 	groups := measurementGroups(result, prefixes)
-	for _, scenario := range result.Scenarios {
-		for _, observation := range scenario.Observations {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
+		for observationIndex := range scenario.Observations {
+			observation := &scenario.Observations[observationIndex]
 			if observation.Kind == "api" && matchesMeasurement(observation.Name, prefixes) {
 				groups[observation.Name] = append(
 					groups[observation.Name],
@@ -186,8 +192,10 @@ func writeMeasurementStatsSection(
 
 func measurementGroups(result RunResult, prefixes []string) map[string][]float64 {
 	groups := make(map[string][]float64)
-	for _, scenario := range result.Scenarios {
-		for _, execution := range scenario.Executions {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
+		for executionIndex := range scenario.Executions {
+			execution := &scenario.Executions[executionIndex]
 			if execution.Warmup {
 				continue
 			}
@@ -246,13 +254,15 @@ func writeThroughputSection(report *strings.Builder, result RunResult) {
 	report.WriteString("## Throughput\n\n")
 	report.WriteString("| Scenario | Execution throughput/s | Callback throughput/s | Success rate | Retry rate |\n")
 	report.WriteString("|---|---:|---:|---:|---:|\n")
-	for _, scenario := range result.Scenarios {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
 		duration := scenario.FinishedAt.Sub(scenario.StartedAt).Seconds()
 		if duration <= 0 {
 			duration = 1
 		}
 		executions, callbacks, successes, retries := 0, 0, 0, 0
-		for _, execution := range scenario.Executions {
+		for executionIndex := range scenario.Executions {
+			execution := &scenario.Executions[executionIndex]
 			if execution.Warmup {
 				continue
 			}
@@ -284,9 +294,12 @@ func writeFailureSection(report *strings.Builder, result RunResult) {
 	errorsByClass := make(map[string]int)
 	permanentFailures := 0
 	signatureFailures := 0
-	for _, scenario := range result.Scenarios {
-		for _, execution := range scenario.Executions {
-			for _, callback := range execution.Callbacks {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
+		for executionIndex := range scenario.Executions {
+			execution := &scenario.Executions[executionIndex]
+			for callbackIndex := range execution.Callbacks {
+				callback := &execution.Callbacks[callbackIndex]
 				statuses[callback.StatusCode]++
 				if !callback.SignatureValid {
 					signatureFailures++
@@ -308,7 +321,7 @@ func writeFailureSection(report *strings.Builder, result RunResult) {
 	fmt.Fprintf(report, "- Error classification: `%s`\n\n", formatStringDistribution(errorsByClass))
 }
 
-func executionTerminalStatus(execution ExecutionRecord) string {
+func executionTerminalStatus(execution *ExecutionRecord) string {
 	if execution.PollBounds != nil &&
 		execution.PollBounds.FinalExecution.Status != "" {
 		return execution.PollBounds.FinalExecution.Status
@@ -319,8 +332,10 @@ func executionTerminalStatus(execution ExecutionRecord) string {
 func writeDuplicateSection(report *strings.Builder, result RunResult) {
 	report.WriteString("## Duplicate-Delivery Findings\n\n")
 	total, duplicate, concurrent := 0, 0, 0
-	for _, scenario := range result.Scenarios {
-		for _, execution := range scenario.Executions {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
+		for executionIndex := range scenario.Executions {
+			execution := &scenario.Executions[executionIndex]
 			total++
 			if hasDuplicateFinding(execution.Findings) {
 				duplicate++
@@ -387,9 +402,11 @@ func allFindings(result RunResult) []Finding {
 		return deduplicateFindings(result.Findings)
 	}
 	var findings []Finding
-	for _, scenario := range result.Scenarios {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
 		findings = append(findings, scenario.Findings...)
-		for _, execution := range scenario.Executions {
+		for executionIndex := range scenario.Executions {
+			execution := &scenario.Executions[executionIndex]
 			findings = append(findings, execution.Findings...)
 		}
 	}

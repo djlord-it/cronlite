@@ -99,9 +99,10 @@ func writeCSV(out *bytes.Buffer, result RunResult) error {
 	if err := writer.Write(csvHeader); err != nil {
 		return err
 	}
-	for _, scenario := range result.Scenarios {
-		for _, execution := range scenario.Executions {
-			rows := executionCSVRows(execution)
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
+		for executionIndex := range scenario.Executions {
+			rows := executionCSVRows(scenario.Executions[executionIndex])
 			for _, row := range rows {
 				if err := writer.Write(row); err != nil {
 					return err

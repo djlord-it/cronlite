@@ -397,7 +397,8 @@ func recurringResult(
 	runErr error,
 ) ScenarioResult {
 	records := make([]ExecutionRecord, 0, len(executions))
-	for index, execution := range executions {
+	for index := range executions {
+		execution := &executions[index]
 		record := ExecutionRecord{
 			RunID:         env.RunID,
 			Scenario:      "recurring",
@@ -406,7 +407,7 @@ func recurringResult(
 			JobID:         jobID,
 			ExecutionID:   execution.ID,
 			TargetURL:     target,
-			APIExecution:  execution,
+			APIExecution:  *execution,
 			Callbacks:     env.Receiver.callbacksFor(execution.ID),
 		}
 		if env.Diagnostic != nil {
