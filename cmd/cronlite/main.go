@@ -159,7 +159,7 @@ Environment Variables:
   RECONCILE_ENABLED         Enable orphan execution reconciler (default: "false")
   RECONCILE_INTERVAL        How often to scan for orphans (default: "5m")
   RECONCILE_THRESHOLD       Age before emitted execution is orphaned (default: "15m")
-  RECONCILE_REQUEUE_THRESHOLD Age before in_progress execution is requeued (default: "2m", db mode)
+  RECONCILE_REQUEUE_THRESHOLD Age before in_progress execution is requeued (default: "19m", db mode)
   RECONCILE_BATCH_SIZE      Max orphans per cycle (default: "100")`)
 }
 
@@ -761,10 +761,6 @@ func logConfigWarnings(cfg *config.Config) {
 
 	if cfg.DispatchMode == "db" && cfg.DispatcherWorkers == 1 {
 		log.Printf("INFO: DISPATCH_MODE=db with DISPATCHER_WORKERS=1 — consider increasing to 2-4 for production workloads.")
-	}
-
-	if cfg.DispatchMode == "db" && cfg.ReconcileEnabled && cfg.ReconcileRequeueThreshold > 5*time.Minute {
-		log.Printf("WARNING [P1]: RECONCILE_REQUEUE_THRESHOLD=%s is very conservative. FOR UPDATE SKIP LOCKED prevents premature requeue, so values of 1-2m are safe and improve crash recovery time.", cfg.ReconcileRequeueThreshold)
 	}
 
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {

@@ -47,8 +47,9 @@ type Config struct {
 	ReconcileThreshold    time.Duration `json:"-"`
 	ReconcileThresholdStr string        `json:"reconcile_threshold"`
 
-	// ReconcileRequeueThreshold: age before in_progress execution is requeued (crash recovery).
-	// Can be aggressive (FOR UPDATE SKIP LOCKED prevents premature requeue).
+	// ReconcileRequeueThreshold is the age before an in_progress execution is
+	// requeued for crash recovery. It must exceed the complete dispatcher retry
+	// window because row locks are not held across webhook attempts and backoffs.
 	ReconcileRequeueThreshold    time.Duration `json:"-"`
 	ReconcileRequeueThresholdStr string        `json:"reconcile_requeue_threshold"`
 

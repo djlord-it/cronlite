@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/djlord-it/cronlite/internal/config"
 )
@@ -23,9 +24,9 @@ func captureLogOutput(cfg *config.Config) string {
 
 func TestLogConfigWarnings_ChannelNoReconciler(t *testing.T) {
 	cfg := &config.Config{
-		DispatchMode:     "channel",
-		ReconcileEnabled: false,
-		MetricsEnabled:   true,
+		DispatchMode:      "channel",
+		ReconcileEnabled:  false,
+		MetricsEnabled:    true,
 		DispatcherWorkers: 1,
 	}
 	output := captureLogOutput(cfg)
@@ -58,9 +59,9 @@ func TestLogConfigWarnings_ChannelNoReconciler(t *testing.T) {
 
 func TestLogConfigWarnings_ChannelWithReconciler(t *testing.T) {
 	cfg := &config.Config{
-		DispatchMode:     "channel",
-		ReconcileEnabled: true,
-		MetricsEnabled:   true,
+		DispatchMode:      "channel",
+		ReconcileEnabled:  true,
+		MetricsEnabled:    true,
 		DispatcherWorkers: 1,
 	}
 	output := captureLogOutput(cfg)
@@ -78,9 +79,9 @@ func TestLogConfigWarnings_ChannelWithReconciler(t *testing.T) {
 
 func TestLogConfigWarnings_DBNoReconciler(t *testing.T) {
 	cfg := &config.Config{
-		DispatchMode:     "db",
-		ReconcileEnabled: false,
-		MetricsEnabled:   true,
+		DispatchMode:      "db",
+		ReconcileEnabled:  false,
+		MetricsEnabled:    true,
 		DispatcherWorkers: 2,
 	}
 	output := captureLogOutput(cfg)
@@ -113,10 +114,11 @@ func TestLogConfigWarnings_DBNoReconciler(t *testing.T) {
 
 func TestLogConfigWarnings_DBWithReconciler(t *testing.T) {
 	cfg := &config.Config{
-		DispatchMode:     "db",
-		ReconcileEnabled: true,
-		MetricsEnabled:   true,
-		DispatcherWorkers: 4,
+		DispatchMode:              "db",
+		ReconcileEnabled:          true,
+		ReconcileRequeueThreshold: 19 * time.Minute,
+		MetricsEnabled:            true,
+		DispatcherWorkers:         4,
 	}
 	output := captureLogOutput(cfg)
 
@@ -131,9 +133,9 @@ func TestLogConfigWarnings_DBWithReconciler(t *testing.T) {
 
 func TestLogConfigWarnings_MetricsDisabled(t *testing.T) {
 	cfg := &config.Config{
-		DispatchMode:     "db",
-		ReconcileEnabled: true,
-		MetricsEnabled:   false,
+		DispatchMode:      "db",
+		ReconcileEnabled:  true,
+		MetricsEnabled:    false,
 		DispatcherWorkers: 4,
 	}
 	output := captureLogOutput(cfg)
@@ -145,9 +147,9 @@ func TestLogConfigWarnings_MetricsDisabled(t *testing.T) {
 
 func TestLogConfigWarnings_DBWorkersOne(t *testing.T) {
 	cfg := &config.Config{
-		DispatchMode:     "db",
-		ReconcileEnabled: true,
-		MetricsEnabled:   true,
+		DispatchMode:      "db",
+		ReconcileEnabled:  true,
+		MetricsEnabled:    true,
 		DispatcherWorkers: 1,
 	}
 	output := captureLogOutput(cfg)
@@ -159,9 +161,9 @@ func TestLogConfigWarnings_DBWorkersOne(t *testing.T) {
 
 func TestLogConfigWarnings_DBWorkersFour(t *testing.T) {
 	cfg := &config.Config{
-		DispatchMode:     "db",
-		ReconcileEnabled: true,
-		MetricsEnabled:   true,
+		DispatchMode:      "db",
+		ReconcileEnabled:  true,
+		MetricsEnabled:    true,
 		DispatcherWorkers: 4,
 	}
 	output := captureLogOutput(cfg)
@@ -204,9 +206,9 @@ func TestLogConfigWarnings_SSLModeNotDisable(t *testing.T) {
 func TestLogConfigWarnings_AllWarnings(t *testing.T) {
 	// Worst case: channel mode, no reconciler, no metrics
 	cfg := &config.Config{
-		DispatchMode:     "channel",
-		ReconcileEnabled: false,
-		MetricsEnabled:   false,
+		DispatchMode:      "channel",
+		ReconcileEnabled:  false,
+		MetricsEnabled:    false,
 		DispatcherWorkers: 1,
 	}
 	output := captureLogOutput(cfg)

@@ -212,6 +212,27 @@ func TestValidate_ReconcileThresholdSafe(t *testing.T) {
 	}
 }
 
+func TestValidate_ReconcileRequeueThresholdBelowMaxRetry(t *testing.T) {
+	cfg := validDBConfig()
+	cfg.ReconcileEnabled = true
+	cfg.ReconcileThreshold = 19 * time.Minute
+	cfg.ReconcileThresholdStr = "19m"
+	cfg.ReconcileRequeueThreshold = 2 * time.Minute
+	cfg.ReconcileRequeueThresholdStr = "2m"
+	cfg.ReconcileInterval = 5 * time.Minute
+	cfg.ReconcileIntervalStr = "5m"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error when requeue threshold < max retry duration")
+	}
+
+	maxRetry := dispatcher.MaxRetryDuration()
+	if !strings.Contains(err.Error(), maxRetry.String()) {
+		t.Errorf("error should mention max retry duration: %q", err)
+	}
+}
+
 func TestValidate_CircuitBreakerCooldownRequired(t *testing.T) {
 	cfg := Config{
 		DatabaseURL:               "postgres://localhost/test",
