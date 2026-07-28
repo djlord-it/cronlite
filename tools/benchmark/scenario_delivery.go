@@ -269,44 +269,63 @@ func runRetry(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 		{name: "timeout", statuses: []int{204}, delay: env.Config.Timeout + time.Second},
 		{name: "connection-failure", targetOverride: "http://127.0.0.1:1/hook"},
 	}
-	var records []ExecutionRecord
-	var observations []Observation
-	var errs []error
+	records := make([]ExecutionRecord, len(cases))
+	recorded := make([]bool, len(cases))
+	observations := make([]Observation, len(cases))
+	caseErrors := make([]error, len(cases))
+	var wg sync.WaitGroup
 	for index, retryCase := range cases {
-		caseCtx, cancel := productionRetryCaseContext(ctx)
-		var job APIJob
-		var target string
-		var observation Observation
-		var err error
-		if retryCase.targetOverride != "" {
-			target = retryCase.targetOverride
-			job, observation, err = env.createJobWithTarget(caseCtx, retryCase.name, target)
-		} else {
-			job, target, observation, err = env.createJob(caseCtx, retryCase.name, BehaviorPlan{
-				Statuses: retryCase.statuses,
-				Delay:    retryCase.delay,
-			})
-		}
-		observations = append(observations, observation)
-		if err != nil {
-			errs = append(errs, err)
-			cancel()
-			continue
-		}
-		record, err := runSingleManual(
-			caseCtx,
-			env,
-			retryCase.name,
-			job.ID,
-			target,
-			index+1,
-			false,
-		)
-		cancel()
-		records = append(records, record)
-		errs = appendIfError(errs, err)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			caseCtx, cancel := productionRetryCaseContext(ctx)
+			defer cancel()
+			var job APIJob
+			var target string
+			var err error
+			if retryCase.targetOverride != "" {
+				target = retryCase.targetOverride
+				job, observations[index], err = env.createJobWithTarget(
+					caseCtx,
+					retryCase.name,
+					target,
+				)
+			} else {
+				job, target, observations[index], err = env.createJob(
+					caseCtx,
+					retryCase.name,
+					BehaviorPlan{
+						Statuses: retryCase.statuses,
+						Delay:    retryCase.delay,
+					},
+				)
+			}
+			if err != nil {
+				caseErrors[index] = err
+				return
+			}
+			records[index], caseErrors[index] = runSingleManual(
+				caseCtx,
+				env,
+				retryCase.name,
+				job.ID,
+				target,
+				index+1,
+				false,
+			)
+			recorded[index] = true
+		}()
 	}
-	return finalizeScenario("retry", started, records, observations, errs)
+	wg.Wait()
+	resultRecords := make([]ExecutionRecord, 0, len(records))
+	var errs []error
+	for index := range cases {
+		if recorded[index] {
+			resultRecords = append(resultRecords, records[index])
+		}
+		errs = appendIfError(errs, caseErrors[index])
+	}
+	return finalizeScenario("retry", started, resultRecords, observations, errs)
 }
 
 func productionRetryCaseContext(parent context.Context) (context.Context, context.CancelFunc) {
