@@ -251,7 +251,9 @@ func callbackFindings(record ExecutionRecord) []Finding {
 }
 
 func statusFindings(record ExecutionRecord) []Finding {
-	if record.PollBounds == nil || record.Diagnostic == nil {
+	if record.PollBounds == nil ||
+		record.PollBounds.FirstTerminalAt == nil ||
+		record.Diagnostic == nil {
 		return nil
 	}
 	apiStatus := record.PollBounds.FinalExecution.Status
