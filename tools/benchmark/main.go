@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -75,6 +76,9 @@ func main() {
 func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 	cfg, command, err := parseConfig(args, deps.Stderr)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitSuccess
+		}
 		fmt.Fprintf(deps.Stderr, "benchmark configuration: %v\n", err)
 		return exitConfiguration
 	}
