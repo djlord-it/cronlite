@@ -185,9 +185,10 @@ func (s *callbackStore) callbacksFor(executionID string) []CallbackObservation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result []CallbackObservation
-	for _, observation := range s.observations {
+	for index := range s.observations {
+		observation := &s.observations[index]
 		if observation.ExecutionID == executionID {
-			result = append(result, observation)
+			result = append(result, *observation)
 		}
 	}
 	return result

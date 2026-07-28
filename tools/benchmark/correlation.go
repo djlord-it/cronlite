@@ -82,18 +82,19 @@ func diagnosticMeasurements(diagnostic *DiagnosticExecution) []Measurement {
 	})
 
 	var measurements []Measurement
-	if diagnostic.ClaimedAt == nil {
+	switch {
+	case diagnostic.ClaimedAt == nil:
 		measurements = append(measurements,
 			unavailableMeasurement("queue_wait_ms", "execution has no claimed_at observation"),
 			unavailableMeasurement("claim_to_dispatch_ms", "execution has no claimed_at observation"),
 		)
-	} else if len(attempts) > 0 && diagnostic.ClaimedAt.After(attempts[0].StartedAt) {
+	case len(attempts) > 0 && diagnostic.ClaimedAt.After(attempts[0].StartedAt):
 		const reason = "claimed_at was overwritten by a later reclaim"
 		measurements = append(measurements,
 			unavailableMeasurement("queue_wait_ms", reason),
 			unavailableMeasurement("claim_to_dispatch_ms", reason),
 		)
-	} else {
+	default:
 		measurements = append(measurements, betweenMeasurement(
 			"queue_wait_ms",
 			diagnostic.CreatedAt,
@@ -190,7 +191,8 @@ func callbackFindings(record ExecutionRecord) []Finding {
 	var findings []Finding
 	seenAttempts := make(map[string]bool)
 	var firstHash string
-	for index, callback := range record.Callbacks {
+	for index := range record.Callbacks {
+		callback := &record.Callbacks[index]
 		if !callback.SignatureValid {
 			findings = append(findings, finding(
 				SeverityCritical,
@@ -286,9 +288,10 @@ func unavailableMeasurement(name, reason string) Measurement {
 
 func earliestCallback(callbacks []CallbackObservation) CallbackObservation {
 	earliest := callbacks[0]
-	for _, callback := range callbacks[1:] {
+	for index := 1; index < len(callbacks); index++ {
+		callback := &callbacks[index]
 		if callback.ReceivedAt.Before(earliest.ReceivedAt) {
-			earliest = callback
+			earliest = *callback
 		}
 	}
 	return earliest
@@ -296,9 +299,10 @@ func earliestCallback(callbacks []CallbackObservation) CallbackObservation {
 
 func latestCallback(callbacks []CallbackObservation) CallbackObservation {
 	latest := callbacks[0]
-	for _, callback := range callbacks[1:] {
+	for index := 1; index < len(callbacks); index++ {
+		callback := &callbacks[index]
 		if callback.ResponseCompletedAt.After(latest.ResponseCompletedAt) {
-			latest = callback
+			latest = *callback
 		}
 	}
 	return latest

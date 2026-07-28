@@ -69,8 +69,9 @@ func main() {
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
-	defer cancel()
-	os.Exit(run(ctx, os.Args[1:], defaultRuntimeDependencies()))
+	exitCode := run(ctx, os.Args[1:], defaultRuntimeDependencies())
+	cancel()
+	os.Exit(exitCode)
 }
 
 func run(ctx context.Context, args []string, deps runtimeDependencies) int {
@@ -215,7 +216,8 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 	if cfg.FailOnCorrectness && hasCriticalFinding(result.Findings) {
 		return exitCorrectness
 	}
-	for _, scenario := range result.Scenarios {
+	for scenarioIndex := range result.Scenarios {
+		scenario := &result.Scenarios[scenarioIndex]
 		if scenario.Status == ScenarioFailed && len(scenario.Findings) == 0 {
 			return exitRuntime
 		}
@@ -359,9 +361,11 @@ func joinCommandArgs(args []string) string {
 
 func collectRunFindings(scenarios []ScenarioResult) []Finding {
 	var findings []Finding
-	for _, scenario := range scenarios {
+	for scenarioIndex := range scenarios {
+		scenario := &scenarios[scenarioIndex]
 		findings = append(findings, scenario.Findings...)
-		for _, execution := range scenario.Executions {
+		for executionIndex := range scenario.Executions {
+			execution := &scenario.Executions[executionIndex]
 			findings = append(findings, execution.Findings...)
 		}
 	}
