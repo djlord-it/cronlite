@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -255,6 +256,10 @@ func runRetry(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 		)
 	}
 	started := time.Now()
+	connectionTarget, err := connectionFailureTarget(env.Config.ReceiverPublicURL)
+	if err != nil {
+		return finalizeScenario("retry", started, nil, nil, []error{err})
+	}
 	cases := []struct {
 		name           string
 		statuses       []int
@@ -267,7 +272,7 @@ func runRetry(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 		{name: "429-eventual-success", statuses: []int{429, 204}},
 		{name: "non-retryable-400", statuses: []int{400}},
 		{name: "timeout", statuses: []int{204}, delay: env.Config.Timeout + time.Second},
-		{name: "connection-failure", targetOverride: "http://127.0.0.1:1/hook"},
+		{name: "connection-failure", targetOverride: connectionTarget},
 	}
 	records := make([]ExecutionRecord, len(cases))
 	recorded := make([]bool, len(cases))
@@ -326,6 +331,19 @@ func runRetry(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 		errs = appendIfError(errs, caseErrors[index])
 	}
 	return finalizeScenario("retry", started, resultRecords, observations, errs)
+}
+
+func connectionFailureTarget(receiverPublicURL string) (string, error) {
+	target, err := url.Parse(receiverPublicURL)
+	if err != nil || target.Scheme == "" || target.Hostname() == "" {
+		return "", fmt.Errorf("parse receiver public URL for connection failure target")
+	}
+	target.Host = net.JoinHostPort(target.Hostname(), "1")
+	target.Path = "/hook"
+	target.RawPath = ""
+	target.RawQuery = ""
+	target.Fragment = ""
+	return target.String(), nil
 }
 
 func productionRetryCaseContext(parent context.Context) (context.Context, context.CancelFunc) {
