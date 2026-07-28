@@ -106,10 +106,12 @@ type DiagnosticExecution struct {
 }
 
 type PollBounds struct {
-	PollCount         int          `json:"poll_count"`
-	LastNonTerminalAt *time.Time   `json:"last_non_terminal_at,omitempty"`
-	FirstTerminalAt   *time.Time   `json:"first_terminal_at,omitempty"`
-	FinalExecution    APIExecution `json:"final_execution"`
+	PollCount           int          `json:"poll_count"`
+	TransientErrorCount int          `json:"transient_error_count,omitempty"`
+	LastTransientError  string       `json:"last_transient_error,omitempty"`
+	LastNonTerminalAt   *time.Time   `json:"last_non_terminal_at,omitempty"`
+	FirstTerminalAt     *time.Time   `json:"first_terminal_at,omitempty"`
+	FinalExecution      APIExecution `json:"final_execution"`
 }
 
 type ExecutionRecord struct {

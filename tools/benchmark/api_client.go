@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -277,15 +278,20 @@ func (c *apiClient) pollTerminal(
 		execution, _, err := c.getExecution(ctx, executionID)
 		observedAt := time.Now().UTC()
 		if err != nil {
-			return result, err
+			if !isRetryablePollError(ctx, err) {
+				return result, err
+			}
+			result.TransientErrorCount++
+			result.LastTransientError = err.Error()
+		} else {
+			result.PollCount++
+			result.FinalExecution = execution
+			if execution.Status == "delivered" || execution.Status == "failed" {
+				result.FirstTerminalAt = &observedAt
+				return result, nil
+			}
+			result.LastNonTerminalAt = &observedAt
 		}
-		result.PollCount++
-		result.FinalExecution = execution
-		if execution.Status == "delivered" || execution.Status == "failed" {
-			result.FirstTerminalAt = &observedAt
-			return result, nil
-		}
-		result.LastNonTerminalAt = &observedAt
 
 		timer := time.NewTimer(interval)
 		select {
@@ -297,6 +303,22 @@ func (c *apiClient) pollTerminal(
 		case <-timer.C:
 		}
 	}
+}
+
+func isRetryablePollError(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.StatusCode == http.StatusTooManyRequests ||
+			apiErr.StatusCode >= http.StatusInternalServerError
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) {
+		return true
+	}
+	return errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
 func (c *apiClient) do(
