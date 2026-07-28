@@ -110,7 +110,7 @@ func defaultConfig() Config {
 		Concurrency:       []int{1, 5, 10, 25, 50},
 		Timeout:           45 * time.Second,
 		PollInterval:      100 * time.Millisecond,
-		RequeueThreshold:  2 * time.Minute,
+		RequeueThreshold:  19 * time.Minute,
 		MetricsURL:        "http://127.0.0.1:8080/metrics",
 		OutputDir:         "./benchmark-output",
 		RandomSeed:        1,

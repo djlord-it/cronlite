@@ -22,12 +22,13 @@ var defaultBackoff = []time.Duration{
 
 const maxAttempts = 4
 
+const maxWebhookAttemptTimeout = 60 * time.Second
+
 // MaxRetryDuration returns the worst-case total time the dispatcher may spend
-// retrying a single execution (sum of all backoff intervals). Callers such as
-// the reconciler use this to avoid re-emitting executions that are still
-// in-flight.
+// retrying a single execution: all webhook attempt timeouts plus all backoff
+// intervals. The public API limits webhook timeouts to 60 seconds.
 func MaxRetryDuration() time.Duration {
-	var total time.Duration
+	total := time.Duration(maxAttempts) * maxWebhookAttemptTimeout
 	for _, d := range defaultBackoff {
 		total += d
 	}
@@ -115,8 +116,8 @@ func (r WebhookResult) IsRetryable() bool {
 type Dispatcher struct {
 	store        Store
 	sender       WebhookSender
-	analytics    AnalyticsSink // optional, nil = disabled
-	metrics      MetricsSink   // optional, nil = disabled
+	analytics    AnalyticsSink  // optional, nil = disabled
+	metrics      MetricsSink    // optional, nil = disabled
 	breaker      CircuitBreaker // optional, nil = disabled
 	backoff      []time.Duration
 	drainTimeout time.Duration

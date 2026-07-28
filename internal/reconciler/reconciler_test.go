@@ -478,6 +478,10 @@ func TestReconciler_ThresholdExceedsMaxRetryDuration(t *testing.T) {
 		t.Errorf("reconciler threshold (%s) must exceed dispatcher max retry duration (%s) "+
 			"to prevent duplicate webhook deliveries", cfg.Threshold, maxRetry)
 	}
+	if cfg.RequeueThreshold <= maxRetry {
+		t.Errorf("requeue threshold (%s) must exceed dispatcher max retry duration (%s) "+
+			"to prevent concurrent retry workers", cfg.RequeueThreshold, maxRetry)
+	}
 }
 
 // TestReconciler_RequeuesStaleExecutions verifies that RequeueStaleExecutions
