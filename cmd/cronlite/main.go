@@ -140,7 +140,7 @@ Environment Variables:
 
   DISPATCH_MODE             Dispatch mode: "channel" or "db" (default: "channel")
   DB_POLL_INTERVAL          DB poll sleep interval (default: "500ms", db mode only)
-  DISPATCHER_WORKERS        Concurrent dispatch workers (default: "1", db mode only)
+  DISPATCHER_WORKERS        DB poll workers; each allows 4 concurrent deliveries (default: "1", db mode only)
 
   LEADER_LOCK_KEY           Advisory lock key for leader election (default: "728379", db mode only)
   LEADER_RETRY_INTERVAL     Follower lock acquisition retry interval (default: "5s", db mode only)

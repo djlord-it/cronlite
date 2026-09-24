@@ -72,6 +72,7 @@ func MultiKeyAuthMiddleware(
 	next http.Handler,
 ) http.Handler {
 	tracker := newLastUsedTracker(ctx, keyRepo)
+	keyCache := newAPIKeyCache(keyRepo)
 
 	// Rate-limited deprecation log: at most once per 60 seconds.
 	var lastLegacyWarn atomic.Int64
@@ -93,7 +94,7 @@ func MultiKeyAuthMiddleware(
 
 		// Try multi-key lookup via SHA-256 hash.
 		tokenHash := service.HashToken(token)
-		key, err := keyRepo.GetKeyByTokenHash(r.Context(), tokenHash)
+		key, err := keyCache.get(r.Context(), tokenHash)
 		if err == nil && key.Enabled {
 			// Found a valid key.
 			tracker.markUsed(key.ID)
