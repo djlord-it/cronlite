@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25-alpine3.23@sha256:cc985ef6f9c3bf9ece7488129c9abe0a150388ccdfa428d886fc709dca0b230a AS builder
+FROM golang:1.25.13-alpine3.23@sha256:42fc3368d1c50170a452f2bf4a1dfd292a065870c3f258d799aad4316671cb69 AS builder
 
 ARG RACE_ENABLED=0
 
@@ -40,10 +40,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /cronlite-mcp ./cmd/cronlite-mcp
 
 # Runtime stage
-FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
+FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
 
 # Install runtime dependencies at reviewed versions for reproducible builds.
-RUN apk add --no-cache ca-certificates=20260611-r0 tzdata=2026c-r0
+RUN apk add --no-cache ca-certificates=20260909-r0 tzdata=2026d-r0
 
 # Create non-root user
 RUN addgroup -g 1000 cronlite && \

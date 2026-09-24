@@ -177,18 +177,19 @@ LIMIT $2
 `
 
 const queryDequeueExecution = `
-SELECT id, job_id, namespace, trigger_type, scheduled_at, fired_at, status, acknowledged_at, created_at
-FROM executions
-WHERE status = 'emitted'
-ORDER BY created_at ASC
-FOR UPDATE SKIP LOCKED
-LIMIT 1
-`
-
-const queryClaimExecution = `
-UPDATE executions
+WITH next_execution AS (
+    SELECT id FROM executions
+    WHERE status = 'emitted'
+    ORDER BY created_at ASC
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1
+)
+UPDATE executions AS e
 SET status = 'in_progress', claimed_at = NOW()
-WHERE id = $1
+FROM next_execution
+WHERE e.id = next_execution.id
+RETURNING e.id, e.job_id, e.namespace, e.trigger_type, e.scheduled_at,
+          e.fired_at, e.status, e.acknowledged_at, e.created_at
 `
 
 const queryRequeueStaleExecutions = `

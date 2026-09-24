@@ -16,7 +16,7 @@ import (
 
 const (
 	checkoutAction = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
-	setupGoAction  = "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16"
+	setupGoAction  = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
 	uploadAction   = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 	postgresImage  = "postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50"
 )

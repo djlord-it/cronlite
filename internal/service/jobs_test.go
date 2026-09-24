@@ -1134,6 +1134,33 @@ func TestGetJob_NoNamespace(t *testing.T) {
 	}
 }
 
+func TestJobLookupPreservesDatabaseErrors(t *testing.T) {
+	lookupErr := errors.New("database unavailable")
+	jobRepo := &mockJobRepo{getJobWithScheduleScopedFn: func(context.Context, uuid.UUID, domain.Namespace) (domain.Job, domain.Schedule, error) {
+		return domain.Job{}, domain.Schedule{}, lookupErr
+	}}
+	svc := newTestServiceFull(jobRepo, nil, &mockExecutionRepo{}, &mockTagRepo{}, nil, nil)
+	ctx, id := ctxWithNS("tenant-A"), uuid.New()
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{"get", func() error { _, _, _, _, err := svc.GetJob(ctx, id); return err }},
+		{"update", func() error { _, _, err := svc.UpdateJob(ctx, id, UpdateJobInput{}); return err }},
+		{"pause", func() error { _, err := svc.PauseJob(ctx, id); return err }},
+		{"resume", func() error { _, err := svc.ResumeJob(ctx, id); return err }},
+		{"trigger", func() error { _, err := svc.TriggerNow(ctx, id); return err }},
+		{"next run", func() error { _, _, _, err := svc.GetNextRunTime(ctx, id); return err }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.run(); !errors.Is(err, lookupErr) {
+				t.Fatalf("want database error, got %v", err)
+			}
+		})
+	}
+}
+
 // --- GetNextRunTime tests ---
 
 func TestGetNextRunTime_HappyPath(t *testing.T) {
@@ -1184,7 +1211,7 @@ func TestGetNextRunTime_NoNamespace(t *testing.T) {
 func TestGetNextRunTime_NotFound(t *testing.T) {
 	jobRepo := &mockJobRepo{
 		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	svc := newTestService(jobRepo)
