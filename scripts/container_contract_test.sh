@@ -25,14 +25,14 @@ assert_not_contains() {
 }
 
 assert_contains Dockerfile \
-  'FROM golang:1.25-alpine3.23@sha256:cc985ef6f9c3bf9ece7488129c9abe0a150388ccdfa428d886fc709dca0b230a AS builder'
+  'FROM golang:1.25.13-alpine3.23@sha256:42fc3368d1c50170a452f2bf4a1dfd292a065870c3f258d799aad4316671cb69 AS builder'
 assert_contains Dockerfile \
-  'FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40'
+  'FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0'
 assert_contains Dockerfile 'git=2.52.0-r0'
 assert_contains Dockerfile 'gcc=15.2.0-r2'
 assert_contains Dockerfile 'musl-dev=1.2.5-r23'
-assert_contains Dockerfile 'ca-certificates=20260611-r0'
-assert_contains Dockerfile 'tzdata=2026c-r0'
+assert_contains Dockerfile 'ca-certificates=20260909-r0'
+assert_contains Dockerfile 'tzdata=2026d-r0'
 assert_not_contains Dockerfile 'apk upgrade'
 
 assert_contains .dockerignore '**/.venv/'
