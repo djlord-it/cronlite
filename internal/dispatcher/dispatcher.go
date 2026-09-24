@@ -210,32 +210,45 @@ func (d *Dispatcher) drain(ch <-chan domain.TriggerEvent) {
 }
 
 // RunDBPoll starts workers that poll the database for emitted executions.
-// Each worker independently dequeues and dispatches one execution at a time.
-// Workers back off on an empty queue (up to one second) and immediately loop when work exists.
-// Blocks until all workers exit (on context cancellation).
+// Poll workers claim executions while a bounded set of delivery goroutines
+// performs webhook I/O. This lets healthy destinations progress while slow
+// webhooks occupy delivery slots, without unbounded claims or goroutines.
+// Workers back off on an empty queue (up to one second).
+// Blocks until poll workers and deliveries exit (on context cancellation).
 func (d *Dispatcher) RunDBPoll(ctx context.Context, pollInterval time.Duration, workers int) {
-	var wg sync.WaitGroup
+	if workers < 1 {
+		return
+	}
+	var pollWG, deliveryWG sync.WaitGroup
+	slots := make(chan struct{}, workers*4)
 	for i := 0; i < workers; i++ {
-		wg.Add(1)
+		pollWG.Add(1)
 		go func(workerID int) {
-			defer wg.Done()
-			d.dbPollWorker(ctx, workerID, pollInterval)
+			defer pollWG.Done()
+			d.dbPollWorker(ctx, workerID, pollInterval, slots, &deliveryWG)
 		}(i)
 	}
-	log.Printf("dispatcher: started %d DB poll workers (interval=%s)", workers, pollInterval)
-	wg.Wait()
+	log.Printf("dispatcher: started %d DB poll workers (delivery slots=%d, interval=%s)", workers, cap(slots), pollInterval)
+	pollWG.Wait()
+	deliveryWG.Wait()
 	log.Printf("dispatcher: all DB poll workers stopped")
 }
 
-func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterval time.Duration) {
+func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterval time.Duration, slots chan struct{}, deliveryWG *sync.WaitGroup) {
 	idleDelay := pollInterval
 	for {
 		if ctx.Err() != nil {
 			return
 		}
+		select {
+		case <-ctx.Done():
+			return
+		case slots <- struct{}{}:
+		}
 
 		exec, err := d.store.DequeueExecution(ctx)
 		if err != nil {
+			<-slots
 			if ctx.Err() != nil {
 				return
 			}
@@ -249,6 +262,7 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 		}
 
 		if exec == nil {
+			<-slots
 			// Back off while idle to reduce database load, with a bounded wake-up delay.
 			select {
 			case <-ctx.Done():
@@ -274,9 +288,14 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 			CreatedAt:   exec.CreatedAt,
 		}
 
-		if err := d.Dispatch(ctx, event); err != nil {
-			log.Printf("dispatcher: worker=%d dispatch error: %v", workerID, err)
-		}
+		deliveryWG.Add(1)
+		go func() {
+			defer deliveryWG.Done()
+			defer func() { <-slots }()
+			if err := d.Dispatch(ctx, event); err != nil {
+				log.Printf("dispatcher: worker=%d dispatch error: %v", workerID, err)
+			}
+		}()
 		// Immediately loop — more work may be available
 	}
 }

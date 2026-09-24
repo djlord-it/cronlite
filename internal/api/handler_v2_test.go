@@ -1194,6 +1194,25 @@ func TestGetExecution_HappyPath(t *testing.T) {
 	}
 }
 
+func TestGetExecution_DoesNotFetchUnusedDeliveryAttempts(t *testing.T) {
+	execID := uuid.New()
+	er := &mockExecRepo{getExecutionScopedFn: func(_ context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error) {
+		return domain.Execution{ID: id, Namespace: ns, Status: domain.ExecutionStatusEmitted}, nil
+	}}
+	ar := &mockAttemptRepo{getAttemptsFn: func(_ context.Context, _ uuid.UUID) ([]domain.DeliveryAttempt, error) {
+		t.Fatal("status endpoint queried unused delivery attempts")
+		return nil, nil
+	}}
+	srv := newTestServer(nil, nil, er, nil, nil, ar)
+	resp, err := srv.GetExecution(ctxWithNS("t1"), GetExecutionRequestObject{Id: execID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resp.(GetExecution200JSONResponse); !ok {
+		t.Fatalf("unexpected response %T", resp)
+	}
+}
+
 func TestGetExecution_NotFound(t *testing.T) {
 	er := &mockExecRepo{
 		getExecutionScopedFn: func(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error) {

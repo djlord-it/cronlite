@@ -44,16 +44,26 @@ func (s *JobService) AckExecution(ctx context.Context, id uuid.UUID) error {
 	return s.executions.AckExecution(ctx, id, ns)
 }
 
-// GetExecution retrieves a single execution with its delivery attempts.
-func (s *JobService) GetExecution(ctx context.Context, id uuid.UUID) (domain.Execution, []domain.DeliveryAttempt, error) {
+// GetExecutionStatus retrieves one execution without loading delivery attempts.
+// The public status endpoint uses this path for frequent polling.
+func (s *JobService) GetExecutionStatus(ctx context.Context, id uuid.UUID) (domain.Execution, error) {
 	ns := domain.NamespaceFromContext(ctx)
 	if ns.IsZero() {
-		return domain.Execution{}, nil, domain.ErrNamespaceRequired
+		return domain.Execution{}, domain.ErrNamespaceRequired
 	}
 
 	exec, err := s.executions.GetExecutionScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Execution{}, nil, domain.ErrExecutionNotFound
+		return domain.Execution{}, domain.ErrExecutionNotFound
+	}
+	return exec, nil
+}
+
+// GetExecution retrieves a single execution with its delivery attempts.
+func (s *JobService) GetExecution(ctx context.Context, id uuid.UUID) (domain.Execution, []domain.DeliveryAttempt, error) {
+	exec, err := s.GetExecutionStatus(ctx, id)
+	if err != nil {
+		return domain.Execution{}, nil, err
 	}
 
 	attempts, err := s.attempts.GetAttempts(ctx, id)

@@ -777,6 +777,104 @@ func TestRunDBPoll_MultipleWorkers(t *testing.T) {
 	}
 }
 
+type blockingWebhookSender struct {
+	slowStarted chan struct{}
+	releaseSlow chan struct{}
+	fastSent    chan struct{}
+}
+
+func (s *blockingWebhookSender) Send(ctx context.Context, req WebhookRequest) WebhookResult {
+	if req.URL == "http://slow.example/hook" {
+		select {
+		case s.slowStarted <- struct{}{}:
+		default:
+		}
+		select {
+		case <-s.releaseSlow:
+			return WebhookResult{StatusCode: 200}
+		case <-ctx.Done():
+			return WebhookResult{Error: ctx.Err()}
+		}
+	}
+	select {
+	case s.fastSent <- struct{}{}:
+	default:
+	}
+	return WebhookResult{StatusCode: 200}
+}
+
+func TestRunDBPoll_SlowWebhooksDoNotBlockHealthyDelivery(t *testing.T) {
+	store := newMockStore()
+	sender := &blockingWebhookSender{
+		slowStarted: make(chan struct{}, 2),
+		releaseSlow: make(chan struct{}),
+		fastSent:    make(chan struct{}, 1),
+	}
+	slowJob := uuid.New()
+	fastJob := uuid.New()
+	store.addJob(domain.Job{ID: slowJob, Delivery: domain.DeliveryConfig{WebhookURL: "http://slow.example/hook"}})
+	store.addJob(domain.Job{ID: fastJob, Delivery: domain.DeliveryConfig{WebhookURL: "http://fast.example/hook"}})
+	now := time.Now()
+	for _, jobID := range []uuid.UUID{slowJob, slowJob, fastJob} {
+		store.dequeueResults = append(store.dequeueResults, &domain.Execution{ID: uuid.New(), JobID: jobID, ScheduledAt: now, FiredAt: now})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { New(store, sender).RunDBPoll(ctx, 10*time.Millisecond, 1); close(done) }()
+	defer func() { close(sender.releaseSlow); cancel(); <-done }()
+	select {
+	case <-sender.slowStarted:
+	case <-time.After(time.Second):
+		t.Fatal("slow webhook did not start")
+	}
+	select {
+	case <-sender.fastSent:
+	case <-time.After(time.Second):
+		t.Fatal("healthy webhook was blocked by slow deliveries")
+	}
+}
+
+type countingBlockingSender struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *countingBlockingSender) Send(ctx context.Context, _ WebhookRequest) WebhookResult {
+	s.started <- struct{}{}
+	select {
+	case <-s.release:
+		return WebhookResult{StatusCode: 200}
+	case <-ctx.Done():
+		return WebhookResult{Error: ctx.Err()}
+	}
+}
+
+func TestRunDBPoll_BoundsConcurrentDeliveries(t *testing.T) {
+	store := newMockStore()
+	jobID := uuid.New()
+	store.addJob(domain.Job{ID: jobID, Delivery: domain.DeliveryConfig{WebhookURL: "http://slow.example/hook"}})
+	for i := 0; i < 10; i++ {
+		store.dequeueResults = append(store.dequeueResults, &domain.Execution{ID: uuid.New(), JobID: jobID, ScheduledAt: time.Now(), FiredAt: time.Now()})
+	}
+	sender := &countingBlockingSender{started: make(chan struct{}, 10), release: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { New(store, sender).RunDBPoll(ctx, 10*time.Millisecond, 1); close(done) }()
+	defer func() { cancel(); <-done }()
+	for i := 0; i < 4; i++ {
+		select {
+		case <-sender.started:
+		case <-time.After(time.Second):
+			t.Fatalf("only %d deliveries started", i)
+		}
+	}
+	select {
+	case <-sender.started:
+		t.Fatal("delivery concurrency exceeded four slots")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func TestClassifyStatusForMetrics(t *testing.T) {
 	tests := []struct {
 		name       string

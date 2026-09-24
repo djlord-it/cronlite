@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/uuid"
@@ -12,6 +13,33 @@ import (
 	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/djlord-it/cronlite/internal/service"
 )
+
+func TestMultiKeyAuth_RepeatedPollingReusesKeyLookup(t *testing.T) {
+	var lookups atomic.Int32
+	key := domain.APIKey{ID: uuid.New(), Namespace: "tenant-1", Enabled: true}
+	repo := &mockAPIKeyRepo{getKeyByHashFn: func(_ context.Context, _ string) (domain.APIKey, error) {
+		lookups.Add(1)
+		return key, nil
+	}}
+	handler := MultiKeyAuthMiddleware(t.Context(), repo, "", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if domain.NamespaceFromContext(r.Context()) != key.Namespace {
+			t.Error("wrong namespace")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	for i := 0; i < 20; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/executions/123", nil)
+		req.Header.Set("Authorization", "Bearer repeated-token")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("request %d: status %d", i, w.Code)
+		}
+	}
+	if got := lookups.Load(); got != 1 {
+		t.Fatalf("20 polls performed %d key lookups, want 1", got)
+	}
+}
 
 // mockAPIKeyRepo is a hand-written mock for domain.APIKeyRepository.
 type mockAPIKeyRepo struct {

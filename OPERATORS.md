@@ -84,7 +84,7 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 | `HTTP_ADDR` | `:8080` | Listen address |
 | `TICK_INTERVAL` | `30s` | Scheduler polling interval |
 | `DISPATCH_MODE` | `channel` | `channel` (in-memory) or `db` (Postgres polling) |
-| `DISPATCHER_WORKERS` | `1` | Concurrent dispatch workers (DB mode) |
+| `DISPATCHER_WORKERS` | `1` | DB poll workers; each allows 4 concurrent deliveries (DB mode) |
 | `DB_POLL_INTERVAL` | `500ms` | Sleep between polls when idle (DB mode) |
 | `RECONCILE_ENABLED` | `false` | Enable orphan recovery |
 | `RECONCILE_INTERVAL` | `5m` | Orphan scan frequency |

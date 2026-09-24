@@ -350,7 +350,7 @@ func (s *ServerImpl) ListExecutions(ctx context.Context, request ListExecutionsR
 }
 
 func (s *ServerImpl) GetExecution(ctx context.Context, request GetExecutionRequestObject) (GetExecutionResponseObject, error) {
-	exec, _, err := s.svc.GetExecution(ctx, request.Id)
+	exec, err := s.svc.GetExecutionStatus(ctx, request.Id)
 	if err != nil {
 		he := mapDomainError(err)
 		if he.Status == 404 {
