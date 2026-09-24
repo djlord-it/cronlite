@@ -43,7 +43,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 
 # Install runtime dependencies at reviewed versions for reproducible builds.
-RUN apk add --no-cache ca-certificates=20260909-r0 tzdata=2026c-r0
+RUN apk add --no-cache ca-certificates=20260909-r0 tzdata=2026d-r0
 
 # Create non-root user
 RUN addgroup -g 1000 cronlite && \
