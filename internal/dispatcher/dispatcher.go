@@ -211,7 +211,7 @@ func (d *Dispatcher) drain(ch <-chan domain.TriggerEvent) {
 
 // RunDBPoll starts workers that poll the database for emitted executions.
 // Each worker independently dequeues and dispatches one execution at a time.
-// Workers sleep pollInterval when no work is found, and immediately loop when work exists.
+// Workers back off on an empty queue (up to one second) and immediately loop when work exists.
 // Blocks until all workers exit (on context cancellation).
 func (d *Dispatcher) RunDBPoll(ctx context.Context, pollInterval time.Duration, workers int) {
 	var wg sync.WaitGroup
@@ -228,6 +228,7 @@ func (d *Dispatcher) RunDBPoll(ctx context.Context, pollInterval time.Duration, 
 }
 
 func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterval time.Duration) {
+	idleDelay := pollInterval
 	for {
 		if ctx.Err() != nil {
 			return
@@ -248,14 +249,21 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 		}
 
 		if exec == nil {
-			// No work available — sleep
+			// Back off while idle to reduce database load, with a bounded wake-up delay.
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(pollInterval):
+			case <-time.After(idleDelay):
+			}
+			maxIdleDelay := max(pollInterval, time.Second)
+			if idleDelay < maxIdleDelay/2 {
+				idleDelay *= 2
+			} else {
+				idleDelay = maxIdleDelay
 			}
 			continue
 		}
+		idleDelay = pollInterval
 
 		event := domain.TriggerEvent{
 			ExecutionID: exec.ID,

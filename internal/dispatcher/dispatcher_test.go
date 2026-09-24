@@ -27,6 +27,7 @@ type mockStore struct {
 	deliveryAttempts []domain.DeliveryAttempt
 	statusUpdates    []statusUpdate
 	dequeueResults   []*domain.Execution // for DB poll mode
+	dequeueCalls     int
 }
 
 type statusUpdate struct {
@@ -87,6 +88,7 @@ func (s *mockStore) UpdateExecutionStatus(ctx context.Context, executionID uuid.
 func (s *mockStore) DequeueExecution(ctx context.Context) (*domain.Execution, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.dequeueCalls++
 	if len(s.dequeueResults) == 0 {
 		return nil, nil
 	}
@@ -704,6 +706,20 @@ func TestRunDBPoll_SleepsWhenNoWork(t *testing.T) {
 
 	if sender.callCount() > 0 {
 		t.Errorf("expected 0 send calls, got %d", sender.callCount())
+	}
+}
+
+func TestRunDBPoll_BackoffReducesEmptyQueueQueries(t *testing.T) {
+	store := newMockStore()
+	disp := New(store, &mockSender{})
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	disp.RunDBPoll(ctx, 5*time.Millisecond, 1)
+	store.mu.Lock()
+	calls := store.dequeueCalls
+	store.mu.Unlock()
+	if calls > 12 {
+		t.Fatalf("idle worker made %d empty dequeue queries in 250ms, want at most 12", calls)
 	}
 }
 
