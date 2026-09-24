@@ -10,7 +10,7 @@ require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/lib/pq v1.12.3
-	github.com/mark3labs/mcp-go v0.57.0
+	github.com/mark3labs/mcp-go v1.1.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/client_model v0.6.3
