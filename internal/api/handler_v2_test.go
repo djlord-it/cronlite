@@ -627,7 +627,7 @@ func TestGetJob_HappyPath(t *testing.T) {
 func TestGetJob_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)
@@ -681,7 +681,7 @@ func TestUpdateJob_HappyPath(t *testing.T) {
 func TestUpdateJob_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)
@@ -792,7 +792,7 @@ func TestPauseJob_HappyPath(t *testing.T) {
 func TestPauseJob_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)
@@ -839,7 +839,7 @@ func TestResumeJob_HappyPath(t *testing.T) {
 func TestResumeJob_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)
@@ -923,7 +923,7 @@ func TestTriggerJob_EmitsEventWhenEmitterAttached(t *testing.T) {
 func TestTriggerJob_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)
@@ -996,7 +996,7 @@ func TestGetNextRun_HappyPath(t *testing.T) {
 func TestGetNextRun_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(ctx context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	srv := newTestServer(jr, nil, nil, nil, nil, nil)
