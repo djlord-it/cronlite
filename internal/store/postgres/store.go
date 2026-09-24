@@ -821,42 +821,19 @@ func (s *Store) UpdateExecutionStatus(ctx context.Context, executionID uuid.UUID
 
 // DequeueExecution atomically claims one emitted execution by transitioning it
 // to in_progress with a claimed_at timestamp. Returns nil, nil if no work available.
-// Uses SELECT FOR UPDATE SKIP LOCKED to prevent double-claim under concurrency.
+// A single UPDATE statement claims the row without an explicit transaction on empty polls.
+// SELECT FOR UPDATE SKIP LOCKED prevents double-claim under concurrency.
 func (s *Store) DequeueExecution(ctx context.Context) (*domain.Execution, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	exec, err := scanSingleExecution(tx.QueryRowContext(ctx, queryDequeueExecution))
+	exec, err := scanSingleExecution(s.db.QueryRowContext(ctx, queryDequeueExecution))
 	if err == sql.ErrNoRows {
-		// No work available -- commit to release any advisory locks and return nil
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-
-	// Atomically transition to in_progress with claim timestamp
-	_, err = tx.ExecContext(ctx, queryClaimExecution, exec.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	exec.Status = domain.ExecutionStatusInProgress
 	return &exec, nil
 }
 

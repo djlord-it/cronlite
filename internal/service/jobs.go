@@ -118,7 +118,7 @@ func (s *JobService) GetJob(ctx context.Context, id uuid.UUID) (domain.Job, doma
 
 	job, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Job{}, domain.Schedule{}, nil, nil, domain.ErrJobNotFound
+		return domain.Job{}, domain.Schedule{}, nil, nil, fmt.Errorf("get job: %w", err)
 	}
 
 	tags, err := s.tags.GetTags(ctx, id)
@@ -178,7 +178,7 @@ func (s *JobService) UpdateJob(ctx context.Context, id uuid.UUID, input UpdateJo
 
 	job, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
+		return domain.Job{}, domain.Schedule{}, fmt.Errorf("get job for update: %w", err)
 	}
 
 	now := time.Now().UTC()
@@ -252,7 +252,7 @@ func (s *JobService) PauseJob(ctx context.Context, id uuid.UUID) (domain.Job, er
 
 	job, _, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Job{}, domain.ErrJobNotFound
+		return domain.Job{}, fmt.Errorf("get job for pause: %w", err)
 	}
 
 	job.Enabled = false
@@ -274,7 +274,7 @@ func (s *JobService) ResumeJob(ctx context.Context, id uuid.UUID) (domain.Job, e
 
 	job, _, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
 	if err != nil {
-		return domain.Job{}, domain.ErrJobNotFound
+		return domain.Job{}, fmt.Errorf("get job for resume: %w", err)
 	}
 
 	job.Enabled = true
@@ -296,7 +296,7 @@ func (s *JobService) TriggerNow(ctx context.Context, jobID uuid.UUID) (domain.Ex
 
 	job, _, err := s.jobs.GetJobWithScheduleScoped(ctx, jobID, ns)
 	if err != nil {
-		return domain.Execution{}, domain.ErrJobNotFound
+		return domain.Execution{}, fmt.Errorf("get job for trigger: %w", err)
 	}
 	if !job.Enabled {
 		return domain.Execution{}, domain.ErrJobDisabled
@@ -367,7 +367,7 @@ func (s *JobService) GetNextRunTime(ctx context.Context, jobID uuid.UUID) (time.
 
 	job, schedule, err := s.jobs.GetJobWithScheduleScoped(ctx, jobID, ns)
 	if err != nil {
-		return time.Time{}, nil, domain.Schedule{}, domain.ErrJobNotFound
+		return time.Time{}, nil, domain.Schedule{}, fmt.Errorf("get job for next run: %w", err)
 	}
 	if !job.Enabled {
 		return time.Time{}, nil, schedule, domain.ErrJobDisabled

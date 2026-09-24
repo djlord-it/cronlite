@@ -600,7 +600,7 @@ func TestHandleGetJob_InvalidUUID(t *testing.T) {
 func TestHandleGetJob_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(_ context.Context, _ uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	svc := newTestService(jr, nil, nil, nil)
@@ -797,7 +797,7 @@ func TestHandlePauseJob_HappyPath(t *testing.T) {
 func TestHandlePauseJob_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(_ context.Context, _ uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	svc := newTestService(jr, nil, nil, nil)
@@ -867,7 +867,7 @@ func TestHandleResumeJob_HappyPath(t *testing.T) {
 func TestHandleResumeJob_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(_ context.Context, _ uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	svc := newTestService(jr, nil, nil, nil)
@@ -1060,7 +1060,7 @@ func TestHandleNextRun_HappyPath(t *testing.T) {
 func TestHandleNextRun_NotFound(t *testing.T) {
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(_ context.Context, _ uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return domain.Job{}, domain.Schedule{}, errors.New("not found")
+			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		},
 	}
 	svc := newTestService(jr, nil, nil, nil)
