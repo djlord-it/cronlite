@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"math"
 	"reflect"
 	"testing"
 )
@@ -56,6 +57,31 @@ func TestValidateRejectsUnknownScenario(t *testing.T) {
 	cfg.Scenarios = []string{"made-up"}
 	if err := cfg.Validate(); !errors.Is(err, ErrUnknownScenario) {
 		t.Fatalf("expected unknown scenario error, got %v", err)
+	}
+}
+
+func TestValidateLoadThroughputTargetRequiresLoadScenario(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.MinLoadThroughput = 50
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected target without load scenario to fail")
+	}
+	cfg.Scenarios = []string{"load"}
+	cfg.AllowDisruptive = true
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateRejectsNonFiniteLoadThroughputTarget(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Scenarios = []string{"load"}
+	cfg.AllowDisruptive = true
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		cfg.MinLoadThroughput = value
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("accepted target %f", value)
+		}
 	}
 }
 

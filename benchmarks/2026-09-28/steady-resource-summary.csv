@@ -1,0 +1,5 @@
+service,sample_count,average_cpu_percent,p95_cpu_percent,peak_cpu_percent,average_memory_bytes,p95_memory_bytes,peak_memory_bytes
+cronlite_1,35,3.507,5.700,7.420,11727723,15875441,15875441
+cronlite_2,35,1.336,2.830,16.270,8952442,10129244,10129244
+cronlite_3,35,1.068,2.550,4.610,11586225,17815306,18486395
+postgres,35,14.655,18.360,24.040,59296673,81746985,81935729

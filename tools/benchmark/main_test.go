@@ -55,6 +55,25 @@ func TestRunRejectsInvalidConfiguration(t *testing.T) {
 	}
 }
 
+func TestRunFailsWhenLoadThroughputMissesTarget(t *testing.T) {
+	deps := fixtureRuntimeDependencies(false)
+	deps.RunScenarios = func(_ context.Context, _ *scenarioEnvironment) []ScenarioResult {
+		result := fixtureRunResult().Scenarios[0]
+		result.Name = "load"
+		result.Status = ScenarioPassed
+		result.Findings = nil
+		result.Executions[0].Findings = nil
+		return []ScenarioResult{result}
+	}
+	code := run(context.Background(), []string{
+		"--scenario", "load", "--allow-disruptive", "--min-load-throughput", "1000",
+		"--output", t.TempDir(), "--receiver-addr", "127.0.0.1:0",
+	}, deps)
+	if code != exitPerformance {
+		t.Fatalf("exit code = %d, want %d; stderr=%s", code, exitPerformance, deps.Stderr.(*bytes.Buffer))
+	}
+}
+
 func TestRunHelpExitsSuccessfully(t *testing.T) {
 	deps := fixtureRuntimeDependencies(false)
 	code := run(context.Background(), []string{"--help"}, deps)

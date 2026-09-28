@@ -21,6 +21,7 @@ const (
 	exitRuntime       = 1
 	exitConfiguration = 2
 	exitCorrectness   = 3
+	exitPerformance   = 4
 )
 
 type diagnosticHandle interface {
@@ -177,6 +178,14 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 			result.Resources = append(result.Resources, resources)
 		}
 	}
+	var sampler *resourceSampler
+	if controller != nil {
+		var sampleErr error
+		sampler, sampleErr = startResourceSampler(ctx, controller, time.Second)
+		if sampleErr != nil {
+			result.Limitations = append(result.Limitations, "resource sampling unavailable: "+sampleErr.Error())
+		}
+	}
 
 	result.Scenarios = deps.RunScenarios(ctx, env)
 	cleanupObservations := env.cleanup(ctx)
@@ -189,6 +198,14 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 			FinishedAt:   time.Now().UTC(),
 			Observations: cleanupObservations,
 		})
+	}
+	if sampler != nil {
+		var warnings []string
+		result.ResourceSamples, warnings = sampler.stop()
+		result.ResourceSummary = summarizeResourceSamples(result.ResourceSamples)
+		for _, warning := range warnings {
+			result.Limitations = append(result.Limitations, "resource sampling: "+warning)
+		}
 	}
 
 	if metrics != nil {
@@ -211,7 +228,7 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 		fmt.Fprintf(deps.Stderr, "write benchmark outputs: %v\n", err)
 		return exitRuntime
 	}
-	fmt.Fprintf(deps.Stdout, "JSON: %s\nCSV: %s\nReport: %s\n", paths.JSON, paths.CSV, paths.Markdown)
+	fmt.Fprintf(deps.Stdout, "JSON: %s\nCSV: %s\nReport: %s\nResource samples: %s\nResource summary: %s\n", paths.JSON, paths.CSV, paths.Markdown, paths.ResourceSamplesCSV, paths.ResourceSummaryCSV)
 
 	if cfg.FailOnCorrectness && hasCriticalFinding(result.Findings) {
 		return exitCorrectness
@@ -222,7 +239,30 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 			return exitRuntime
 		}
 	}
+	if cfg.MinLoadThroughput > 0 {
+		for index := range result.Scenarios {
+			scenario := &result.Scenarios[index]
+			if scenario.Name == "load" && loadThroughput(scenario) < cfg.MinLoadThroughput {
+				return exitPerformance
+			}
+		}
+	}
 	return exitSuccess
+}
+
+func loadThroughput(scenario *ScenarioResult) float64 {
+	duration := scenario.FinishedAt.Sub(scenario.StartedAt).Seconds()
+	if duration <= 0 {
+		return 0
+	}
+	delivered := 0
+	for index := range scenario.Executions {
+		execution := &scenario.Executions[index]
+		if !execution.Warmup && executionTerminalStatus(execution) == "delivered" {
+			delivered++
+		}
+	}
+	return float64(delivered) / duration
 }
 
 func parseConfig(args []string, stderr io.Writer) (Config, string, error) {
@@ -275,6 +315,7 @@ func parseConfig(args []string, stderr io.Writer) (Config, string, error) {
 	flags.StringVar(&cfg.ComposeFile, "compose-file", cfg.ComposeFile, "benchmark Compose file")
 	flags.StringVar(&cfg.ComposeProject, "compose-project", "", "harness-owned Compose project name")
 	flags.StringVar(&cfg.DispatchMode, "dispatch-mode", cfg.DispatchMode, "channel, db, or unknown")
+	flags.Float64Var(&cfg.MinLoadThroughput, "min-load-throughput", 0, "minimum delivered load executions per second (0 disables gate)")
 	if err := flags.Parse(args); err != nil {
 		return cfg, "", err
 	}

@@ -14,9 +14,11 @@ import (
 )
 
 type OutputPaths struct {
-	JSON     string `json:"json"`
-	CSV      string `json:"csv"`
-	Markdown string `json:"markdown"`
+	JSON               string `json:"json"`
+	CSV                string `json:"csv"`
+	Markdown           string `json:"markdown"`
+	ResourceSamplesCSV string `json:"resource_samples_csv"`
+	ResourceSummaryCSV string `json:"resource_summary_csv"`
 }
 
 var (
@@ -30,9 +32,11 @@ func writeOutputs(outputDir string, result RunResult) (OutputPaths, error) {
 		return OutputPaths{}, fmt.Errorf("create output directory: %w", err)
 	}
 	paths := OutputPaths{
-		JSON:     filepath.Join(outputDir, "benchmark-results.json"),
-		CSV:      filepath.Join(outputDir, "benchmark-results.csv"),
-		Markdown: filepath.Join(outputDir, "benchmark-report.md"),
+		JSON:               filepath.Join(outputDir, "benchmark-results.json"),
+		CSV:                filepath.Join(outputDir, "benchmark-results.csv"),
+		Markdown:           filepath.Join(outputDir, "benchmark-report.md"),
+		ResourceSamplesCSV: filepath.Join(outputDir, "resource-samples.csv"),
+		ResourceSummaryCSV: filepath.Join(outputDir, "resource-summary.csv"),
 	}
 	safe := sanitizeRunResult(result)
 	if err := atomicWrite(paths.JSON, func(buffer *bytes.Buffer) error {
@@ -45,6 +49,16 @@ func writeOutputs(outputDir string, result RunResult) (OutputPaths, error) {
 	}); err != nil {
 		return paths, err
 	}
+	if err := atomicWrite(paths.ResourceSamplesCSV, func(buffer *bytes.Buffer) error {
+		return writeResourceSamplesCSV(buffer, safe.ResourceSamples)
+	}); err != nil {
+		return paths, err
+	}
+	if err := atomicWrite(paths.ResourceSummaryCSV, func(buffer *bytes.Buffer) error {
+		return writeResourceSummaryCSV(buffer, safe.ResourceSummary)
+	}); err != nil {
+		return paths, err
+	}
 	if err := atomicWrite(paths.Markdown, func(buffer *bytes.Buffer) error {
 		_, err := buffer.WriteString(renderReport(safe, paths))
 		return err
@@ -52,6 +66,41 @@ func writeOutputs(outputDir string, result RunResult) (OutputPaths, error) {
 		return paths, err
 	}
 	return paths, nil
+}
+
+func writeResourceSamplesCSV(out *bytes.Buffer, samples []ResourceSample) error {
+	writer := csv.NewWriter(out)
+	if err := writer.Write([]string{"observed_at", "service", "cpu_percent", "memory_bytes"}); err != nil {
+		return err
+	}
+	for _, sample := range samples {
+		if err := writer.Write([]string{formatTime(sample.ObservedAt), sample.Service,
+			strconv.FormatFloat(sample.CPUPercent, 'f', 3, 64), strconv.FormatUint(sample.MemoryBytes, 10)}); err != nil {
+			return err
+		}
+	}
+	writer.Flush()
+	return writer.Error()
+}
+
+func writeResourceSummaryCSV(out *bytes.Buffer, summaries []ResourceSummary) error {
+	writer := csv.NewWriter(out)
+	if err := writer.Write([]string{"service", "sample_count", "average_cpu_percent", "p95_cpu_percent", "peak_cpu_percent", "average_memory_bytes", "p95_memory_bytes", "peak_memory_bytes"}); err != nil {
+		return err
+	}
+	for _, summary := range summaries {
+		if err := writer.Write([]string{summary.Service, strconv.Itoa(summary.SampleCount),
+			strconv.FormatFloat(summary.AverageCPUPercent, 'f', 3, 64),
+			strconv.FormatFloat(summary.P95CPUPercent, 'f', 3, 64),
+			strconv.FormatFloat(summary.PeakCPUPercent, 'f', 3, 64),
+			strconv.FormatUint(summary.AverageMemoryBytes, 10),
+			strconv.FormatUint(summary.P95MemoryBytes, 10),
+			strconv.FormatUint(summary.PeakMemoryBytes, 10)}); err != nil {
+			return err
+		}
+	}
+	writer.Flush()
+	return writer.Error()
 }
 
 func writeJSON(out *bytes.Buffer, result RunResult) error {

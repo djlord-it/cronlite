@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -70,6 +71,7 @@ type Config struct {
 	ComposeFile        string
 	ComposeProject     string
 	DispatchMode       string
+	MinLoadThroughput  float64
 }
 
 type RedactedConfig struct {
@@ -98,6 +100,7 @@ type RedactedConfig struct {
 	CleanupEnvironment      bool          `json:"cleanup_environment"`
 	ComposeProject          string        `json:"compose_project,omitempty"`
 	DispatchMode            string        `json:"dispatch_mode"`
+	MinLoadThroughput       float64       `json:"min_load_throughput_per_second,omitempty"`
 }
 
 func defaultConfig() Config {
@@ -169,6 +172,9 @@ func (c Config) Validate() error {
 	if c.CleanupEnvironment && (!c.StartCompose || !c.AllowDisruptive) {
 		return fmt.Errorf("environment cleanup requires --start-compose and --allow-disruptive")
 	}
+	if math.IsNaN(c.MinLoadThroughput) || math.IsInf(c.MinLoadThroughput, 0) || c.MinLoadThroughput < 0 || (c.MinLoadThroughput > 0 && !slices.Contains(c.Scenarios, "load")) {
+		return fmt.Errorf("minimum load throughput must be nonnegative and requires the load scenario")
+	}
 	return nil
 }
 
@@ -199,6 +205,7 @@ func (c Config) Redacted() RedactedConfig {
 		CleanupEnvironment:      c.CleanupEnvironment,
 		ComposeProject:          c.ComposeProject,
 		DispatchMode:            c.DispatchMode,
+		MinLoadThroughput:       c.MinLoadThroughput,
 	}
 }
 

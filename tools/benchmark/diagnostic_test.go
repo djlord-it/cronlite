@@ -10,6 +10,17 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 )
 
+func TestOpenDiagnosticCollectorBoundsConnections(t *testing.T) {
+	collector, err := openDiagnosticCollector("postgres://localhost/unused?sslmode=disable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer collector.Close()
+	if got := collector.db.Stats().MaxOpenConnections; got != 4 {
+		t.Fatalf("diagnostic max open connections = %d, want 4", got)
+	}
+}
+
 func TestDiagnosticExecutionIncludesClaimAndAttempts(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

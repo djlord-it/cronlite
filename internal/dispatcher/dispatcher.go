@@ -51,6 +51,12 @@ type Store interface {
 	DequeueExecution(ctx context.Context) (*domain.Execution, error)
 }
 
+// batchDequeueStore is implemented by stores that can amortize the claim query
+// across several free delivery slots. Other stores keep the single claim path.
+type batchDequeueStore interface {
+	DequeueExecutions(ctx context.Context, limit int) ([]domain.Execution, error)
+}
+
 type WebhookSender interface {
 	Send(ctx context.Context, req WebhookRequest) WebhookResult
 }
@@ -236,6 +242,7 @@ func (d *Dispatcher) RunDBPoll(ctx context.Context, pollInterval time.Duration, 
 
 func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterval time.Duration, slots chan struct{}, deliveryWG *sync.WaitGroup) {
 	idleDelay := pollInterval
+	batchStore, batching := d.store.(batchDequeueStore)
 	for {
 		if ctx.Err() != nil {
 			return
@@ -245,10 +252,34 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 			return
 		case slots <- struct{}{}:
 		}
+		reserved := 1
+		if batching {
+		reserveMore:
+			for reserved < min(16, cap(slots)) {
+				select {
+				case slots <- struct{}{}:
+					reserved++
+				default:
+					break reserveMore
+				}
+			}
+		}
 
-		exec, err := d.store.DequeueExecution(ctx)
+		var executions []domain.Execution
+		var err error
+		if batching {
+			executions, err = batchStore.DequeueExecutions(ctx, reserved)
+		} else {
+			var exec *domain.Execution
+			exec, err = d.store.DequeueExecution(ctx)
+			if exec != nil {
+				executions = append(executions, *exec)
+			}
+		}
 		if err != nil {
-			<-slots
+			for range reserved {
+				<-slots
+			}
 			if ctx.Err() != nil {
 				return
 			}
@@ -261,8 +292,10 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 			continue
 		}
 
-		if exec == nil {
+		for range reserved - len(executions) {
 			<-slots
+		}
+		if len(executions) == 0 {
 			// Back off while idle to reduce database load, with a bounded wake-up delay.
 			select {
 			case <-ctx.Done():
@@ -279,23 +312,25 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 		}
 		idleDelay = pollInterval
 
-		event := domain.TriggerEvent{
-			ExecutionID: exec.ID,
-			JobID:       exec.JobID,
-			Namespace:   exec.Namespace,
-			ScheduledAt: exec.ScheduledAt,
-			FiredAt:     exec.FiredAt,
-			CreatedAt:   exec.CreatedAt,
-		}
-
-		deliveryWG.Add(1)
-		go func() {
-			defer deliveryWG.Done()
-			defer func() { <-slots }()
-			if err := d.Dispatch(ctx, event); err != nil {
-				log.Printf("dispatcher: worker=%d dispatch error: %v", workerID, err)
+		for index := range executions {
+			exec := &executions[index]
+			event := domain.TriggerEvent{
+				ExecutionID: exec.ID,
+				JobID:       exec.JobID,
+				Namespace:   exec.Namespace,
+				ScheduledAt: exec.ScheduledAt,
+				FiredAt:     exec.FiredAt,
+				CreatedAt:   exec.CreatedAt,
 			}
-		}()
+			deliveryWG.Add(1)
+			go func() {
+				defer deliveryWG.Done()
+				defer func() { <-slots }()
+				if err := d.Dispatch(ctx, event); err != nil {
+					log.Printf("dispatcher: worker=%d dispatch error: %v", workerID, err)
+				}
+			}()
+		}
 		// Immediately loop — more work may be available
 	}
 }

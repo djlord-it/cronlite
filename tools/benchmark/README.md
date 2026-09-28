@@ -53,6 +53,18 @@ This uses `tools/benchmark/docker-compose.yml`, a unique
 database dispatch, two workers per instance, Prometheus metrics, and the
 reconciler.
 
+For a managed or attached Compose project, the harness samples Docker CPU and
+memory for all three CronLite containers and PostgreSQL while scenarios run.
+The JSON result contains timestamped `resource_samples` and per-service
+`resource_summary` (average, p95, and peak). The output directory also contains
+`resource-samples.csv` and `resource-summary.csv`; the Markdown report includes
+the same summary. Docker CPU percentage is relative to one core, so it can
+exceed 100%. The sampler records a warning in the report if a service cannot
+be measured. Runs without a Compose project cannot provide container resource
+samples. The requested interval is one second, but Docker CLI calls can take
+longer; check timestamps and collect at least 20 samples per service before
+relying on p95 figures.
+
 The environment is left running by default for inspection. To remove the
 harness-owned containers and volume after the run, explicitly authorize it:
 
@@ -115,7 +127,11 @@ SET TRANSACTION READ ONLY
 
 Diagnostic mode observes execution creation, scheduling, firing, claiming,
 attempt start/finish, status, queue depth, active executions, connection count,
-and database size where permissions allow.
+and database size where permissions allow. Its read-only connection pool is
+limited to four connections so instrumentation cannot exhaust PostgreSQL's
+connection limit under load. Diagnostic queries add database work and can
+reduce measured throughput; leave diagnostic mode off for throughput regression
+gates.
 
 ## Scenario reference
 
@@ -213,6 +229,22 @@ go run ./tools/benchmark \
   --allow-disruptive \
   --fail-on-correctness \
   --output ./benchmark-output/saturation
+```
+
+For a repeatable saturation regression gate, set a minimum delivered-execution
+throughput in executions per second. The gate exits with status 4 when the
+aggregate `load` scenario is below the target; use the same hardware, Compose
+configuration, sample count, and concurrency list when comparing runs. Choose
+the target from a measured baseline on that environment. For example:
+
+```bash
+go run ./tools/benchmark \
+  --start-compose \
+  --scenario load --sample-count 1000 --concurrency 100,250 \
+  --timeout 5m --min-load-throughput 500 \
+  --allow-disruptive --fail-on-correctness \
+  --cleanup-environment \
+  --output ./benchmark-output/saturation-gate
 ```
 
 Crash, failover, duplicate-race, and database-outage profile:

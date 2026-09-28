@@ -48,14 +48,25 @@ func TestCSVHasOneRowPerAttemptAndStableHeader(t *testing.T) {
 
 func TestWriteOutputsCreatesAllRequiredFiles(t *testing.T) {
 	dir := t.TempDir()
-	paths, err := writeOutputs(dir, fixtureRunResult())
+	result := fixtureRunResult()
+	result.ResourceSamples = []ResourceSample{{Service: "postgres", CPUPercent: 125, MemoryBytes: 4096}}
+	result.ResourceSummary = summarizeResourceSamples(result.ResourceSamples)
+	paths, err := writeOutputs(dir, result)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{paths.JSON, paths.CSV, paths.Markdown} {
+	for _, path := range []string{paths.JSON, paths.CSV, paths.Markdown, paths.ResourceSamplesCSV, paths.ResourceSummaryCSV} {
 		if _, err := os.Stat(path); err != nil {
 			t.Errorf("%s: %v", path, err)
 		}
+	}
+	sampleCSV, err := os.ReadFile(paths.ResourceSamplesCSV)
+	if err != nil || !strings.Contains(string(sampleCSV), "postgres,125.000,4096") {
+		t.Fatalf("resource sample CSV = %q, %v", sampleCSV, err)
+	}
+	summaryCSV, err := os.ReadFile(paths.ResourceSummaryCSV)
+	if err != nil || !strings.Contains(string(summaryCSV), "postgres,1,125.000,125.000,125.000,4096,4096,4096") {
+		t.Fatalf("resource summary CSV = %q, %v", summaryCSV, err)
 	}
 }
 

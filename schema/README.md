@@ -14,7 +14,7 @@ done
 ```
 
 `docker-compose.yml` and `docker-compose.admin-ci.yml` mount migrations
-`001` through `008` into PostgreSQL's initialization directory in the same order.
+`001` through `009` into PostgreSQL's initialization directory in the same order.
 The admin CI file intentionally does not set a Compose project name. Call it with
 `docker compose -p <unique-project> -f docker-compose.admin-ci.yml ...` so each
 local or CI run gets isolated containers, networks, and volumes.
@@ -34,7 +34,8 @@ Stores job configuration including webhook URL, secret, timeout, and analytics s
 Records each time a job fires. The `(job_id, scheduled_at)` pair is unique to prevent duplicate executions on scheduler restart.
 
 Status values:
-- `emitted`: Execution created, webhook delivery in progress
+- `emitted`: Execution created and waiting to be claimed
+- `in_progress`: Claimed for webhook delivery
 - `delivered`: Webhook delivered successfully
 - `failed`: All delivery attempts exhausted
 
