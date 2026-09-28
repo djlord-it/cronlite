@@ -134,6 +134,7 @@ func openIsolatedPostgresSchema(t *testing.T, dsn string) (*sql.DB, func()) {
 		"004_agent_platform.sql",
 		"005_drop_scopes.sql",
 		"006_add_claimed_at_index.sql",
+		"009_emitted_claim_index.sql",
 	} {
 		sqlBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "schema", file))
 		if err != nil {

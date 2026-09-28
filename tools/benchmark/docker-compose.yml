@@ -17,6 +17,7 @@ services:
       - ../../schema/006_add_claimed_at_index.sql:/docker-entrypoint-initdb.d/006_add_claimed_at_index.sql:ro
       - ../../schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql:ro
       - ../../schema/008_admin_session_absolute_expiry.sql:/docker-entrypoint-initdb.d/008_admin_session_absolute_expiry.sql:ro
+      - ../../schema/009_emitted_claim_index.sql:/docker-entrypoint-initdb.d/009_emitted_claim_index.sql:ro
     healthcheck:
       # The image starts a temporary Postgres process while applying init
       # scripts, then replaces it with the final PID 1 server. Waiting for PID

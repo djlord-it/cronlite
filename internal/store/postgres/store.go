@@ -837,6 +837,22 @@ func (s *Store) DequeueExecution(ctx context.Context) (*domain.Execution, error)
 	return &exec, nil
 }
 
+// DequeueExecutions atomically claims up to limit ready executions in one
+// database round trip. Workers use this only when delivery capacity is free.
+func (s *Store) DequeueExecutions(ctx context.Context, limit int) ([]domain.Execution, error) {
+	if limit < 1 {
+		return nil, nil
+	}
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+	rows, err := s.db.QueryContext(ctx, queryDequeueExecutions, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanExecutionRows(rows)
+}
+
 // GetOrphanedExecutions returns executions that are stuck in 'emitted' status
 // and were created before the given threshold time.
 // Results are ordered by created_at ASC (oldest first) and limited to maxResults.

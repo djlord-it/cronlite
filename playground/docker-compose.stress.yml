@@ -34,6 +34,10 @@ services:
       - ../schema/003_add_claimed_at.sql:/docker-entrypoint-initdb.d/003_add_claimed_at.sql
       - ../schema/004_agent_platform.sql:/docker-entrypoint-initdb.d/004_agent_platform.sql
       - ../schema/005_drop_scopes.sql:/docker-entrypoint-initdb.d/005_drop_scopes.sql
+      - ../schema/006_add_claimed_at_index.sql:/docker-entrypoint-initdb.d/006_add_claimed_at_index.sql
+      - ../schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql
+      - ../schema/008_admin_session_absolute_expiry.sql:/docker-entrypoint-initdb.d/008_admin_session_absolute_expiry.sql
+      - ../schema/009_emitted_claim_index.sql:/docker-entrypoint-initdb.d/009_emitted_claim_index.sql
     ports:
       - "5434:5432"
     healthcheck:

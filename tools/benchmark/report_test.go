@@ -44,6 +44,20 @@ func TestReportContainsRequiredSections(t *testing.T) {
 	}
 }
 
+func TestReportIncludesResourceSummaryForEveryService(t *testing.T) {
+	result := fixtureRunResult()
+	result.ResourceSummary = []ResourceSummary{{Service: "cronlite_1", SampleCount: 3, AverageCPUPercent: 12.5, P95CPUPercent: 20, PeakCPUPercent: 20, AverageMemoryBytes: 1024, P95MemoryBytes: 2048, PeakMemoryBytes: 2048}, {Service: "postgres", SampleCount: 3, AverageCPUPercent: 40, P95CPUPercent: 50, PeakCPUPercent: 50, AverageMemoryBytes: 4096, P95MemoryBytes: 8192, PeakMemoryBytes: 8192}}
+	report := renderReport(result, OutputPaths{})
+	for _, expected := range []string{"| cronlite_1 | 3 | 12.500 | 20.000 | 20.000 |", "| postgres | 3 | 40.000 | 50.000 | 50.000 |"} {
+		if !strings.Contains(report, expected) {
+			t.Fatalf("report missing %q:\n%s", expected, report)
+		}
+	}
+	if !strings.Contains(report, "Resource p95 is unstable with fewer than 20 samples") {
+		t.Fatalf("missing small-sample warning:\n%s", report)
+	}
+}
+
 func TestReportStatesSmallSamplePercentilesAreUnstable(t *testing.T) {
 	report := renderReport(fixtureRunResult(), OutputPaths{})
 	if !strings.Contains(report, "p99 is unstable") {

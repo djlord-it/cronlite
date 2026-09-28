@@ -687,6 +687,53 @@ func TestRunDBPoll_ProcessesExecution(t *testing.T) {
 	}
 }
 
+type batchMockStore struct {
+	*mockStore
+	batchCalls  int
+	batchLimits []int
+}
+
+func (s *batchMockStore) DequeueExecutions(_ context.Context, limit int) ([]domain.Execution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.batchCalls++
+	s.batchLimits = append(s.batchLimits, limit)
+	n := min(limit, len(s.dequeueResults))
+	result := make([]domain.Execution, 0, n)
+	for _, execution := range s.dequeueResults[:n] {
+		result = append(result, *execution)
+	}
+	s.dequeueResults = s.dequeueResults[n:]
+	return result, nil
+}
+
+func TestRunDBPoll_BatchesClaimsWithinFreeDeliverySlots(t *testing.T) {
+	store := &batchMockStore{mockStore: newMockStore()}
+	jobID := uuid.New()
+	store.addJob(domain.Job{ID: jobID, Delivery: domain.DeliveryConfig{WebhookURL: "http://example.com/hook"}})
+	for i := 0; i < 6; i++ {
+		store.dequeueResults = append(store.dequeueResults, &domain.Execution{
+			ID: uuid.New(), JobID: jobID, ScheduledAt: time.Now(), FiredAt: time.Now(),
+		})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	New(store, &mockSender{}).RunDBPoll(ctx, 10*time.Millisecond, 1)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.dequeueCalls != 0 || store.batchCalls == 0 || store.batchLimits[0] != 4 {
+		t.Fatalf("single calls=%d batch limits=%v", store.dequeueCalls, store.batchLimits)
+	}
+	if len(store.executionStatus) != 6 {
+		t.Fatalf("delivered %d executions, want 6", len(store.executionStatus))
+	}
+	for _, status := range store.executionStatus {
+		if status != domain.ExecutionStatusDelivered {
+			t.Fatalf("status = %s, want delivered", status)
+		}
+	}
+}
+
 func TestRunDBPoll_SleepsWhenNoWork(t *testing.T) {
 	store := newMockStore()
 	sender := &mockSender{}

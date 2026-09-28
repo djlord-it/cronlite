@@ -72,6 +72,7 @@ func writeEnvironmentSection(report *strings.Builder, result RunResult) {
 		{"Retry profile", result.Config.RetryProfile},
 		{"Sample count", strconv.Itoa(result.Config.SampleCount)},
 		{"Diagnostic mode", strconv.FormatBool(result.Config.Diagnostic)},
+		{"Minimum load throughput/s", strconv.FormatFloat(result.Config.MinLoadThroughput, 'f', 3, 64)},
 	}
 	for _, row := range rows {
 		fmt.Fprintf(report, "| %s | %s |\n", row[0], markdownCell(row[1]))
@@ -286,6 +287,16 @@ func writeThroughputSection(report *strings.Builder, result RunResult) {
 		)
 	}
 	report.WriteString("\n")
+	if result.Config.MinLoadThroughput > 0 {
+		for index := range result.Scenarios {
+			scenario := &result.Scenarios[index]
+			if scenario.Name == "load" {
+				observed := loadThroughput(scenario)
+				fmt.Fprintf(report, "Load target: %.3f delivered executions/s; observed: %.3f; passed: %t.\n\n",
+					result.Config.MinLoadThroughput, observed, observed >= result.Config.MinLoadThroughput)
+			}
+		}
+	}
 }
 
 func writeFailureSection(report *strings.Builder, result RunResult) {
@@ -354,7 +365,7 @@ func writeDuplicateSection(report *strings.Builder, result RunResult) {
 
 func writeResourceSection(report *strings.Builder, result RunResult) {
 	report.WriteString("## Resource Usage\n\n")
-	if len(result.Resources) == 0 && len(result.MetricsDelta) == 0 {
+	if len(result.Resources) == 0 && len(result.MetricsDelta) == 0 && len(result.ResourceSummary) == 0 {
 		report.WriteString("Resource collection was unavailable or not enabled for this run.\n\n")
 		return
 	}
@@ -368,6 +379,22 @@ func writeResourceSection(report *strings.Builder, result RunResult) {
 			resource.QueueDepth,
 			resource.InProgress,
 		)
+	}
+	if len(result.ResourceSummary) > 0 {
+		report.WriteString("\nDocker CPU is percent of one CPU core; memory is Docker-reported container usage.\n\n")
+		report.WriteString("| Service | Samples | Avg CPU % | p95 CPU % | Peak CPU % | Avg memory bytes | p95 memory bytes | Peak memory bytes |\n")
+		report.WriteString("|---|---:|---:|---:|---:|---:|---:|---:|\n")
+		for _, summary := range result.ResourceSummary {
+			fmt.Fprintf(report, "| %s | %d | %.3f | %.3f | %.3f | %d | %d | %d |\n",
+				markdownCell(summary.Service), summary.SampleCount,
+				summary.AverageCPUPercent, summary.P95CPUPercent, summary.PeakCPUPercent,
+				summary.AverageMemoryBytes, summary.P95MemoryBytes, summary.PeakMemoryBytes)
+		}
+		for _, summary := range result.ResourceSummary {
+			if summary.SampleCount < 20 {
+				fmt.Fprintf(report, "\nResource p95 is unstable with fewer than 20 samples: %s has %d.\n", markdownCell(summary.Service), summary.SampleCount)
+			}
+		}
 	}
 	for _, name := range sortedKeys(result.MetricsDelta) {
 		fmt.Fprintf(report, "- `%s`: %.6f\n", markdownCell(name), result.MetricsDelta[name])
@@ -395,6 +422,8 @@ func writeRawPathsSection(report *strings.Builder, paths OutputPaths) {
 	fmt.Fprintf(report, "- JSON: `%s`\n", markdownCell(paths.JSON))
 	fmt.Fprintf(report, "- CSV: `%s`\n", markdownCell(paths.CSV))
 	fmt.Fprintf(report, "- Report: `%s`\n", markdownCell(paths.Markdown))
+	fmt.Fprintf(report, "- Resource samples CSV: `%s`\n", markdownCell(paths.ResourceSamplesCSV))
+	fmt.Fprintf(report, "- Resource summary CSV: `%s`\n", markdownCell(paths.ResourceSummaryCSV))
 }
 
 func allFindings(result RunResult) []Finding {

@@ -181,8 +181,14 @@ Current migrations:
 | `006_add_claimed_at_index.sql` | Partial index for reconciler crash recovery queries |
 | `007_admin_sessions.sql` | Revocable browser sessions for the optional admin UI |
 | `008_admin_session_absolute_expiry.sql` | Absolute lifetime cap for admin sessions |
+| `009_emitted_claim_index.sql` | Partial queue-claim index for DB dispatch |
 
-Current releases require all migrations through 008 when the admin UI is enabled. Skipping migrations may cause auth failures, missing columns, or degraded reconciler performance.
+Migration 009 builds an index and drops the previous broad status index. Apply
+it during a maintenance window on large existing databases because a regular
+index build can briefly block writes. Fresh Compose databases apply it during
+initialization.
+
+Current releases require all migrations through 009. Skipping migrations may cause auth failures, missing columns, or degraded DB dispatch and reconciler performance.
 
 ## Admin UI Operations
 
@@ -190,7 +196,7 @@ The admin UI is disabled unless `ADMIN_ENABLED=true`. It is embedded in the exis
 
 For a fresh database:
 
-1. Apply migrations through `008_admin_session_absolute_expiry.sql`.
+1. Apply migrations through `009_emitted_claim_index.sql`.
 2. Set a long random `ADMIN_BOOTSTRAP_TOKEN`.
 3. Start CronLite and open `/admin/setup`.
 4. Enter the installation token, namespace, and first key label.
@@ -550,11 +556,11 @@ The blocking [admin workflow](.github/workflows/admin-ci.yml) has four independe
 | Job | Gate |
 |-----|------|
 | `admin-unit-security` | Workflow contract, launcher contract, race-enabled admin/CLI tests, fuzz smoke tests, and admin coverage of at least 80% |
-| `admin-postgres-integration` | Every tagged top-level integration test must run, pass under the race detector, and emit its `ADMIN_INTEGRATION_OK` marker against a fresh dedicated database migrated through 008 |
+| `admin-postgres-integration` | Every tagged top-level integration test must run, pass under the race detector, and emit its `ADMIN_INTEGRATION_OK` marker against a fresh dedicated database migrated through 009 |
 | `admin-assets-launcher` | Shell syntax/contracts, template/asset/security-header tests, and Actionlint |
 | `admin-smoke` | Linux/Darwin amd64/arm64 CGO-disabled builds and the isolated Docker admin lifecycle |
 
-Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–008 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
+Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–009 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
 
 ```bash
 set -euo pipefail

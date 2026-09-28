@@ -192,6 +192,24 @@ RETURNING e.id, e.job_id, e.namespace, e.trigger_type, e.scheduled_at,
           e.fired_at, e.status, e.acknowledged_at, e.created_at
 `
 
+// Claim several ready executions with one statement. The limit is supplied by
+// the dispatcher based on its free delivery slots, so claims stay bounded.
+const queryDequeueExecutions = `
+WITH next_executions AS (
+    SELECT id FROM executions
+    WHERE status = 'emitted'
+    ORDER BY created_at ASC, id ASC
+    FOR UPDATE SKIP LOCKED
+    LIMIT $1
+)
+UPDATE executions AS e
+SET status = 'in_progress', claimed_at = NOW()
+FROM next_executions
+WHERE e.id = next_executions.id
+RETURNING e.id, e.job_id, e.namespace, e.trigger_type, e.scheduled_at,
+          e.fired_at, e.status, e.acknowledged_at, e.created_at
+`
+
 const queryRequeueStaleExecutions = `
 WITH stale AS (
     SELECT id FROM executions

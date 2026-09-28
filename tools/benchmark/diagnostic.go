@@ -48,6 +48,11 @@ func openDiagnosticCollector(databaseURL string) (*diagnosticCollector, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open diagnostic database: %w", err)
 	}
+	// Diagnostic queries run concurrently with the application. Keep this
+	// auxiliary pool small so a load test cannot consume PostgreSQL's remaining
+	// connection slots and turn observations into application failures.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 	return newDiagnosticCollector(db), nil
 }
 
