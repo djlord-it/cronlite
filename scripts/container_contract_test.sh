@@ -32,7 +32,7 @@ assert_contains Dockerfile 'git=2.52.0-r0'
 assert_contains Dockerfile 'gcc=15.2.0-r2'
 assert_contains Dockerfile 'musl-dev=1.2.5-r23'
 assert_contains Dockerfile 'ca-certificates=20260909-r0'
-assert_contains Dockerfile 'tzdata=2026d-r0'
+assert_contains Dockerfile 'tzdata=2026e-r0'
 assert_not_contains Dockerfile 'apk upgrade'
 
 assert_contains .dockerignore '**/.venv/'
