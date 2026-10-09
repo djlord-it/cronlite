@@ -56,7 +56,10 @@ func (h *Handler) createJobPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := h.authPage(auth, "Create job")
-	data.Form = jobFormValues{Timezone: "UTC", TimeoutSeconds: "30"}
+	data.Form = jobFormValues{Timezone: "UTC", TimeoutSeconds: "30", CronExpression: r.URL.Query().Get("cron_expression")}
+	if timezone := r.URL.Query().Get("timezone"); timezone != "" {
+		data.Form.Timezone = timezone
+	}
 	h.render(w, "job_form", data)
 }
 

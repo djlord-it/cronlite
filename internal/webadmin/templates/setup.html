@@ -1,10 +1,10 @@
 {{define "setup"}}
 {{template "head" .}}
-<main class="auth-shell">
+<main id="main" class="auth-shell">
   <section class="card auth-card">
-    <p class="eyebrow">First-time setup</p>
+    <p class="eyebrow">CRONLITE / 01 · CREATE WORKSPACE</p>
     <h1>Set up CronLite</h1>
-    <p class="muted">This is one-time installation setup, not signup. It creates the first namespace-scoped API key and then closes permanently.</p>
+    <p class="muted">Create your workspace and first API key. CronLite checks the database automatically and only shows this step for a fresh installation.</p>
     {{template "messages" .}}
     <form method="post" action="/admin/setup">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -26,7 +26,7 @@
 
 {{define "setup_complete"}}
 {{template "head" .}}
-<main class="auth-shell">
+<main id="main" class="auth-shell">
   <section class="card auth-card">
     <p class="eyebrow">Setup complete</p>
     <h1>Save your API key</h1>
@@ -35,7 +35,7 @@
     <pre class="secret">{{.APIKey}}</pre>
     <p><strong>Namespace:</strong> {{.Namespace}}</p>
     {{if .SetupAuthenticated}}
-    <a class="button" href="/admin/jobs">Continue to jobs</a>
+    <a class="button" href="/admin/onboarding">Continue to workspace →</a><p><a href="/admin/jobs">Skip onboarding →</a></p>
     {{else}}
     <a class="button" href="/admin/login">Sign in</a>
     {{end}}

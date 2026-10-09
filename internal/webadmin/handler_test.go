@@ -21,6 +21,9 @@ import (
 )
 
 type fakeAdminService struct {
+	apiKeys         []domain.APIKey
+	keyListParams   domain.ListParams
+	resolved        service.ResolveResult
 	hasKeys         bool
 	bootstrapResult service.CreateAPIKeyResult
 	bootstrapErr    error
@@ -99,6 +102,33 @@ func (f *fakeAdminService) GetExecution(context.Context, uuid.UUID) (domain.Exec
 		execution = f.executions[0]
 	}
 	return execution, f.attempts, f.err
+}
+
+func (f *fakeAdminService) CreateAPIKey(ctx context.Context, input service.CreateAPIKeyInput) (service.CreateAPIKeyResult, error) {
+	f.bootstrapNS = domain.NamespaceFromContext(ctx).String()
+	f.bootstrapLabel = input.Label
+	return f.bootstrapResult, f.err
+}
+func (f *fakeAdminService) ListAPIKeys(ctx context.Context, params domain.ListParams) ([]domain.APIKey, error) {
+	f.keyListParams = params
+	f.bootstrapNS = domain.NamespaceFromContext(ctx).String()
+	return f.apiKeys, f.err
+}
+func (f *fakeAdminService) DeleteAPIKey(ctx context.Context, id uuid.UUID) error {
+	f.bootstrapNS = domain.NamespaceFromContext(ctx).String()
+	f.actionID = id
+	return f.err
+}
+func (f *fakeAdminService) ListPendingAck(context.Context, *uuid.UUID, int) ([]domain.Execution, error) {
+	return f.executions, f.err
+}
+func (f *fakeAdminService) AckExecution(ctx context.Context, id uuid.UUID) error {
+	f.bootstrapNS = domain.NamespaceFromContext(ctx).String()
+	f.actionID = id
+	return f.err
+}
+func (f *fakeAdminService) ResolveSchedule(context.Context, string, string) (service.ResolveResult, error) {
+	return f.resolved, f.err
 }
 
 func newTestHandler(t *testing.T, svc *fakeAdminService, sessions *fakeAdminSessionStore, keys *fakeKeyLookup) http.Handler {
@@ -220,11 +250,11 @@ func TestLoginAndSetupExplainExpectedCredentials(t *testing.T) {
 
 		body := rec.Body.String()
 		for _, want := range []string{
-			"Already set up?",
-			"there is no public signup",
+			"Sign in with your existing API key.",
+			"Your jobs, keys, and configurations",
 			`aria-describedby="api_key_help"`,
 			`id="api_key_help"`,
-			"Paste the key generated during setup.",
+			"Use any enabled key in your workspace.",
 			"It starts with",
 			"<code>ec_</code>",
 		} {
@@ -245,8 +275,8 @@ func TestLoginAndSetupExplainExpectedCredentials(t *testing.T) {
 
 		body := rec.Body.String()
 		for _, want := range []string{
-			"First-time setup",
-			"This is one-time installation setup, not signup.",
+			"CREATE WORKSPACE",
+			"only shows this step for a fresh installation.",
 			`aria-describedby="bootstrap_token_help"`,
 			`id="bootstrap_token_help"`,
 			"<code>ADMIN_BOOTSTRAP_TOKEN</code>",

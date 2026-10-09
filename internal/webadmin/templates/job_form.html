@@ -1,7 +1,7 @@
 {{define "job_form"}}
 {{template "head" .}}
 {{template "nav" .}}
-<main class="container narrow">
+<main id="main" class="container narrow">
   <a class="back" href="{{if .Edit}}/admin/jobs/{{.Job.ID}}{{else}}/admin/jobs{{end}}">← Back</a>
   <h1>{{if .Edit}}Edit job{{else}}Create job{{end}}</h1>
   {{template "messages" .}}
@@ -14,7 +14,7 @@
       </div>
       <div>
         <label for="cron_expression">Cron expression</label>
-        <input id="cron_expression" name="cron_expression" value="{{.Form.CronExpression}}" placeholder="0 9 * * *" required>
+        <input id="cron_expression" name="cron_expression" value="{{.Form.CronExpression}}" placeholder="0 9 * * *" aria-describedby="cron_help" required><p class="field-help" id="cron_help">Minute · Hour · Day · Month · Weekday<br><a href="/admin/schedule">Need help? Build a schedule →</a></p>
       </div>
       <div>
         <label for="timezone">IANA timezone</label>

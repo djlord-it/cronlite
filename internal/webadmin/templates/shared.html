@@ -1,35 +1,25 @@
 {{define "head"}}
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}} · CronLite</title>
-  <link rel="stylesheet" href="/admin/assets/admin.css">
-</head>
-<body>
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">
+<title>{{.Title}} · CronLite</title><link rel="icon" type="image/svg+xml" href="/admin/assets/favicon.svg"><link rel="stylesheet" href="/admin/assets/admin.css">
+</head><body><a class="skip-link" href="#main">Skip to content</a>
 {{end}}
-
 {{define "nav"}}
 <header class="topbar">
-  <a class="brand" href="/admin/jobs">CronLite</a>
-  <nav aria-label="Primary navigation">
-    <a href="/admin/jobs">Jobs</a>
-    <span class="namespace">{{.Namespace}}</span>
-    <form method="post" action="/admin/logout">
-      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-      <button class="link-button" type="submit">Log out</button>
-    </form>
-  </nav>
+ <a class="brand" href="/admin/jobs"><span class="brand-mark" aria-hidden="true">c_</span>cronlite<span class="brand-sub">CONTROL PANEL</span></a>
+ <div class="workspace-label"><span class="eyebrow">Workspace</span><span class="namespace">{{.Namespace}}</span></div>
+ <nav aria-label="Primary navigation">
+  <p class="nav-label">MANAGE</p>
+  <a href="/admin/jobs" {{if eq .Navigation "jobs"}}aria-current="page"{{end}}><span aria-hidden="true">◷</span> Jobs</a>
+  <a href="/admin/executions" {{if eq .Navigation "executions"}}aria-current="page"{{end}}><span aria-hidden="true">≋</span> Executions</a>
+  <a href="/admin/keys" {{if eq .Navigation "keys"}}aria-current="page"{{end}}><span aria-hidden="true">⌘</span> API keys</a>
+  <p class="nav-label">WORKSPACE</p>
+  <a href="/admin/schedule" {{if eq .Navigation "schedule"}}aria-current="page"{{end}}><span aria-hidden="true">▦</span> Schedule builder</a>
+  <a href="/admin/settings" {{if eq .Navigation "settings"}}aria-current="page"{{end}}><span aria-hidden="true">⚙</span> Settings</a>
+  <a href="/admin/onboarding" {{if eq .Navigation "onboarding"}}aria-current="page"{{end}}><span aria-hidden="true">↗</span> Getting started</a>
+ </nav>
+ <div class="sidebar-foot"><p class="muted">CronLite Admin<br><small>Schedule. Deliver. Observe.</small></p><form method="post" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="link-button" type="submit">Log out ↗</button></form></div>
 </header>
 {{end}}
-
-{{define "messages"}}
-{{if .Notice}}<div class="notice" role="status">{{.Notice}}</div>{{end}}
-{{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
-{{end}}
-
-{{define "foot"}}
-</body>
-</html>
-{{end}}
+{{define "messages"}}{{if .Notice}}<div class="notice" role="status">{{.Notice}}</div>{{end}}{{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}{{end}}
+{{define "foot"}}<footer class="page-foot">CRONLITE <span>·</span> YOUR SCHEDULES, UNDER CONTROL</footer></body></html>{{end}}
