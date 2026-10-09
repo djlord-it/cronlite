@@ -179,3 +179,6 @@ input.job-select, .checkbox input { width: 1.1rem; height: 1.1rem; accent-color:
  .checkbox { align-items: start; }
  .namespace { overflow-wrap: anywhere; }
 }
+
+.search-feedback { min-height: 1.4em; margin: .5rem 0; font-size: .85rem; }
+#fleet-results[aria-busy="true"] { opacity: .65; }

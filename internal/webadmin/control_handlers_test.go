@@ -1,6 +1,8 @@
 package webadmin
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"html"
 	"net/http/httptest"
@@ -12,6 +14,52 @@ import (
 	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/google/uuid"
 )
+
+func TestLiveSearchScriptAndScopedPolicy(t *testing.T) {
+	handler := newTestHandler(t, nil, nil, nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/admin/assets/jobs.js", nil))
+	sum := sha256.Sum256(rec.Body.Bytes())
+	if rec.Code != 200 || rec.Header().Get("Content-Type") != "text/javascript; charset=utf-8" || "sha256-"+base64.StdEncoding.EncodeToString(sum[:]) != jobsScriptIntegrity {
+		t.Fatal("live script or integrity hash mismatch")
+	}
+	assertRequiredSecurityHeaders(t, rec.Header(), false)
+	for _, path := range []string{"/admin/login", "/admin/runs", "/admin/jobs/new", "/admin/assets/jobs.js"} {
+		if adminPolicy(path) != adminCSP {
+			t.Fatalf("live script policy escaped Jobs: %s", path)
+		}
+	}
+	policy := adminPolicy("/admin/jobs")
+	if !strings.Contains(policy, "script-src '"+jobsScriptIntegrity+"'") || !strings.Contains(policy, "connect-src 'self'") || strings.Contains(policy, "unsafe-") || strings.Contains(policy, "script-src 'self'") {
+		t.Fatal("script must be hash pinned with no arbitrary script permission")
+	}
+}
+
+func TestFleetNumberedNavigation(t *testing.T) {
+	for _, tc := range []struct{ matched, page, total int }{{0, 1, 1}, {25, 1, 1}, {26, 2, 2}, {10000, 200, 400}, {10000, 400, 400}} {
+		r := httptest.NewRequest("GET", "/admin/jobs?name=Invoice&enabled=false&tag=team%3Dpayments&view=board", nil)
+		total, links := fleetPageLinks(r, tc.page, tc.matched)
+		if total != tc.total || len(links) > 7 || links[0].Number != 1 || links[len(links)-1].Number != tc.total {
+			t.Fatalf("wrong links %#v", links)
+		}
+		current := 0
+		for _, link := range links {
+			url, _ := url.Parse(link.URL)
+			if url.Query().Get("name") != "Invoice" || url.Query().Get("tag") != "team=payments" || url.Query().Get("enabled") != "false" || url.Query().Get("view") != "board" {
+				t.Fatal("filters lost")
+			}
+			if link.Current {
+				current++
+				if link.Number != tc.page {
+					t.Fatal("wrong current page")
+				}
+			}
+		}
+		if current != 1 {
+			t.Fatal("missing current page")
+		}
+	}
+}
 
 func TestFleetRejectsMalformedSearchBeforeQuerying(t *testing.T) {
 	for _, query := range []string{"name=%ZZ", "name=%ff", "name=%00", "tag=team%3D%ff", "tag=team%3D%00", "unused=" + strings.Repeat("a", 4096)} {
@@ -90,8 +138,8 @@ func TestControlFleetViewsCountsTimelineAndBoundaries(t *testing.T) {
 					t.Fatal("timeline incorrectly bounded or calculated")
 				}
 			}
-			if strings.Contains(body, "<script") {
-				t.Fatal("unexpected script")
+			if strings.Count(body, `<script src="/admin/assets/jobs.js" integrity="`+jobsScriptIntegrity+`" defer></script>`) != 1 {
+				t.Fatal("unexpected live search script")
 			}
 			if strings.Contains(body, `class="board-column status-`) || strings.Contains(body, `<div class="status-`) {
 				t.Fatal("status colors escaped the Jobs table")
