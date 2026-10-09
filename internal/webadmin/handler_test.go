@@ -262,7 +262,7 @@ func TestLoginAndSetupExplainExpectedCredentials(t *testing.T) {
 		body := rec.Body.String()
 		for _, want := range []string{
 			"Sign in with your existing API key.",
-			"Your jobs, keys, and configurations",
+			"<h1>Sign in</h1>",
 			`aria-describedby="api_key_help"`,
 			`id="api_key_help"`,
 			"Use any enabled key in your workspace.",
@@ -286,8 +286,8 @@ func TestLoginAndSetupExplainExpectedCredentials(t *testing.T) {
 
 		body := rec.Body.String()
 		for _, want := range []string{
-			"CREATE WORKSPACE",
-			"only shows this step for a fresh installation.",
+			"<h1>Set up CronLite</h1>",
+			"Create a workspace and its first API key.",
 			`aria-describedby="bootstrap_token_help"`,
 			`id="bootstrap_token_help"`,
 			"<code>ADMIN_BOOTSTRAP_TOKEN</code>",

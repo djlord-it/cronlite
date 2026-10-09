@@ -158,7 +158,7 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 ## Lightweight Admin UI
 
-CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates with embedded CSS, JetBrains Mono, a local icon, and a small optional script for live job search. The UI stays in dark mode and works without JavaScript, a frontend framework, a Node runtime, or a CDN.
+CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates with embedded CSS, system fonts, a local icon, and a small optional script for live job search. The UI uses a consistent light theme and works without JavaScript, a frontend framework, a Node runtime, or a CDN.
 
 For local development, Docker and Go are the only prerequisites:
 

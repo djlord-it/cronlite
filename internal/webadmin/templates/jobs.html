@@ -1,7 +1,7 @@
 {{define "jobs"}}
 {{template "head" .}}{{template "nav" .}}
 <main id="main" class="container">
-  <div class="page-heading"><div><p class="eyebrow">Recurring jobs · {{.Namespace}}</p><h1>Job Control Center</h1><p class="muted">Manage schedules and fleet state. Inspect individual executions in Runs.</p></div><a class="button" href="/admin/jobs/new">Create job</a></div>
+  <div class="page-heading"><div><p class="eyebrow">Recurring jobs · {{.Namespace}}</p><h1>Job Control Center</h1></div><a class="button" href="/admin/jobs/new">Create job</a></div>
   {{template "messages" .}}
   <section id="fleet-counts" class="fleet-counts" aria-label="Fleet counts"><div><strong>{{.Fleet.Total}}</strong><span>Total jobs</span></div><div><strong>{{.Fleet.Active}}</strong><span>Active</span></div><div><strong>{{.Fleet.Paused}}</strong><span>Paused</span></div><div><strong>{{.Fleet.Matched}}</strong><span>Matching filters</span></div></section>
   <form id="fleet-filters" class="filters" method="get" action="/admin/jobs">

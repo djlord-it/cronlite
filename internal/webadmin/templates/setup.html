@@ -2,9 +2,9 @@
 {{template "head" .}}
 <main id="main" class="auth-shell">
   <section class="card auth-card">
-    <p class="eyebrow">CRONLITE / 01 · CREATE WORKSPACE</p>
+    <p class="eyebrow">CronLite</p>
     <h1>Set up CronLite</h1>
-    <p class="muted">Create your workspace and first API key. CronLite checks the database automatically and only shows this step for a fresh installation.</p>
+    <p class="muted">Create a workspace and its first API key.</p>
     {{template "messages" .}}
     <form method="post" action="/admin/setup">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
@@ -28,7 +28,7 @@
 {{template "head" .}}
 <main id="main" class="auth-shell">
   <section class="card auth-card">
-    <p class="eyebrow">Setup complete</p>
+
     <h1>Save your API key</h1>
     <p>This key is shown once. Store it in a password manager before continuing.</p>
     {{template "messages" .}}
