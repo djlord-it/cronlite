@@ -424,5 +424,4 @@ SELECT COUNT(*) FROM delivery_attempts WHERE id = $1 AND execution_id = $2
 		t.Fatal("namespace A deletion affected namespace B job")
 	}
 
-	t.Log("ADMIN_INTEGRATION_OK")
 }

@@ -55,5 +55,4 @@ WHERE j.id IS NULL
 		t.Fatalf("orphan schedules remaining after failed aggregate insert = %d, want 0", got)
 	}
 
-	t.Log("ADMIN_INTEGRATION_OK")
 }

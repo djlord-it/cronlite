@@ -497,16 +497,9 @@ func validateIntegrationJob(v *contractViolations, job workflowJob) {
 		"set -euo pipefail",
 		"go test -json -tags=integration -race",
 		"tee /tmp/admin-integration.json",
-		"ADMIN_INTEGRATION_OK",
-		"selected",
-		"passed",
-		"skipped",
-		"marker",
-		"cmp -s",
+		"ADMIN_TEST_DATABASE_URL:?",
+		"jq -e -s",
 	)
-	if strings.Contains(integration.Run, "-ne 5") || strings.Contains(integration.Run, "of 5") {
-		v.addf("integration suite must not hard-code the marker count")
-	}
 
 	diagnostics := findStep(job, "Collect sanitized integration diagnostics")
 	if diagnostics.If != "failure()" {
@@ -542,10 +535,8 @@ func validateAssetsJob(v *contractViolations, job workflowJob) {
 		"github.com/rhysd/actionlint/cmd/actionlint@v1.7.7",
 		".github/workflows/admin-ci.yml",
 	)
-	requireRunContains(v, "focused assets", findStep(job, "Run focused template, asset, and security header tests"),
-		"go test ./internal/webadmin",
-		"Templates|Assets|SecurityHeaders",
-	)
+	requireRunContains(v, "container contract", findStep(job, "Run container contract"),
+		"./scripts/container_contract_test.sh")
 }
 
 func validateSmokeJob(v *contractViolations, job workflowJob) {

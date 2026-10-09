@@ -200,7 +200,7 @@ The blocking admin workflow is [`.github/workflows/admin-ci.yml`](.github/workfl
 
 - `admin-unit-security`: race-enabled unit/security tests, fuzz smoke tests, and an 80% admin coverage gate.
 - `admin-postgres-integration`: tagged integration tests against a fresh dedicated PostgreSQL database with every migration applied.
-- `admin-assets-launcher`: shell contracts, template/assets/header tests, and Actionlint.
+- `admin-assets-launcher`: launcher, smoke, and container shell contracts plus Actionlint.
 - `admin-smoke`: four CGO-disabled cross-builds and an isolated Docker image lifecycle smoke test.
 
 Run the primary gate locally:

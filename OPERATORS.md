@@ -553,14 +553,14 @@ leader: released advisory lock 728379              # Lost leadership
 
 ## Admin CI Gates
 
-The blocking [admin workflow](.github/workflows/admin-ci.yml) has four independent jobs:
+The blocking [admin workflow](.github/workflows/admin-ci.yml) runs on pull requests and pushes to `main`, avoiding duplicate runs for feature branches. It has four independent jobs:
 
 | Job | Gate |
 |-----|------|
-| `admin-unit-security` | Workflow contract, launcher contract, race-enabled admin/CLI tests, fuzz smoke tests, and admin coverage of at least 80% |
-| `admin-postgres-integration` | Every tagged top-level integration test must run, pass under the race detector, and emit its `ADMIN_INTEGRATION_OK` marker against a fresh dedicated database migrated through 009 |
-| `admin-assets-launcher` | Shell syntax/contracts, template/asset/security-header tests, and Actionlint |
-| `admin-smoke` | Linux/Darwin amd64/arm64 CGO-disabled builds and the isolated Docker admin lifecycle |
+| `admin-unit-security` | Workflow contract, race-enabled admin/CLI tests, fuzz smoke tests, and admin coverage of at least 80% |
+| `admin-postgres-integration` | Tagged integration tests must run and pass under the race detector, with empty or skipped suites rejected against a fresh dedicated database migrated through 009 |
+| `admin-assets-launcher` | Launcher/smoke/container shell contracts and Actionlint; template/asset/security-header tests run in the unit suite |
+| `admin-smoke` | Linux/Darwin amd64/arm64 CGO-disabled builds and the isolated Docker admin lifecycle, including workspace views and bundled CSS/font |
 
 Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–009 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
 

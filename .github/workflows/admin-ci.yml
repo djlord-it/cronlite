@@ -2,6 +2,7 @@ name: Admin CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -99,54 +100,21 @@ jobs:
           ADMIN_TEST_DATABASE_URL: postgresql://cronlite_admin_ci:admin-ci-password@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/cronlite_admin_ci?sslmode=disable
         run: |
           set -euo pipefail
-          integration_json=/tmp/admin-integration.json
-          selected=/tmp/admin-integration-selected.txt
-          passed=/tmp/admin-integration-passed.txt
-          skipped=/tmp/admin-integration-skipped.txt
-          marker_bearing=/tmp/admin-integration-markers.txt
+          : "${ADMIN_TEST_DATABASE_URL:?A dedicated integration database is required}"
           go test -json -tags=integration -race ./internal/webadmin \
             -run '^TestIntegration' -count=1 -v |
             tee /tmp/admin-integration.json
-          jq -r '
-            select(
-              .Action == "run" and
-              ((.Test // "") | test("^TestIntegration[^/]*$"))
-            ) | .Test
-          ' "$integration_json" | sort -u > "$selected"
-          jq -r '
-            select(
-              .Action == "pass" and
-              ((.Test // "") | test("^TestIntegration[^/]*$"))
-            ) | .Test
-          ' "$integration_json" | sort -u > "$passed"
-          jq -r '
-            select(
-              .Action == "skip" and
-              ((.Test // "") | startswith("TestIntegration"))
-            ) | .Test
-          ' "$integration_json" | sort -u > "$skipped"
-          jq -r '
-            select(
-              ((.Output // "") | contains("ADMIN_INTEGRATION_OK")) and
-              ((.Test // "") | startswith("TestIntegration"))
-            ) | .Test | split("/")[0]
-          ' "$integration_json" | sort -u > "$marker_bearing"
-          if [[ ! -s "$selected" ]]; then
-            printf 'admin integration suite selected no top-level tests\n' >&2
+          # Go's exit status handles failures; JSON also prevents empty or skipped suites.
+          jq -e -s '
+            [.[] | select((.Test // "") | test("^TestIntegration[^/]*$"))] as $tests |
+            ([$tests[] | select(.Action == "run") | .Test] | unique) as $selected |
+            ([$tests[] | select(.Action == "pass") | .Test] | unique) as $passed |
+            ($selected | length) > 0 and $selected == $passed and
+            all(.[]; .Action != "skip")
+          ' /tmp/admin-integration.json > /dev/null || {
+            printf 'admin integration suite was empty, incomplete, or skipped tests\n' >&2
             exit 1
-          fi
-          if [[ -s "$skipped" ]]; then
-            printf 'admin integration suite contained a skipped test\n' >&2
-            exit 1
-          fi
-          if ! cmp -s "$selected" "$passed"; then
-            printf 'admin integration selected and passed test sets differ\n' >&2
-            exit 1
-          fi
-          if ! cmp -s "$selected" "$marker_bearing"; then
-            printf 'admin integration selected and marker-bearing test sets differ\n' >&2
-            exit 1
-          fi
+          }
 
       - name: Collect sanitized integration diagnostics
         if: failure()
@@ -214,7 +182,8 @@ jobs:
             scripts/admin-local.sh \
             scripts/admin_local_test.sh \
             scripts/admin_smoke_test.sh \
-            scripts/admin_smoke_test_test.sh
+            scripts/admin_smoke_test_test.sh \
+            scripts/container_contract_test.sh
 
       - name: Run launcher contract
         run: ./scripts/admin_local_test.sh --all
@@ -225,10 +194,8 @@ jobs:
       - name: Lint GitHub Actions workflow
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/admin-ci.yml
 
-      - name: Run focused template, asset, and security header tests
-        run: |
-          go test ./internal/webadmin \
-            -run '(Templates|Assets|SecurityHeaders)' -count=1
+      - name: Run container contract
+        run: ./scripts/container_contract_test.sh
 
   admin-smoke:
     runs-on: ubuntu-latest

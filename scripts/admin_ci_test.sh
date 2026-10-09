@@ -4,8 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-go test ./internal/ciworkflow -count=1
-
 # Set ADMIN_COVERAGE_FILE to retain the atomic profile at an explicit path
 # (for example, for CI artifact upload). The default temporary file is removed on EXIT.
 cleanup_coverage=0
@@ -21,14 +19,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-bash -n \
-  scripts/admin-local.sh \
-  scripts/admin_local_test.sh \
-  scripts/container_contract_test.sh
-bash scripts/admin_local_test.sh --all
-bash scripts/container_contract_test.sh
-go test -race ./internal/webadmin ./cmd/cronlite
-go test ./internal/webadmin -coverprofile="$coverage_file" -covermode=atomic
+go test -race ./internal/ciworkflow ./cmd/cronlite
+go test -race ./internal/webadmin -coverprofile="$coverage_file" -covermode=atomic
 
 coverage="$(
   go tool cover -func="$coverage_file" |
