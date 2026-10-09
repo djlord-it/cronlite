@@ -2,9 +2,9 @@
 {{template "head" .}}
 <main id="main" class="auth-shell">
   <section class="card auth-card">
-    <p class="eyebrow">CRONLITE / WELCOME BACK</p>
-    <h1>Back in control.</h1>
-    <p class="muted">Sign in with your existing API key. Your jobs, keys, and configurations will be ready in your workspace.</p>
+    <p class="eyebrow">CronLite</p>
+    <h1>Sign in</h1>
+    <p class="muted">Sign in with your existing API key.</p>
     {{template "messages" .}}
     <form method="post" action="/admin/login">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
