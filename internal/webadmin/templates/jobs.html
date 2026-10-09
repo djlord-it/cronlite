@@ -1,54 +1,38 @@
 {{define "jobs"}}
-{{template "head" .}}
-{{template "nav" .}}
+{{template "head" .}}{{template "nav" .}}
 <main id="main" class="container">
-  <div class="page-heading">
-    <div>
-      <p class="eyebrow">Workspace / Schedules</p>
-      <h1>Jobs</h1><p class="muted">Automate the routine. Keep every schedule and delivery in view.</p>
-    </div>
-    <a class="button" href="/admin/jobs/new">Create job</a>
-  </div>
+  <div class="page-heading"><div><p class="eyebrow">Recurring jobs · {{.Namespace}}</p><h1>Job Control Center</h1><p class="muted">Manage schedules and fleet state. Inspect individual executions in Runs.</p></div><a class="button" href="/admin/jobs/new">Create job</a></div>
   {{template "messages" .}}
-  <form class="filters" method="get" action="/admin/jobs">
-    <div>
-      <label for="name">Search</label>
-      <input id="name" name="name" type="search" value="{{.Form.Name}}" placeholder="Job name">
-    </div>
-    <div>
-      <label for="enabled">Status</label>
-      <select id="enabled" name="enabled">
-        <option value=""{{if eq .EnabledFilter ""}} selected{{end}}>All</option>
-        <option value="true"{{if eq .EnabledFilter "true"}} selected{{end}}>Active</option>
-        <option value="false"{{if eq .EnabledFilter "false"}} selected{{end}}>Paused</option>
-      </select>
-    </div>
-    <button type="submit">Filter</button>
+  <section id="fleet-counts" class="fleet-counts" aria-label="Fleet counts"><div><strong>{{.Fleet.Total}}</strong><span>Total jobs</span></div><div><strong>{{.Fleet.Active}}</strong><span>Active</span></div><div><strong>{{.Fleet.Paused}}</strong><span>Paused</span></div><div><strong>{{.Fleet.Matched}}</strong><span>Matching filters</span></div></section>
+  <form id="fleet-filters" class="filters" method="get" action="/admin/jobs">
+    <input type="hidden" name="view" value="{{.View}}">
+    <div><label for="name">Search jobs</label><input id="name" name="name" type="search" maxlength="200" value="{{.Form.Name}}" placeholder="Job name"></div>
+    <div><label for="enabled">Fleet state</label><select id="enabled" name="enabled"><option value=""{{if eq .EnabledFilter ""}} selected{{end}}>All jobs</option><option value="true"{{if eq .EnabledFilter "true"}} selected{{end}}>Active</option><option value="false"{{if eq .EnabledFilter "false"}} selected{{end}}>Paused</option></select></div>
+    <div><label for="tag">Tag</label><input id="tag" name="tag" maxlength="200" value="{{.TagFilter}}" placeholder="team=payments"></div>
+    <button type="submit">Filter</button><a href="/admin/jobs?view={{.View}}">Clear</a>
   </form>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Name</th><th>Status</th><th>Schedule</th><th>Timezone</th><th>Webhook</th><th>Updated</th></tr></thead>
-      <tbody>
-      {{range .Jobs}}
-        <tr>
-          <td><a href="/admin/jobs/{{.Job.ID}}">{{.Job.Name}}</a></td>
-          <td>{{if .Job.Enabled}}<span class="badge success">Active</span>{{else}}<span class="badge">Paused</span>{{end}}</td>
-          <td><code>{{.Schedule.CronExpression}}</code></td>
-          <td>{{.Schedule.Timezone}}</td>
-          <td class="truncate">{{.Job.Delivery.WebhookURL}}</td>
-          <td>{{formatTime .Job.UpdatedAt}}</td>
-        </tr>
-      {{else}}
-        <tr><td colspan="6" class="empty"><strong>No matching jobs yet.</strong><br>Create a job or adjust your filters to get started.<br><a href="/admin/jobs/new">Create your first job →</a></td></tr>
-      {{end}}
-      </tbody>
-    </table>
-  </div>
-  <nav class="pagination" aria-label="Jobs pages">
-    {{if .PreviousURL}}<a href="{{.PreviousURL}}">Previous</a>{{end}}
-    <span>Page {{.Page}}</span>
-    {{if .NextURL}}<a href="{{.NextURL}}">Next</a>{{end}}
-  </nav>
-</main>
-{{template "foot" .}}
-{{end}}
+  <div class="view-toolbar"><nav class="view-switch" aria-label="Job views"><a href="{{.TableURL}}"{{if eq .View "table"}} aria-current="page"{{end}}>Table</a><a href="{{.BoardURL}}"{{if eq .View "board"}} aria-current="page"{{end}}>Board</a><a href="{{.TimelineURL}}"{{if eq .View "timeline"}} aria-current="page"{{end}}>Timeline</a></nav><a href="/admin/bulk">Bulk action history</a></div>
+  <details class="saved-views"><summary>Saved views · {{len .SavedViews}}</summary><p class="muted">Private to this API key and namespace. Anyone using the same key shares these views.</p>
+    <div class="saved-list">{{range .SavedViews}}<div><a href="/admin/jobs?{{.Query}}">{{.Name}}</a><form method="post" action="/admin/views/{{.ID}}/delete"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="return" value="{{$.ReturnURL}}"><button class="link-button" type="submit" aria-label="Remove saved view {{.Name}}">Remove</button></form></div>{{else}}<p class="muted">No saved views yet.</p>{{end}}</div>
+    <form class="save-form" method="post" action="/admin/views"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="query" value="{{.StateQuery}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><div><label for="view_name">Save current filters</label><input id="view_name" name="view_name" maxlength="80" required placeholder="View name"></div><button class="secondary" type="submit">Save view</button></form>
+  </details>
+  {{if eq .View "timeline"}}
+    <section class="timeline"><h2>Next scheduled runs</h2><p class="muted">Next occurrence per active job, through {{formatTime .TimelineUntil}}. These are schedule estimates, not executions.</p>
+    {{if .TimelineLimited}}<p class="notice">Showing up to 50 next runs from at most 500 matching jobs. Narrow the filters to see the rest.</p>{{end}}
+    {{if .TimelineInvalid}}<p class="error">{{.TimelineInvalid}} active jobs have an invalid schedule or no calculable next occurrence.</p>{{end}}
+    <div class="table-wrap"><table><thead><tr><th>Next run (UTC)</th><th>Job</th><th>Schedule</th><th>Timezone</th></tr></thead><tbody>{{range .Timeline}}<tr><td>{{formatTime .Next}}</td><td><a href="{{jobURL .Job.ID $.ReturnURL}}">{{.Job.Name}}</a></td><td><code>{{.Schedule.CronExpression}}</code></td><td>{{.Schedule.Timezone}}</td></tr>{{else}}<tr><td class="empty" colspan="4">No next runs in the next 24 hours for these filters.</td></tr>{{end}}</tbody></table></div></section>
+  {{else}}
+    <form id="bulk" class="bulk-toolbar" method="post" action="/admin/bulk/preview"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><p>Select jobs on this page, then preview an action.</p><button class="secondary" name="action" value="pause" type="submit">Preview pause</button><button class="secondary" name="action" value="resume" type="submit">Preview resume</button></form>
+    {{if eq .View "board"}}
+    <div class="job-board">
+      <section class="board-column"><h2>Active <span class="muted">· {{.Fleet.Active}} fleet-wide</span></h2>{{range .Jobs}}{{if .Job.Enabled}}{{template "job_card" (jobCardData . $)}}{{end}}{{end}}</section>
+      <section class="board-column"><h2>Paused <span class="muted">· {{.Fleet.Paused}} fleet-wide</span></h2>{{range .Jobs}}{{if not .Job.Enabled}}{{template "job_card" (jobCardData . $)}}{{end}}{{end}}</section>
+    </div><p class="muted">Board cards show the current filtered page.</p>{{if not .Jobs}}<p class="empty">No jobs found.</p>{{end}}
+    {{else}}
+    <div class="table-wrap"><table class="jobs-table"><thead><tr><th>Select</th><th>Name</th><th>Status</th><th>Schedule</th><th>Timezone</th><th>Webhook</th><th>Updated</th></tr></thead><tbody>
+    {{range .Jobs}}<tr><td><input class="job-select" type="checkbox" name="job_id" value="{{.Job.ID}}" form="bulk" aria-label="Select {{.Job.Name}}"></td><td><a href="{{jobURL .Job.ID $.ReturnURL}}">{{.Job.Name}}</a></td><td>{{if .Job.Enabled}}<span class="badge success status-active">Active</span>{{else}}<span class="badge status-paused">Paused</span>{{end}}</td><td><code>{{.Schedule.CronExpression}}</code></td><td>{{.Schedule.Timezone}}</td><td class="truncate">{{.Job.Delivery.WebhookURL}}</td><td>{{formatTime .Job.UpdatedAt}}</td></tr>{{else}}<tr><td colspan="7" class="empty">No jobs found.</td></tr>{{end}}
+    </tbody></table></div>{{end}}
+    <nav class="pagination" aria-label="Jobs pages">{{if .PreviousURL}}<a href="{{.PreviousURL}}">Previous</a>{{end}}<span>Page {{.Page}} · {{len .Jobs}} shown · {{.Fleet.Matched}} matching</span>{{if .NextURL}}<a href="{{.NextURL}}">Next</a>{{end}}</nav>
+  {{end}}
+</main>{{template "foot" .}}{{end}}
+{{define "job_card"}}<article class="job-card"><label class="checkbox"><input type="checkbox" form="bulk" name="job_id" value="{{.Row.Job.ID}}">Select {{.Row.Job.Name}}</label><h3><a href="{{jobURL .Row.Job.ID .State}}">{{.Row.Job.Name}}</a></h3><p><code>{{.Row.Schedule.CronExpression}}</code> · {{.Row.Schedule.Timezone}}</p><p class="break muted">{{.Row.Job.Delivery.WebhookURL}}</p><small class="muted">Updated {{formatTime .Row.Job.UpdatedAt}}</small></article>{{end}}

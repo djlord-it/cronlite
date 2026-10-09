@@ -2,13 +2,13 @@
 {{template "head" .}}
 {{template "nav" .}}
 <main id="main" class="container">
-  <a class="back" href="/admin/jobs">← Jobs</a>
+  <a class="back" href="{{.ReturnURL}}">← Jobs</a>
   <div class="page-heading">
     <div>
       <p class="eyebrow">{{if .Job.Enabled}}Active{{else}}Paused{{end}}</p>
       <h1>{{.Job.Name}}</h1>
     </div>
-    <a class="button secondary" href="/admin/jobs/{{.Job.ID}}/edit">Edit</a>
+    <a class="button secondary" href="/admin/jobs/{{.Job.ID}}/edit?{{returnQuery .ReturnURL}}">Edit</a>
   </div>
   {{template "messages" .}}
   <section class="detail-grid">
@@ -24,22 +24,22 @@
     </div>
     <div class="card">
       <h2>Next runs</h2>
-      <ol class="compact-list">{{range .NextRuns}}<li>{{formatTime .}}</li>{{else}}<li>No upcoming runs while paused.</li>{{end}}</ol>
+      <ol class="compact-list">{{range .NextRuns}}<li>{{formatTime .}}</li>{{else}}<li>{{if .Job.Enabled}}No calculable upcoming runs.{{else}}No upcoming runs while paused.{{end}}</li>{{end}}</ol>
     </div>
   </section>
   <section class="action-bar" aria-label="Job actions">
     {{if .Job.Enabled}}
-    <form method="post" action="/admin/jobs/{{.Job.ID}}/pause"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="secondary" type="submit">Pause</button></form>
-    <form method="post" action="/admin/jobs/{{.Job.ID}}/trigger"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button type="submit">Run now</button></form>
+    <form method="post" action="/admin/jobs/{{.Job.ID}}/pause"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><button class="secondary" type="submit">Pause</button></form>
+    <form method="post" action="/admin/jobs/{{.Job.ID}}/trigger"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><button type="submit">Run now</button></form>
     {{else}}
-    <form method="post" action="/admin/jobs/{{.Job.ID}}/resume"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button type="submit">Resume</button></form>
+    <form method="post" action="/admin/jobs/{{.Job.ID}}/resume"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><button type="submit">Resume</button></form>
     {{end}}
-    <a class="danger-link" href="/admin/jobs/{{.Job.ID}}/delete">Delete</a>
+    <a class="danger-link" href="/admin/jobs/{{.Job.ID}}/delete?{{returnQuery .ReturnURL}}">Delete</a>
   </section>
   <section>
     <div class="section-heading"><h2>Executions</h2></div>
     <form class="filters" method="get" action="/admin/jobs/{{.Job.ID}}">
-      <div><label for="status">Status</label><select id="status" name="status"><option value=""{{if eq .ExecutionStatusFilter ""}} selected{{end}}>All</option><option value="delivered"{{if eq .ExecutionStatusFilter "delivered"}} selected{{end}}>Delivered</option><option value="failed"{{if eq .ExecutionStatusFilter "failed"}} selected{{end}}>Failed</option><option value="in_progress"{{if eq .ExecutionStatusFilter "in_progress"}} selected{{end}}>In progress</option><option value="emitted"{{if eq .ExecutionStatusFilter "emitted"}} selected{{end}}>Queued</option></select></div>
+      <input type="hidden" name="return" value="{{.ReturnURL}}"><div><label for="status">Status</label><select id="status" name="status"><option value=""{{if eq .ExecutionStatusFilter ""}} selected{{end}}>All</option><option value="delivered"{{if eq .ExecutionStatusFilter "delivered"}} selected{{end}}>Delivered</option><option value="failed"{{if eq .ExecutionStatusFilter "failed"}} selected{{end}}>Failed</option><option value="in_progress"{{if eq .ExecutionStatusFilter "in_progress"}} selected{{end}}>In progress</option><option value="emitted"{{if eq .ExecutionStatusFilter "emitted"}} selected{{end}}>Queued</option></select></div>
       <div><label for="trigger_type">Trigger</label><select id="trigger_type" name="trigger_type"><option value=""{{if eq .TriggerTypeFilter ""}} selected{{end}}>All</option><option value="scheduled"{{if eq .TriggerTypeFilter "scheduled"}} selected{{end}}>Scheduled</option><option value="manual"{{if eq .TriggerTypeFilter "manual"}} selected{{end}}>Manual</option></select></div>
       <button type="submit">Filter</button>
     </form>
@@ -48,7 +48,7 @@
         <thead><tr><th>Status</th><th>Trigger</th><th>Scheduled</th><th>Fired</th></tr></thead>
         <tbody>
         {{range .Executions}}
-          <tr><td><a href="/admin/executions/{{.ID}}">{{.Status}}</a></td><td>{{.TriggerType}}</td><td>{{formatTime .ScheduledAt}}</td><td>{{formatTime .FiredAt}}</td></tr>
+          <tr><td><a href="{{executionURL .ID $.ReturnURL}}">{{.Status}}</a></td><td>{{.TriggerType}}</td><td>{{formatTime .ScheduledAt}}</td><td>{{formatTime .FiredAt}}</td></tr>
         {{else}}<tr><td colspan="4" class="empty">No executions found.</td></tr>{{end}}
         </tbody>
       </table>

@@ -27,7 +27,7 @@ var (
 		"(?is)(?:^|\\s)([a-z_:][a-z0-9_.:-]*)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s\"'=<>`]+))",
 	)
 	templateActionPattern     = regexp.MustCompile(`(?s){{.*?}}`)
-	knownDynamicURLPattern    = regexp.MustCompile(`(?s)^\s*{{\s*\.(?:PreviousURL|NextURL)\s*}}\s*$`)
+	knownDynamicURLPattern    = regexp.MustCompile(`(?s)^\s*{{\s*(?:\.(?:PreviousURL|NextURL|ReturnURL|TableURL|BoardURL|TimelineURL|URL)|(?:jobURL|executionURL)\s+\.[a-zA-Z.]+\s+(?:\$|\.)[a-zA-Z.]+)\s*}}\s*$`)
 	cssCommentOrStringPattern = regexp.MustCompile(`(?s)/\*.*?\*/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'`)
 	cssLoadPattern            = regexp.MustCompile(`(?i)(?:@import\b|\burl\s*\()`)
 )
@@ -62,8 +62,13 @@ var urlBearingHTMLAttributes = map[string]struct{}{
 
 func TestTemplatesContainNoExecutableOrExternalAssets(t *testing.T) {
 	_, err := template.New("embedded-admin").Funcs(template.FuncMap{
-		"formatTime": func(time.Time) string { return "" },
-		"tagsText":   tagsText,
+		"formatTime":   func(time.Time) string { return "" },
+		"tagsText":     tagsText,
+		"bulkResult":   bulkResultText,
+		"jobURL":       jobURL,
+		"executionURL": executionURL,
+		"returnQuery":  returnQuery,
+		"jobCardData":  func(domain.JobWithSchedule, pageData) any { return nil },
 	}).ParseFS(embeddedFiles, "templates/*.html")
 	if err != nil {
 		t.Fatalf("parse embedded templates: %v", err)
@@ -84,7 +89,8 @@ func TestTemplatesContainNoExecutableOrExternalAssets(t *testing.T) {
 			var findings []string
 			switch {
 			case strings.HasSuffix(path, ".html"):
-				findings = inspectHTMLAsset(string(contents))
+				markup := string(contents)
+				findings = inspectHTMLAsset(markup)
 			case strings.HasSuffix(path, ".css"):
 				findings = inspectCSSAsset(string(contents))
 			}

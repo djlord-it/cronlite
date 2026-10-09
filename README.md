@@ -194,6 +194,14 @@ Admin sessions are opaque, revocable PostgreSQL records, so they survive process
 
 Session and public-CSRF cookies are host-only, `HttpOnly`, `SameSite=Strict`, and scoped to `/admin`. `Secure` is disabled for local HTTP and enabled by default when `CRONLITE_ENV=production`; production must serve the admin UI over HTTPS so those cookies work. Secure-cookie mode also emits HSTS. The admin handler uses per-form CSRF tokens, Go's cross-origin request protection, a restrictive Content Security Policy, `no-store` on HTML and authentication responses, and server-side session deletion plus cookie clearing on logout.
 
+The Job Control Center supports name search, exact `key=value` tag filters, active/paused filtering, table and board views, and 25-job pages with navigation and namespace-wide and filtered counts. The Runs screen lists persisted execution statuses and delivery evidence over the last 24 hours or 7 days; board columns show the executions on the current page, not inferred job health.
+
+Bulk pause/resume requires selecting jobs, reviewing a server-stored preview, and explicitly confirming. Previews are private to the signing-in API key and namespace, expire after 10 minutes, and accept at most 100 distinct job IDs (the UI selects from one 25-job page). Jobs changed since preview are skipped. Confirmation stores individual applied, unchanged, conflicting, unavailable, or failed results atomically with successful state changes. Repeating confirmation returns the original results. Pausing does not cancel existing executions; resuming does not backfill missed runs.
+
+Saved filters are private to an API key and namespace, because CronLite has no individual-user identity model. Sessions sharing a key also share its views and bulk history. Up to 20 named views and 20 pending previews are allowed per key. The timeline calculates the next occurrence of each active matching job using the scheduler's cron parser, including its IANA timezone; it shows up to 50 upcoming jobs within 24 hours and examines at most 500 jobs, with an explicit limit notice. Schedule estimates are separate from executions.
+
+Migration 010 adds saved views, bulk audit storage, and indexes for fleet, recent executions, and delivery evidence. Apply it to existing databases before running the updated Admin UI. Fresh Compose databases include it automatically. Confirmed audits are retained after key deletion; saved views cascade with their key. The UI exposes the latest 20 confirmed operations for the current key. Operators control audit retention in PostgreSQL; there is no automatic deletion of confirmed records. Expired previews are removed when the same key creates another preview.
+
 ## Admin CI
 
 The blocking admin workflow is [`.github/workflows/admin-ci.yml`](.github/workflows/admin-ci.yml). Its four jobs cover:

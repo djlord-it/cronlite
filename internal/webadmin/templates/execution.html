@@ -2,7 +2,7 @@
 {{template "head" .}}
 {{template "nav" .}}
 <main id="main" class="container">
-  <a class="back" href="/admin/jobs/{{.Execution.JobID}}">← Job</a>
+  <a class="back" href="{{.ReturnURL}}">← Return to view</a> <a class="back" href="{{jobURL .Execution.JobID .ReturnURL}}">Job configuration →</a>
   <div class="page-heading"><div><p class="eyebrow">{{.Execution.TriggerType}}</p><h1>Execution</h1></div><span class="badge">{{.Execution.Status}}</span></div>
   <section class="card">
     <dl>
