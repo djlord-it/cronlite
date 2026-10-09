@@ -75,6 +75,9 @@ if [[ "$absolute_expiry_column" != absolute_expires_at ]]; then
     < schema/008_admin_session_absolute_expiry.sql
 fi
 
+docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U cronlite -d cronlite \
+  < schema/010_job_control_center.sql
+
 if command -v openssl >/dev/null 2>&1; then
   bootstrap_token="$(openssl rand -hex 32)"
 else

@@ -429,7 +429,8 @@ func (s *Store) UpdateJob(ctx context.Context, job domain.Job) error {
 	return nil
 }
 
-// UpdateJobAggregate updates a job, its schedule, and optionally replaces tags atomically.
+// UpdateJobAggregate updates configuration, schedule, and optional tags atomically.
+// Fleet state is changed only by pause/resume, preserving concurrent state changes.
 func (s *Store) UpdateJobAggregate(ctx context.Context, job domain.Job, schedule domain.Schedule, tags *[]domain.Tag) error {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
@@ -451,9 +452,8 @@ func (s *Store) UpdateJobAggregate(ctx context.Context, job domain.Job, schedule
 		return err
 	}
 
-	result, err := tx.ExecContext(ctx, queryUpdateJob,
+	result, err := tx.ExecContext(ctx, queryUpdateJobConfiguration,
 		job.Name,
-		job.Enabled,
 		string(job.Delivery.Type),
 		job.Delivery.WebhookURL,
 		job.Delivery.Secret,

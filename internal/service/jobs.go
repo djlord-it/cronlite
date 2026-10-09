@@ -243,11 +243,19 @@ func (s *JobService) DeleteJob(ctx context.Context, id uuid.UUID) error {
 	return s.jobs.DeleteJob(ctx, id, ns)
 }
 
+type jobEnabledRepository interface {
+	SetJobEnabled(context.Context, uuid.UUID, domain.Namespace, bool) (domain.Job, error)
+}
+
 // PauseJob disables a job so it won't be scheduled.
 func (s *JobService) PauseJob(ctx context.Context, id uuid.UUID) (domain.Job, error) {
 	ns := domain.NamespaceFromContext(ctx)
 	if ns.IsZero() {
 		return domain.Job{}, domain.ErrNamespaceRequired
+	}
+
+	if repo, ok := s.jobs.(jobEnabledRepository); ok {
+		return repo.SetJobEnabled(ctx, id, ns, false)
 	}
 
 	job, _, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
@@ -270,6 +278,10 @@ func (s *JobService) ResumeJob(ctx context.Context, id uuid.UUID) (domain.Job, e
 	ns := domain.NamespaceFromContext(ctx)
 	if ns.IsZero() {
 		return domain.Job{}, domain.ErrNamespaceRequired
+	}
+
+	if repo, ok := s.jobs.(jobEnabledRepository); ok {
+		return repo.SetJobEnabled(ctx, id, ns, true)
 	}
 
 	job, _, err := s.jobs.GetJobWithScheduleScoped(ctx, id, ns)
@@ -378,12 +390,9 @@ func (s *JobService) GetNextRunTime(ctx context.Context, jobID uuid.UUID) (time.
 		return time.Time{}, nil, domain.Schedule{}, domain.ErrInvalidCronExpression
 	}
 
-	var runs []time.Time
-	cursor := time.Now().UTC()
-	for i := 0; i < 5; i++ {
-		next := sched.Next(cursor)
-		runs = append(runs, next)
-		cursor = next
+	runs := computeNextRuns(sched, 5)
+	if len(runs) == 0 {
+		return time.Time{}, nil, schedule, domain.ErrInvalidCronExpression
 	}
 
 	return runs[0], runs, schedule, nil
@@ -435,6 +444,9 @@ func computeNextRuns(sched interface{ Next(time.Time) time.Time }, n int) []time
 	cursor := time.Now().UTC()
 	for i := 0; i < n; i++ {
 		next := sched.Next(cursor)
+		if next.IsZero() || !next.After(cursor) {
+			break
+		}
 		runs = append(runs, next)
 		cursor = next
 	}

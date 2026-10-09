@@ -55,7 +55,6 @@ func TestUpdateJobAggregate_RollsBackWhenTagUpsertFails(t *testing.T) {
 	mock.ExpectExec("UPDATE jobs SET").
 		WithArgs(
 			job.Name,
-			job.Enabled,
 			string(job.Delivery.Type),
 			job.Delivery.WebhookURL,
 			job.Delivery.Secret,

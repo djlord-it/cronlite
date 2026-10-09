@@ -58,6 +58,7 @@ run_launcher() {
     cp "$ROOT/schema/008_admin_session_absolute_expiry.sql" \
       "$project_dir/schema/008_admin_session_absolute_expiry.sql"
   fi
+  cp "$ROOT/schema/010_job_control_center.sql" "$project_dir/schema/010_job_control_center.sql"
   touch "$project_dir/docker-compose.yml"
   printf 'HTTP_ADDR=:8080\n' > "$project_dir/.cronlite.local.env"
   env_checksum_before="$(cksum "$project_dir/.cronlite.local.env")"
@@ -127,6 +128,8 @@ case "$*" in
         [[ "$migration_input" == *$'\n'"COMMIT;" ]]; then
         printf 'migration-008-transaction\n' >> "$FAKE_DOCKER_CALLS"
       fi
+    elif [[ "$migration_input" == *"admin_saved_views"* ]]; then
+      printf 'migration-010-input\n' >> "$FAKE_DOCKER_CALLS"
     else
       printf 'unknown-migration-input\n' >> "$FAKE_DOCKER_CALLS"
     fi

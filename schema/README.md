@@ -14,7 +14,7 @@ done
 ```
 
 `docker-compose.yml` and `docker-compose.admin-ci.yml` mount migrations
-`001` through `009` into PostgreSQL's initialization directory in the same order.
+`001` through `010` into PostgreSQL's initialization directory in the same order.
 The admin CI file intentionally does not set a Compose project name. Call it with
 `docker compose -p <unique-project> -f docker-compose.admin-ci.yml ...` so each
 local or CI run gets isolated containers, networks, and volumes.
@@ -58,3 +58,11 @@ Stores opaque, revocable browser sessions for the optional `/admin` UI. Sessions
 - Schema changes require manual migration scripts.
 - UUIDs are used for all primary keys.
 - Timestamps are stored as `TIMESTAMPTZ` (timezone-aware).
+
+Migration 010 adds `admin_saved_views` (API-key-owned, deleted with the key) and
+`admin_bulk_batches` (preview snapshots and durable per-job audit results).
+Bulk audit records retain the actor UUID after key deletion. Confirmed records
+have no automatic retention policy; operators may archive them according to
+their installation requirements. Unconfirmed expired previews are cleaned up
+when their owner creates another preview. The migration is transactional and
+idempotent. Apply it before enabling the updated Admin UI on an existing database.
