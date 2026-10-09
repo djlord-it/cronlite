@@ -168,7 +168,7 @@ For local development, Docker and Go are the only prerequisites:
 
 The launcher starts PostgreSQL, applies missing admin migrations through 008, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits. Apply migration 009 separately to existing databases for the DB dispatch index improvement.
 
-For a manual launch, apply every numbered migration in order through 009, set an installation token, and enable the UI:
+For a manual launch, apply every numbered migration in order through 010, set an installation token, and enable the UI:
 
 ```bash
 set -e

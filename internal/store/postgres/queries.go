@@ -70,6 +70,19 @@ UPDATE jobs SET
 WHERE id = $10 AND namespace = $11
 `
 
+const queryUpdateJobConfiguration = `
+UPDATE jobs SET
+    name = $1,
+    delivery_type = $2,
+    webhook_url = $3,
+    secret = $4,
+    timeout_ms = $5,
+    analytics_enabled = $6,
+    analytics_retention_seconds = $7,
+    updated_at = $8
+WHERE id = $9 AND namespace = $10
+`
+
 const queryDeleteJob = `
 WITH authorized_job AS (
     SELECT id, schedule_id FROM jobs WHERE id = $1 AND namespace = $2
