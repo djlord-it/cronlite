@@ -80,5 +80,4 @@ func TestIntegrationConcurrentBootstrapCreatesExactlyOneKey(t *testing.T) {
 		}
 	}
 
-	t.Log("ADMIN_INTEGRATION_OK")
 }

@@ -192,7 +192,9 @@ Current releases require all migrations through 009. Skipping migrations may cau
 
 ## Admin UI Operations
 
-The admin UI is disabled unless `ADMIN_ENABLED=true`. It is embedded in the existing `cronlite` binary and serves English HTML/CSS at `/admin`.
+The admin UI is disabled unless `ADMIN_ENABLED=true`. It is embedded in the existing `cronlite` binary and serves English HTML/CSS at `/admin`, with permanent dark mode and a bundled JetBrains Mono font. Existing namespace data appears immediately after sign-in; getting-started guidance is optional.
+
+The UI supports the complete namespace administration API: job configuration and actions, key creation/listing/revocation, execution history and acknowledgements, and schedule resolution. API key secrets appear once and are not listed afterward. Key revocation requires confirmation, and the UI blocks revoking the current sign-in key to avoid accidental lockout; create a replacement and sign in with it first. Runtime Settings shows a safe subset of effective server configuration. Change deployment settings through the server environment and restart; no database credentials, bootstrap tokens, or legacy API secrets appear in Settings.
 
 For a fresh database:
 
@@ -551,14 +553,14 @@ leader: released advisory lock 728379              # Lost leadership
 
 ## Admin CI Gates
 
-The blocking [admin workflow](.github/workflows/admin-ci.yml) has four independent jobs:
+The blocking [admin workflow](.github/workflows/admin-ci.yml) runs on pull requests and pushes to `main`, avoiding duplicate runs for feature branches. It has four independent jobs:
 
 | Job | Gate |
 |-----|------|
-| `admin-unit-security` | Workflow contract, launcher contract, race-enabled admin/CLI tests, fuzz smoke tests, and admin coverage of at least 80% |
-| `admin-postgres-integration` | Every tagged top-level integration test must run, pass under the race detector, and emit its `ADMIN_INTEGRATION_OK` marker against a fresh dedicated database migrated through 009 |
-| `admin-assets-launcher` | Shell syntax/contracts, template/asset/security-header tests, and Actionlint |
-| `admin-smoke` | Linux/Darwin amd64/arm64 CGO-disabled builds and the isolated Docker admin lifecycle |
+| `admin-unit-security` | Workflow contract, race-enabled admin/CLI tests, fuzz smoke tests, and admin coverage of at least 80% |
+| `admin-postgres-integration` | Tagged integration tests must run and pass under the race detector, with empty or skipped suites rejected against a fresh dedicated database migrated through 009 |
+| `admin-assets-launcher` | Launcher/smoke/container shell contracts and Actionlint; template/asset/security-header tests run in the unit suite |
+| `admin-smoke` | Linux/Darwin amd64/arm64 CGO-disabled builds and the isolated Docker admin lifecycle, including workspace views and bundled CSS/font |
 
 Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–009 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
 

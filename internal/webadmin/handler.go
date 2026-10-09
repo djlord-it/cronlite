@@ -20,7 +20,7 @@ import (
 	"github.com/google/uuid"
 )
 
-//go:embed templates/*.html assets/admin.css
+//go:embed templates/*.html assets/*
 var embeddedFiles embed.FS
 
 const publicCSRFCookieName = "cronlite_admin_public_csrf"
@@ -51,7 +51,19 @@ type AdminExecutionService interface {
 	GetExecution(ctx context.Context, id uuid.UUID) (domain.Execution, []domain.DeliveryAttempt, error)
 }
 
+type AdminKeyService interface {
+	CreateAPIKey(context.Context, service.CreateAPIKeyInput) (service.CreateAPIKeyResult, error)
+	ListAPIKeys(context.Context, domain.ListParams) ([]domain.APIKey, error)
+	DeleteAPIKey(context.Context, uuid.UUID) error
+}
+
+type RuntimeSetting struct{ Name, Value string }
+
 type AdminService interface {
+	AdminKeyService
+	ListPendingAck(context.Context, *uuid.UUID, int) ([]domain.Execution, error)
+	AckExecution(context.Context, uuid.UUID) error
+	ResolveSchedule(context.Context, string, string) (service.ResolveResult, error)
 	AdminBootstrapService
 	AdminJobService
 	AdminJobActionService
@@ -59,6 +71,7 @@ type AdminService interface {
 }
 
 type Config struct {
+	RuntimeSettings    []RuntimeSetting
 	Service            AdminService
 	Sessions           domain.AdminSessionRepository
 	Keys               keyLookup
@@ -71,17 +84,30 @@ type Config struct {
 }
 
 type Handler struct {
-	service        AdminService
-	sessions       *sessionManager
-	bootstrapToken string
-	cookieSecure   bool
-	templates      *template.Template
-	css            []byte
-	logger         *log.Logger
-	mux            *http.ServeMux
+	runtimeSettings []RuntimeSetting
+	service         AdminService
+	sessions        *sessionManager
+	bootstrapToken  string
+	cookieSecure    bool
+	templates       *template.Template
+	css             []byte
+	logger          *log.Logger
+	mux             *http.ServeMux
 }
 
 type pageData struct {
+	Navigation            string
+	APIKeys               []domain.APIKey
+	CurrentKeyID          uuid.UUID
+	SelectedKey           domain.APIKey
+	KeyLabel              string
+	RuntimeSettings       []RuntimeSetting
+	SessionTTL            time.Duration
+	SessionAbsoluteTTL    time.Duration
+	CookieSecure          bool
+	Description           string
+	Resolved              service.ResolveResult
+	Pending               bool
 	Title                 string
 	Namespace             string
 	CSRFToken             string
@@ -145,14 +171,15 @@ func NewHandler(cfg Config) (http.Handler, error) {
 	}
 
 	h := &Handler{
-		service:        cfg.Service,
-		sessions:       newSessionManager(cfg.Sessions, cfg.Keys, cfg.SessionTTL, cfg.SessionAbsoluteTTL, cfg.CookieSecure, cfg.Now),
-		bootstrapToken: cfg.BootstrapToken,
-		cookieSecure:   cfg.CookieSecure,
-		templates:      templates,
-		css:            css,
-		logger:         cfg.Logger,
-		mux:            http.NewServeMux(),
+		runtimeSettings: cfg.RuntimeSettings,
+		service:         cfg.Service,
+		sessions:        newSessionManager(cfg.Sessions, cfg.Keys, cfg.SessionTTL, cfg.SessionAbsoluteTTL, cfg.CookieSecure, cfg.Now),
+		bootstrapToken:  cfg.BootstrapToken,
+		cookieSecure:    cfg.CookieSecure,
+		templates:       templates,
+		css:             css,
+		logger:          cfg.Logger,
+		mux:             http.NewServeMux(),
 	}
 	h.routes()
 	crossOrigin := http.NewCrossOriginProtection()
@@ -161,6 +188,18 @@ func NewHandler(cfg Config) (http.Handler, error) {
 
 func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /admin/assets/admin.css", h.serveCSS)
+	h.mux.HandleFunc("GET /admin/assets/jetbrains-mono.woff2", h.serveFont)
+	h.mux.HandleFunc("GET /admin/assets/favicon.svg", h.serveIcon)
+	h.mux.HandleFunc("GET /admin/keys", h.keysPage)
+	h.mux.HandleFunc("POST /admin/keys", h.createKey)
+	h.mux.HandleFunc("GET /admin/keys/{id}/delete", h.deleteKeyPage)
+	h.mux.HandleFunc("POST /admin/keys/{id}/delete", h.deleteKey)
+	h.mux.HandleFunc("GET /admin/onboarding", h.onboardingPage)
+	h.mux.HandleFunc("GET /admin/settings", h.settingsPage)
+	h.mux.HandleFunc("GET /admin/schedule", h.schedulePage)
+	h.mux.HandleFunc("POST /admin/schedule", h.resolveSchedule)
+	h.mux.HandleFunc("GET /admin/executions", h.executionsPage)
+	h.mux.HandleFunc("POST /admin/executions/{id}/ack", h.ackExecution)
 	h.mux.HandleFunc("GET /admin/login", h.loginPage)
 	h.mux.HandleFunc("POST /admin/login", h.login)
 	h.mux.HandleFunc("GET /admin/setup", h.setupPage)
@@ -223,6 +262,28 @@ func limitAdminFormBodies(next http.Handler) http.Handler {
 	})
 }
 
+func (h *Handler) serveIcon(w http.ResponseWriter, _ *http.Request) {
+	icon, err := embeddedFiles.ReadFile("assets/favicon.svg")
+	if err != nil {
+		http.Error(w, "icon unavailable", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(icon)
+}
+
+func (h *Handler) serveFont(w http.ResponseWriter, _ *http.Request) {
+	font, err := embeddedFiles.ReadFile("assets/jetbrains-mono.woff2")
+	if err != nil {
+		http.NotFound(w, nil)
+		return
+	}
+	w.Header().Set("Content-Type", "font/woff2")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(font)
+}
+
 func (h *Handler) serveCSS(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -277,6 +338,16 @@ func (h *Handler) renderPublicForm(w http.ResponseWriter, _ *http.Request, name 
 }
 
 func (h *Handler) render(w http.ResponseWriter, name string, data pageData) {
+	switch name {
+	case "jobs", "job_form", "job_detail", "delete_job":
+		data.Navigation = "jobs"
+	case "keys", "key_new", "key_created", "key_delete":
+		data.Navigation = "keys"
+	case "executions", "execution":
+		data.Navigation = "executions"
+	case "settings", "schedule", "onboarding":
+		data.Navigation = name
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.templates.ExecuteTemplate(w, name, data); err != nil {
 		h.logger.Printf("webadmin: render %s: %v", name, err)
@@ -308,7 +379,7 @@ func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, err erro
 }
 
 func (h *Handler) handleServiceError(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, domain.ErrJobNotFound) || errors.Is(err, domain.ErrExecutionNotFound) {
+	if errors.Is(err, domain.ErrJobNotFound) || errors.Is(err, domain.ErrExecutionNotFound) || errors.Is(err, domain.ErrAPIKeyNotFound) {
 		h.renderStatus(w, "error", pageData{Title: "Not found", Error: "The requested item does not exist."}, http.StatusNotFound)
 		return
 	}

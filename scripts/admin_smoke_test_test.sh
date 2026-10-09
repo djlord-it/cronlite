@@ -221,7 +221,16 @@ case "$step $method $url" in
     }
     body='<form><input name="csrf_token" value="auth-csrf" type="hidden"></form>'
     ;;
-  "3 POST http://admin.test/admin/logout")
+  "3 GET http://admin.test/admin/onboarding" | \
+  "4 GET http://admin.test/admin/keys" | \
+  "5 GET http://admin.test/admin/executions" | \
+  "6 GET http://admin.test/admin/schedule" | \
+  "7 GET http://admin.test/admin/settings" | \
+  "8 GET http://admin.test/admin/assets/admin.css" | \
+  "9 GET http://admin.test/admin/assets/jetbrains-mono.woff2")
+    [[ "$(cat "$cookie_input")" == "authenticated-cookie" ]] || exit 2
+    ;;
+  "10 POST http://admin.test/admin/logout")
     [[ "$(cat "$cookie_input")" == "authenticated-cookie" ]] || {
       printf 'logout is missing its session cookie\n' >&2
       exit 2
@@ -242,7 +251,7 @@ case "$step $method $url" in
     printf 'HTTP/1.1 303 See Other\r\nLocation: /admin/login\r\n\r\n' >"$header_output"
     status=303
     ;;
-  "4 GET http://admin.test/admin/jobs")
+  "11 GET http://admin.test/admin/jobs")
     [[ "$(cat "$cookie_input")" == "logged-out-cookie" ]] || {
       printf 'logged-out jobs request has the wrong cookie state\n' >&2
       exit 2
@@ -301,6 +310,13 @@ cat >"$expected_requests" <<'EOF'
 GET http://admin.test/admin/setup
 POST http://admin.test/admin/setup
 GET http://admin.test/admin/jobs
+GET http://admin.test/admin/onboarding
+GET http://admin.test/admin/keys
+GET http://admin.test/admin/executions
+GET http://admin.test/admin/schedule
+GET http://admin.test/admin/settings
+GET http://admin.test/admin/assets/admin.css
+GET http://admin.test/admin/assets/jetbrains-mono.woff2
 POST http://admin.test/admin/logout
 GET http://admin.test/admin/jobs
 EOF

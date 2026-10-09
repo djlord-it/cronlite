@@ -35,7 +35,6 @@ func TestIntegrationSessionSurvivesHandlerReconstruction(t *testing.T) {
 		t.Fatalf("persisted session count = %d, want 1", got)
 	}
 
-	t.Log("ADMIN_INTEGRATION_OK")
 }
 
 func TestIntegrationIdleAndAbsoluteExpiry(t *testing.T) {
@@ -220,5 +219,4 @@ func TestIntegrationDeletingKeyRevokesSession(t *testing.T) {
 		t.Fatal("cookie jar retained key-revoked browser session")
 	}
 
-	t.Log("ADMIN_INTEGRATION_OK")
 }

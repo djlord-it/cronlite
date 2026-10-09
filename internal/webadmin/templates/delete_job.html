@@ -1,7 +1,7 @@
 {{define "delete_job"}}
 {{template "head" .}}
 {{template "nav" .}}
-<main class="container narrow">
+<main id="main" class="container narrow">
   <a class="back" href="/admin/jobs/{{.Job.ID}}">← Back</a>
   <section class="card danger-card">
     <h1>Delete {{.Job.Name}}?</h1>

@@ -1,11 +1,11 @@
 {{define "jobs"}}
 {{template "head" .}}
 {{template "nav" .}}
-<main class="container">
+<main id="main" class="container">
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Namespace jobs</p>
-      <h1>Jobs</h1>
+      <p class="eyebrow">Workspace / Schedules</p>
+      <h1>Jobs</h1><p class="muted">Automate the routine. Keep every schedule and delivery in view.</p>
     </div>
     <a class="button" href="/admin/jobs/new">Create job</a>
   </div>
@@ -39,7 +39,7 @@
           <td>{{formatTime .Job.UpdatedAt}}</td>
         </tr>
       {{else}}
-        <tr><td colspan="6" class="empty">No jobs found.</td></tr>
+        <tr><td colspan="6" class="empty"><strong>No matching jobs yet.</strong><br>Create a job or adjust your filters to get started.<br><a href="/admin/jobs/new">Create your first job →</a></td></tr>
       {{end}}
       </tbody>
     </table>

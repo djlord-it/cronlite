@@ -158,7 +158,7 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 ## Lightweight Admin UI
 
-CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates and embedded CSS only—no JavaScript, frontend framework, Node runtime, CDN, or separate asset files.
+CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates with embedded CSS, JetBrains Mono, and a local icon. The UI stays in dark mode and requires no JavaScript, frontend framework, Node runtime, or CDN.
 
 For local development, Docker and Go are the only prerequisites:
 
@@ -182,6 +182,14 @@ export ADMIN_BOOTSTRAP_TOKEN="replace-with-a-long-random-token"
 
 Open `http://localhost:8080/admin`. On a fresh installation, `/admin/setup` accepts the installation token and creates the first namespace-scoped API key. The key is displayed once. Setup is unavailable whenever any API key exists, and users sign in with an existing API key. If operators delete all API keys through an external administrative process, setup becomes available again and still requires `ADMIN_BOOTSTRAP_TOKEN`. Remove the token from the runtime environment immediately after activation; set a new secret and restart CronLite if bootstrap is intentionally needed again.
 
+The UI reads existing namespace data directly from the backend; no import or onboarding reset is needed. New installations can follow the optional getting-started guide or skip straight to jobs. Returning users sign in directly to their existing workspace.
+
+- **Jobs:** create, search, filter, edit schedules and delivery settings, pause, resume, trigger, and delete with confirmation.
+- **API keys:** create a labeled key, save its secret once, view metadata and last-use times, and revoke with confirmation. Rotate by creating a replacement before revoking the old key. Sign in with the replacement before revoking the key used by your current session.
+- **Executions:** view workspace history and delivery attempts, filter by status or trigger, and acknowledge completed events.
+- **Schedule builder:** resolve supported schedule descriptions or cron expressions, preview the next five runs, and use the result in a new job.
+- **Settings:** inspect effective workspace/session/runtime settings. Edit job configuration through Jobs; server deployment settings remain controlled by environment variables and require a restart.
+
 Admin sessions are opaque, revocable PostgreSQL records, so they survive process restarts. Activity extends the 30-minute idle timeout (`ADMIN_SESSION_TTL`) when half of it remains, but never beyond the 12-hour absolute lifetime (`ADMIN_SESSION_ABSOLUTE_TTL`); either expiry requires sign-in again. A successful login replaces the session presented by that browser. Revoking an API key immediately invalidates its sessions, and deleting the key removes them through the database foreign-key cascade.
 
 Session and public-CSRF cookies are host-only, `HttpOnly`, `SameSite=Strict`, and scoped to `/admin`. `Secure` is disabled for local HTTP and enabled by default when `CRONLITE_ENV=production`; production must serve the admin UI over HTTPS so those cookies work. Secure-cookie mode also emits HSTS. The admin handler uses per-form CSRF tokens, Go's cross-origin request protection, a restrictive Content Security Policy, `no-store` on HTML and authentication responses, and server-side session deletion plus cookie clearing on logout.
@@ -192,7 +200,7 @@ The blocking admin workflow is [`.github/workflows/admin-ci.yml`](.github/workfl
 
 - `admin-unit-security`: race-enabled unit/security tests, fuzz smoke tests, and an 80% admin coverage gate.
 - `admin-postgres-integration`: tagged integration tests against a fresh dedicated PostgreSQL database with every migration applied.
-- `admin-assets-launcher`: shell contracts, template/assets/header tests, and Actionlint.
+- `admin-assets-launcher`: launcher, smoke, and container shell contracts plus Actionlint.
 - `admin-smoke`: four CGO-disabled cross-builds and an isolated Docker image lifecycle smoke test.
 
 Run the primary gate locally:

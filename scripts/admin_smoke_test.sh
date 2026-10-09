@@ -142,6 +142,17 @@ authenticated_csrf="$(extract_hidden_csrf "$jobs_page" || true)"
 [[ -n "$authenticated_csrf" ]] ||
   fail "authenticated GET /admin/jobs did not contain a CSRF token"
 
+# Check the new views and embedded assets in the actual packaged binary.
+# Pace navigation within the default per-IP limit; never print response bodies or secrets.
+for path in onboarding keys executions schedule settings assets/admin.css assets/jetbrains-mono.woff2; do
+  sleep 0.2
+  curl --disable --silent --show-error --fail \
+    --connect-timeout 5 --max-time 30 \
+    --cookie "$cookie_jar" --cookie-jar "$cookie_jar" \
+    --output /dev/null "$base_url/admin/$path" ||
+    fail "authenticated GET /admin/$path failed"
+done
+
 logout_body="csrf_token=$(form_urlencode "$authenticated_csrf")"
 logout_status="$(
   printf '%s' "$logout_body" |

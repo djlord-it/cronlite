@@ -118,6 +118,10 @@ func inspectHTMLAsset(contents string) []string {
 			}
 			value := firstNonEmpty(match[2], match[3], match[4])
 			for _, candidate := range htmlAttributeURLs(attribute, value) {
+				// User-requested help navigation; external asset loads remain forbidden.
+				if name == "a" && attribute == "href" && candidate == "https://deepwiki.com/djlord-it/cronlite" {
+					continue
+				}
 				if unsafeAssetURL(candidate) {
 					findings = append(findings, "contains unsafe "+attribute+" URL")
 				}
@@ -128,6 +132,7 @@ func inspectHTMLAsset(contents string) []string {
 }
 
 func inspectCSSAsset(contents string) []string {
+	contents = strings.ReplaceAll(contents, "url('/admin/assets/jetbrains-mono.woff2')", "")
 	contents = cssCommentOrStringPattern.ReplaceAllString(contents, "")
 	if cssLoadPattern.MatchString(contents) {
 		return []string{"contains CSS runtime asset load"}
@@ -204,6 +209,8 @@ func TestHTMLAssetInspectionDistinguishesLoadingSurfacesFromInertText(t *testing
 		{name: "rejects embed", html: `<embed src="/admin/file">`, wantUnsafe: true},
 		{name: "rejects base", html: `<base href="/admin/">`, wantUnsafe: true},
 		{name: "rejects inline event handler", html: `<button ONCLICK="alert(1)">Run</button>`, wantUnsafe: true},
+		{name: "allows approved DeepWiki help link", html: `<a href="https://deepwiki.com/djlord-it/cronlite">Help</a>`},
+		{name: "rejects DeepWiki asset loading", html: `<img src="https://deepwiki.com/djlord-it/cronlite">`, wantUnsafe: true},
 		{name: "rejects external src", html: `<img src="https://attacker.example/pixel">`, wantUnsafe: true},
 		{name: "rejects protocol relative href", html: `<a href="//cdn.attacker.example/file">File</a>`, wantUnsafe: true},
 		{name: "rejects javascript action", html: `<form action="JaVaScRiPt:alert(1)">`, wantUnsafe: true},

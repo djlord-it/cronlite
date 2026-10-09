@@ -212,6 +212,14 @@ func newWebAdminConfig(
 	store *postgres.Store,
 ) webadmin.Config {
 	return webadmin.Config{
+		RuntimeSettings: []webadmin.RuntimeSetting{
+			{Name: "Environment", Value: cfg.Environment},
+			{Name: "Dispatcher", Value: cfg.DispatchMode},
+			{Name: "Workers", Value: fmt.Sprint(cfg.DispatcherWorkers)},
+			{Name: "Tick interval", Value: cfg.TickInterval.String()},
+			{Name: "Reconciliation", Value: fmt.Sprint(cfg.ReconcileEnabled)},
+			{Name: "Metrics", Value: fmt.Sprint(cfg.MetricsEnabled)},
+		},
 		Service:            jobService,
 		Sessions:           store,
 		Keys:               store,
