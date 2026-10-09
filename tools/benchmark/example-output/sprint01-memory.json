@@ -1,0 +1,42 @@
+{
+  "basis": "Admin UI #128 plus final Sprint 01 stack",
+  "measuredDate": "2026-10-09",
+  "durationSeconds": 49.566,
+  "peaksMiB": {
+    "goRSS": 38.3671875,
+    "goHeap": 10.776519775390625,
+    "browserPSS": 603.7412109375,
+    "tabJSHeap": 6.816623687744141,
+    "postgresWorkingSet": 304.0859375,
+    "postgresCgroup": 598.484375,
+    "simultaneousGoRSSPostgresWorkingSet": 340.8828125
+  },
+  "finalDatabaseCounts": {
+    "jobs": 20000,
+    "executions": 47913,
+    "deliveryAttempts": 40008
+  },
+  "workload": {
+    "liveSearchUpdates": 100,
+    "concurrentRequests": 50,
+    "totalParallelRequests": 200,
+    "tabs": 5,
+    "resultsPerPage": 25,
+    "timelineDisplayed": 50,
+    "timelineInspected": 500
+  },
+  "singleIPRequestStatuses": {
+    "200": 16,
+    "429": 184
+  },
+  "independentClientStatuses": {
+    "200": 200
+  },
+  "errors": [],
+  "limitations": [
+    "Observed stress peak, not an absolute memory ceiling.",
+    "PostgreSQL container is shared with other local tests and databases.",
+    "Browser PSS includes Chromium runtime overhead; browser RSS double counts shared pages.",
+    "Linux headless Chromium, local PostgreSQL, Redis disabled; production hardware and workload differ."
+  ]
+}

@@ -182,3 +182,5 @@ input.job-select, .checkbox input { width: 1.1rem; height: 1.1rem; accent-color:
 
 .search-feedback { min-height: 1.4em; margin: .5rem 0; font-size: .85rem; }
 #fleet-results[aria-busy="true"] { opacity: .65; }
+
+.schedule-text { display: inline-block; max-width: 20rem; white-space: normal; overflow-wrap: anywhere; }
