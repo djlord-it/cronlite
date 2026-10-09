@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/djlord-it/cronlite/internal/cron"
 	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/djlord-it/cronlite/internal/service"
 	"github.com/google/uuid"
@@ -207,6 +208,7 @@ func NewHandler(cfg Config) (http.Handler, error) {
 	}
 
 	templates, err := template.New("admin").Funcs(template.FuncMap{
+		"scheduleText": cron.Describe,
 		"formatTime": func(t time.Time) string {
 			if t.IsZero() {
 				return "—"

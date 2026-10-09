@@ -571,3 +571,31 @@ The harness reports these gaps instead of changing CronLite:
 environment and scenario status before interpreting measurements. If Docker was
 unavailable on the generating machine, the report marks the managed CronLite
 scenario as skipped/synthetic rather than inventing production measurements.
+
+## Sprint 01 resource profile
+
+Measured on 2026-10-09 using the Admin UI from PR #128 with the complete Sprint 01 stack. These are observed stress peaks, not an absolute worst-case memory ceiling. Unbounded job counts, execution history, webhook payloads and concurrent clients can increase resource use.
+
+| Component | Observed peak (MiB) | Measurement |
+| --- | ---: | --- |
+| Go server resident memory | 38.37 | Linux process high-water RSS |
+| Go allocated heap | 10.78 | Prometheus Go runtime metric |
+| Chromium, five tabs | 603.74 | Sum of browser-process PSS |
+| Main tab JavaScript heap | 6.82 | Chrome DevTools Protocol |
+| Shared PostgreSQL working set | 304.09 | Container memory minus inactive file cache |
+| Shared PostgreSQL total memory | 598.48 | Container memory, including reclaimable file cache |
+| Go RSS plus PostgreSQL working set | 340.88 | Maximum simultaneous sample |
+
+Chromium's blank-page PSS was 375.57 MiB. After closing extra tabs and forcing garbage collection, its PSS was 415.70 MiB and the main tab's JavaScript heap was 2.05 MiB. PSS apportions shared memory; summing process RSS double counts shared pages. Browser measurements include Chromium's own runtime overhead.
+
+### Workload and configuration
+
+The isolated fixture contained 20,000 recurring jobs across two namespaces, 40,128 initial executions, 40,000 delivery attempts and 20 saved views. Job names and webhook URLs included long synthetic padding. The viewed namespace had 10,000 jobs. Scheduler and dispatcher activity grew the fixture to 47,913 executions and 40,008 attempts by the end of the run.
+
+The full Go server ran with Admin, REST, scheduler, reconciler, dispatcher and metrics enabled. Configuration: database dispatch, one worker, four delivery slots, one-second scheduler tick, 25 maximum database connections and Redis disabled. The local webhook delayed two seconds while jobs timed out after one second. PostgreSQL's container was shared with other local databases and tests, so its numbers do not measure CronLite's incremental database memory alone.
+
+Headless Linux Chromium rendered 25 jobs per page, a timeline bounded to 500 inspected jobs and 50 displayed occurrences, and five simultaneous tabs. The run performed 100 live searches, 200 requests at concurrency 50 from a single IP, and 200 more requests from 50 distinct loopback client IPs. The single-IP burst produced 16 HTTP 200 and 184 HTTP 429 responses, verifying throttling. All 200 independent-client requests returned HTTP 200. Browser errors: zero.
+
+Measurements covered 49.566 seconds, sampling Go and Chromium about every 200 ms and PostgreSQL about every two seconds. The Go high-water mark also captures resident-memory peaks between samples. Request bodies, results, timeline work, saved views and bulk selections retain server-enforced limits; execution history and total fleet size remain operational capacity concerns.
+
+See [the machine-readable result](example-output/sprint01-memory.json). Production sizing requires a longer run on the target hardware, with its database history, delivery concurrency and optional Redis configuration.

@@ -196,11 +196,15 @@ Session and public-CSRF cookies are host-only, `HttpOnly`, `SameSite=Strict`, an
 
 The Job Control Center supports name search, exact `key=value` tag filters, active/paused filtering, table and board views, and 25-job pages with numbered navigation and namespace-wide and filtered counts. Live name search uses a 200 ms debounce, cancels pending requests, and rejects stale responses. Search, state, tags, views, and pagination also work without JavaScript. The Runs screen lists persisted execution statuses and delivery evidence over the last 24 hours or 7 days; board columns show the executions on the current page, not inferred job health.
 
+Schedule cells use words derived from the scheduler’s existing parser, such as “Every 5 minutes” or “At 09:00 on Monday–Friday”. The raw cron expression remains available in the tooltip and job details. Descriptions preserve lists, ranges, steps, timezone prefixes and the day-of-month/day-of-week OR rule.
+
 Bulk pause/resume requires selecting jobs, reviewing a server-stored preview, and explicitly confirming. Previews are private to the signing-in API key and namespace, expire after 10 minutes, and accept at most 100 distinct job IDs (the UI selects from one 25-job page). Jobs changed since preview are skipped. Confirmation stores individual applied, unchanged, conflicting, unavailable, or failed results atomically with successful state changes. Repeating confirmation returns the original results. Pausing does not cancel existing executions; resuming does not backfill missed runs.
 
 Saved filters are private to an API key and namespace, because CronLite has no individual-user identity model. Sessions sharing a key also share its views and bulk history. Up to 20 named views and 20 pending previews are allowed per key. The timeline calculates the next occurrence of each active matching job using the scheduler's cron parser, including its IANA timezone; it shows up to 50 upcoming jobs within 24 hours and examines at most 500 jobs, with an explicit limit notice. Schedule estimates are separate from executions.
 
 Migration 010 adds saved views, bulk audit storage, and indexes for fleet, recent executions, and delivery evidence. Apply it to existing databases before running the updated Admin UI. Fresh Compose databases include it automatically. Confirmed audits are retained after key deletion; saved views cascade with their key. The UI exposes the latest 20 confirmed operations for the current key. Operators control audit retention in PostgreSQL; there is no automatic deletion of confirmed records. Expired previews are removed when the same key creates another preview.
+
+Observed browser and server memory under a 20,000-job stress workload is documented in [the Sprint 01 resource profile](tools/benchmark/README.md#sprint-01-resource-profile).
 
 ## Admin CI
 

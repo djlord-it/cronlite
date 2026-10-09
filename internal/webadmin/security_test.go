@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/djlord-it/cronlite/internal/cron"
 	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/google/uuid"
 )
@@ -62,6 +63,7 @@ var urlBearingHTMLAttributes = map[string]struct{}{
 
 func TestTemplatesContainNoExecutableOrExternalAssets(t *testing.T) {
 	_, err := template.New("embedded-admin").Funcs(template.FuncMap{
+		"scheduleText": cron.Describe,
 		"formatTime":   func(time.Time) string { return "" },
 		"tagsText":     tagsText,
 		"bulkResult":   bulkResultText,
