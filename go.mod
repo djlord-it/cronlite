@@ -2,7 +2,7 @@ module github.com/djlord-it/cronlite
 
 go 1.25.5
 
-toolchain go1.25.8
+toolchain go1.26.9
 
 require github.com/google/uuid v1.6.0
 
