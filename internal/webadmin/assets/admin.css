@@ -31,8 +31,8 @@ p { margin:10px 0 18px; }
 .workspace-label .eyebrow { display:block; font-size:9px; margin-bottom:5px; }
 .namespace { display:block; color:#dedede; overflow-wrap:anywhere; font-size:12px; }
 .topbar nav { display:flex; flex-direction:column; gap:5px; }
-.topbar nav>a { padding:11px 12px; border:1px solid transparent; border-radius:5px; color:#bdbdbd; text-decoration:none; font-size:12px; min-height:44px; }
-.topbar nav>a span { display:inline-block; width:22px; font-size:17px; }
+.topbar nav>a { display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid transparent; border-radius:5px; color:#bdbdbd; text-decoration:none; font-size:12px; min-height:44px; }
+.nav-icon { width:24px; height:24px; flex-shrink:0; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .topbar nav>a:hover { background:#303030; color:#fff; }
 .topbar nav>a[aria-current=page] { background:#303030; color:#ffffff; border-color:#424242; }
 .nav-label { margin:10px 12px 4px; color:#a0a0a0; letter-spacing:.12em; font-size:9px; }

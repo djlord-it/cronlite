@@ -10,13 +10,13 @@
  <div class="workspace-label"><span class="eyebrow">Workspace</span><span class="namespace">{{.Namespace}}</span></div>
  <nav aria-label="Primary navigation">
   <p class="nav-label">MANAGE</p>
-  <a href="/admin/jobs" {{if eq .Navigation "jobs"}}aria-current="page"{{end}}><span aria-hidden="true">◷</span> Jobs</a>
-  <a href="/admin/executions" {{if eq .Navigation "executions"}}aria-current="page"{{end}}><span aria-hidden="true">≋</span> Executions</a>
-  <a href="/admin/keys" {{if eq .Navigation "keys"}}aria-current="page"{{end}}><span aria-hidden="true">⌘</span> API keys</a>
+  <a href="/admin/jobs" {{if eq .Navigation "jobs"}}aria-current="page"{{end}}><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="15" y="3" width="6" height="6" rx="1.5"/><rect x="15" y="15" width="6" height="6" rx="1.5"/><path d="M9 6h6M6 9v7a2 2 0 0 0 2 2h7"/></svg> Jobs</a>
+  <a href="/admin/executions" {{if eq .Navigation "executions"}}aria-current="page"{{end}}><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg> Executions</a>
+  <a href="/admin/keys" {{if eq .Navigation "keys"}}aria-current="page"{{end}}><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="5"/><path d="m11.5 11.5 9 9M16 16l3-3M18 18l3-3"/></svg> API keys</a>
   <p class="nav-label">WORKSPACE</p>
-  <a href="/admin/schedule" {{if eq .Navigation "schedule"}}aria-current="page"{{end}}><span aria-hidden="true">▦</span> Schedule builder</a>
-  <a href="/admin/settings" {{if eq .Navigation "settings"}}aria-current="page"{{end}}><span aria-hidden="true">⚙</span> Settings</a>
-  <a href="/admin/onboarding" {{if eq .Navigation "onboarding"}}aria-current="page"{{end}}><span aria-hidden="true">↗</span> Getting started</a>
+  <a href="/admin/schedule" {{if eq .Navigation "schedule"}}aria-current="page"{{end}}><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2M8 18h2"/></svg> Schedule builder</a>
+  <a href="/admin/settings" {{if eq .Navigation "settings"}}aria-current="page"{{end}}><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg> Settings</a>
+  <a href="/admin/onboarding" {{if eq .Navigation "onboarding"}}aria-current="page"{{end}}><svg class="nav-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M7 17 17 7M7 7h10v10"/></svg> Getting started</a>
  </nav>
  <div class="sidebar-foot"><p class="muted">CronLite Admin<br><small>Schedule. Deliver. Observe.</small></p><form method="post" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="link-button" type="submit">Log out ↗</button></form></div>
 </header>
