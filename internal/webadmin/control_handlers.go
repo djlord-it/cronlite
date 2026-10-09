@@ -26,6 +26,26 @@ type runColumn struct {
 	Runs   []domain.RunEvidence
 }
 
+type pageLink struct {
+	Number  int
+	URL     string
+	Current bool
+}
+
+// Bound the navigation itself, even for fleets with thousands of pages.
+func fleetPageLinks(r *http.Request, page, matched int) (int, []pageLink) {
+	total := max(1, (matched+24)/25)
+	var links []pageLink
+	previous := 0
+	for _, n := range []int{1, page - 2, page - 1, page, page + 1, page + 2, total} {
+		if n >= 1 && n <= total && n > previous {
+			links = append(links, pageLink{Number: n, URL: withPage(r, n), Current: n == page})
+			previous = n
+		}
+	}
+	return total, links
+}
+
 func controlPage(raw string) (int, error) {
 	if raw == "" {
 		return 1, nil

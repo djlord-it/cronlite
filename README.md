@@ -158,7 +158,7 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 ## Lightweight Admin UI
 
-CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates with embedded CSS, JetBrains Mono, and a local icon. The UI stays in dark mode and requires no JavaScript, frontend framework, Node runtime, or CDN.
+CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates with embedded CSS, JetBrains Mono, a local icon, and a small optional script for live job search. The UI stays in dark mode and works without JavaScript, a frontend framework, a Node runtime, or a CDN.
 
 For local development, Docker and Go are the only prerequisites:
 
@@ -194,7 +194,7 @@ Admin sessions are opaque, revocable PostgreSQL records, so they survive process
 
 Session and public-CSRF cookies are host-only, `HttpOnly`, `SameSite=Strict`, and scoped to `/admin`. `Secure` is disabled for local HTTP and enabled by default when `CRONLITE_ENV=production`; production must serve the admin UI over HTTPS so those cookies work. Secure-cookie mode also emits HSTS. The admin handler uses per-form CSRF tokens, Go's cross-origin request protection, a restrictive Content Security Policy, `no-store` on HTML and authentication responses, and server-side session deletion plus cookie clearing on logout.
 
-The Job Control Center supports name search, exact `key=value` tag filters, active/paused filtering, table and board views, and 25-job pages with navigation and namespace-wide and filtered counts. The Runs screen lists persisted execution statuses and delivery evidence over the last 24 hours or 7 days; board columns show the executions on the current page, not inferred job health.
+The Job Control Center supports name search, exact `key=value` tag filters, active/paused filtering, table and board views, and 25-job pages with numbered navigation and namespace-wide and filtered counts. Live name search uses a 200 ms debounce, cancels pending requests, and rejects stale responses. Search, state, tags, views, and pagination also work without JavaScript. The Runs screen lists persisted execution statuses and delivery evidence over the last 24 hours or 7 days; board columns show the executions on the current page, not inferred job health.
 
 Bulk pause/resume requires selecting jobs, reviewing a server-stored preview, and explicitly confirming. Previews are private to the signing-in API key and namespace, expire after 10 minutes, and accept at most 100 distinct job IDs (the UI selects from one 25-job page). Jobs changed since preview are skipped. Confirmation stores individual applied, unchanged, conflicting, unavailable, or failed results atomically with successful state changes. Repeating confirmation returns the original results. Pausing does not cancel existing executions; resuming does not backfill missed runs.
 

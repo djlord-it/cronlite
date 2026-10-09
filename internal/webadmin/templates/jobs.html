@@ -11,6 +11,8 @@
     <div><label for="tag">Tag</label><input id="tag" name="tag" maxlength="200" value="{{.TagFilter}}" placeholder="team=payments"></div>
     <button type="submit">Filter</button><a href="/admin/jobs?view={{.View}}">Clear</a>
   </form>
+  <p id="search-feedback" class="search-feedback muted" role="status" aria-live="polite"></p>
+  <div id="fleet-results">
   <div class="view-toolbar"><nav class="view-switch" aria-label="Job views"><a href="{{.TableURL}}"{{if eq .View "table"}} aria-current="page"{{end}}>Table</a><a href="{{.BoardURL}}"{{if eq .View "board"}} aria-current="page"{{end}}>Board</a><a href="{{.TimelineURL}}"{{if eq .View "timeline"}} aria-current="page"{{end}}>Timeline</a></nav><a href="/admin/bulk">Bulk action history</a></div>
   <details class="saved-views"><summary>Saved views · {{len .SavedViews}}</summary><p class="muted">Private to this API key and namespace. Anyone using the same key shares these views.</p>
     <div class="saved-list">{{range .SavedViews}}<div><a href="/admin/jobs?{{.Query}}">{{.Name}}</a><form method="post" action="/admin/views/{{.ID}}/delete"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="return" value="{{$.ReturnURL}}"><button class="link-button" type="submit" aria-label="Remove saved view {{.Name}}">Remove</button></form></div>{{else}}<p class="muted">No saved views yet.</p>{{end}}</div>
@@ -32,7 +34,8 @@
     <div class="table-wrap"><table class="jobs-table"><thead><tr><th>Select</th><th>Name</th><th>Status</th><th>Schedule</th><th>Timezone</th><th>Webhook</th><th>Updated</th></tr></thead><tbody>
     {{range .Jobs}}<tr><td><input class="job-select" type="checkbox" name="job_id" value="{{.Job.ID}}" form="bulk" aria-label="Select {{.Job.Name}}"></td><td><a href="{{jobURL .Job.ID $.ReturnURL}}">{{.Job.Name}}</a></td><td>{{if .Job.Enabled}}<span class="badge success status-active">Active</span>{{else}}<span class="badge status-paused">Paused</span>{{end}}</td><td><code>{{.Schedule.CronExpression}}</code></td><td>{{.Schedule.Timezone}}</td><td class="truncate">{{.Job.Delivery.WebhookURL}}</td><td>{{formatTime .Job.UpdatedAt}}</td></tr>{{else}}<tr><td colspan="7" class="empty">No jobs found.</td></tr>{{end}}
     </tbody></table></div>{{end}}
-    <nav class="pagination" aria-label="Jobs pages">{{if .PreviousURL}}<a href="{{.PreviousURL}}">Previous</a>{{end}}<span>Page {{.Page}} · {{len .Jobs}} shown · {{.Fleet.Matched}} matching</span>{{if .NextURL}}<a href="{{.NextURL}}">Next</a>{{end}}</nav>
+    <nav class="pagination" aria-label="Jobs pages">{{if .PreviousURL}}<a href="{{.PreviousURL}}">Previous</a>{{end}}<span>Page {{.Page}} of {{.TotalPages}} · {{len .Jobs}} shown · {{.Fleet.Matched}} matching</span>{{range .PageLinks}}{{if .Current}}<span aria-current="page">{{.Number}}</span>{{else}}<a href="{{.URL}}" aria-label="Page {{.Number}}">{{.Number}}</a>{{end}}{{end}}{{if .NextURL}}<a href="{{.NextURL}}">Next</a>{{end}}</nav>
   {{end}}
-</main>{{template "foot" .}}{{end}}
+</div>
+</main><script src="/admin/assets/jobs.js" integrity="{{.LiveSearchIntegrity}}" defer></script>{{template "foot" .}}{{end}}
 {{define "job_card"}}<article class="job-card"><label class="checkbox"><input type="checkbox" form="bulk" name="job_id" value="{{.Row.Job.ID}}">Select {{.Row.Job.Name}}</label><h3><a href="{{jobURL .Row.Job.ID .State}}">{{.Row.Job.Name}}</a></h3><p><code>{{.Row.Schedule.CronExpression}}</code> · {{.Row.Schedule.Timezone}}</p><p class="break muted">{{.Row.Job.Delivery.WebhookURL}}</p><small class="muted">Updated {{formatTime .Row.Job.UpdatedAt}}</small></article>{{end}}

@@ -107,7 +107,7 @@ func TestIntegrationFleetSearchThousandsAccuracyAndLatency(t *testing.T) {
 		start := time.Now()
 		response, body := integrationGet(t, client, server.URL+"/admin/jobs?name=reconciliation&enabled=false&tag=team%3Dreports")
 		httpTimes = append(httpTimes, time.Since(start))
-		if response.StatusCode != 200 || !strings.Contains(body, "2500 matching") || strings.Count(body, `name="job_id"`) != 25 || !strings.Contains(body, "Page 1 · 25 shown") {
+		if response.StatusCode != 200 || !strings.Contains(body, "2500 matching") || strings.Count(body, `name="job_id"`) != 25 || !strings.Contains(body, "Page 1 of 100") {
 			t.Fatal("large-fleet HTTP search inaccurate")
 		}
 	}

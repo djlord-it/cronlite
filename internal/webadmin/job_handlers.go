@@ -44,6 +44,7 @@ func (h *Handler) jobsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := h.authPage(auth, "Job Control Center")
+	data.LiveSearchIntegrity = jobsScriptIntegrity
 	data.Fleet, data.Page, data.Form.Name = fleet, page, filter.Name
 	data.Jobs = fleet.Jobs
 	data.EnabledFilter, data.TagFilter, data.View = r.URL.Query().Get("enabled"), r.URL.Query().Get("tag"), view
@@ -62,6 +63,7 @@ func (h *Handler) jobsPage(w http.ResponseWriter, r *http.Request) {
 			data.Jobs = data.Jobs[:25]
 		}
 		data.PreviousURL, data.NextURL = paginationURLs(r, page, hasNext)
+		data.TotalPages, data.PageLinks = fleetPageLinks(r, page, fleet.Matched)
 	}
 	data.Notice = noticeText(r.URL.Query().Get("notice"))
 	h.render(w, "jobs", data)

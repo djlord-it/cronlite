@@ -90,6 +90,13 @@ func TestTemplatesContainNoExecutableOrExternalAssets(t *testing.T) {
 			switch {
 			case strings.HasSuffix(path, ".html"):
 				markup := string(contents)
+				if path == "templates/jobs.html" {
+					const script = `<script src="/admin/assets/jobs.js" integrity="{{.LiveSearchIntegrity}}" defer></script>`
+					if strings.Count(markup, script) != 1 {
+						t.Error("Jobs must contain exactly one integrity-pinned live search script")
+					}
+					markup = strings.Replace(markup, script, "", 1)
+				}
 				findings = inspectHTMLAsset(markup)
 			case strings.HasSuffix(path, ".css"):
 				findings = inspectCSSAsset(string(contents))
@@ -266,11 +273,16 @@ func TestCSSAssetInspectionRejectsRuntimeLoads(t *testing.T) {
 	}
 }
 
-func assertRequiredSecurityHeaders(t *testing.T, header http.Header, secure bool) {
+func assertRequiredSecurityHeaders(t *testing.T, header http.Header, secure bool, path ...string) {
 	t.Helper()
 	const csp = "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+	policy := csp
+	if len(path) > 0 && path[0] == "/admin/jobs" {
+		policy = strings.Replace(policy, "script-src 'none'", "script-src '"+jobsScriptIntegrity+"'", 1)
+		policy = strings.Replace(policy, "connect-src 'none'", "connect-src 'self'", 1)
+	}
 	required := map[string]string{
-		"Content-Security-Policy":      csp,
+		"Content-Security-Policy":      policy,
 		"X-Content-Type-Options":       "nosniff",
 		"Referrer-Policy":              "no-referrer",
 		"X-Frame-Options":              "DENY",
@@ -416,7 +428,7 @@ func TestSecurityHeadersCoverAdminResponseMatrix(t *testing.T) {
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body.String())
 			}
-			assertRequiredSecurityHeaders(t, rec.Header(), false)
+			assertRequiredSecurityHeaders(t, rec.Header(), false, req.URL.Path)
 			if got := rec.Header().Get("Cache-Control"); got != tt.wantCaching {
 				t.Errorf("Cache-Control = %q, want %q", got, tt.wantCaching)
 			}
