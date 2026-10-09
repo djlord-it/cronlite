@@ -21,30 +21,41 @@ import (
 )
 
 type fakeAdminService struct {
-	apiKeys         []domain.APIKey
-	keyListParams   domain.ListParams
-	resolved        service.ResolveResult
-	hasKeys         bool
-	bootstrapResult service.CreateAPIKeyResult
-	bootstrapErr    error
-	bootstrapNS     string
-	bootstrapLabel  string
-	jobs            []domain.JobWithSchedule
-	listFilter      domain.JobFilter
-	createdInput    service.CreateJobInput
-	createdJob      domain.Job
-	createdSchedule domain.Schedule
-	job             domain.Job
-	schedule        domain.Schedule
-	tags            []domain.Tag
-	executions      []domain.Execution
-	executionFilter domain.ExecutionFilter
-	attempts        []domain.DeliveryAttempt
-	updatedInput    service.UpdateJobInput
-	actionID        uuid.UUID
-	nextRuns        []time.Time
-	nextRunErr      error
-	err             error
+	apiKeys               []domain.APIKey
+	keyListParams         domain.ListParams
+	resolved              service.ResolveResult
+	hasKeys               bool
+	bootstrapResult       service.CreateAPIKeyResult
+	bootstrapErr          error
+	bootstrapNS           string
+	bootstrapLabel        string
+	jobs                  []domain.JobWithSchedule
+	listFilter            domain.JobFilter
+	createdInput          service.CreateJobInput
+	createdJob            domain.Job
+	createdSchedule       domain.Schedule
+	job                   domain.Job
+	schedule              domain.Schedule
+	tags                  []domain.Tag
+	executions            []domain.Execution
+	executionFilter       domain.ExecutionFilter
+	attempts              []domain.DeliveryAttempt
+	updatedInput          service.UpdateJobInput
+	actionID              uuid.UUID
+	nextRuns              []time.Time
+	nextRunErr            error
+	err                   error
+	controlErr            error
+	fleet                 *domain.Fleet
+	runs                  domain.RunsPage
+	views                 []domain.SavedView
+	batch                 domain.BulkBatch
+	batches               []domain.BulkBatch
+	actor                 uuid.UUID
+	selectedIDs           []uuid.UUID
+	bulkAction            string
+	savedName, savedQuery string
+	confirmed             bool
 }
 
 func (f *fakeAdminService) HasAnyAPIKeys(context.Context) (bool, error) {

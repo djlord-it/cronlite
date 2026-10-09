@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/djlord-it/cronlite/internal/domain"
 	"github.com/google/uuid"
@@ -16,37 +16,54 @@ func (h *Handler) jobsPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	page := positivePage(r.URL.Query().Get("page"))
-	const pageSize = 25
-	filter := domain.JobFilter{
-		Namespace: auth.Key.Namespace,
-		Name:      strings.TrimSpace(r.URL.Query().Get("name")),
-		ListParams: domain.ListParams{
-			Limit: pageSize + 1, Offset: (page - 1) * pageSize,
-		},
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || len(r.URL.RawQuery) > 4096 {
+		h.controlError(w, r, domain.ErrInvalidControlInput)
+		return
 	}
-	switch r.URL.Query().Get("enabled") {
-	case "true":
-		v := true
-		filter.Enabled = &v
-	case "false":
-		v := false
-		filter.Enabled = &v
+	page, filter, view, err := fleetQuery(query)
+	if err != nil {
+		h.controlError(w, r, err)
+		return
 	}
-	jobs, err := h.service.ListJobsWithSchedules(r.Context(), filter)
+	filter.Namespace = auth.Key.Namespace
+	if view == "timeline" {
+		filter.Limit, filter.Offset = 501, 0
+	}
+	fleet, err := h.service.Fleet(r.Context(), filter)
 	if err != nil {
 		h.internalError(w, r, err)
 		return
 	}
-	hasNext := len(jobs) > pageSize
-	if hasNext {
-		jobs = jobs[:pageSize]
+	if view != "timeline" && page > 1 && filter.Offset >= fleet.Matched {
+		last := (fleet.Matched + 24) / 25
+		if last < 1 {
+			last = 1
+		}
+		http.Redirect(w, r, withPage(r, last), http.StatusSeeOther)
+		return
 	}
-	data := h.authPage(auth, "Jobs")
-	data.Jobs, data.Page, data.Form.Name = jobs, page, filter.Name
-	data.EnabledFilter = r.URL.Query().Get("enabled")
+	data := h.authPage(auth, "Job Control Center")
+	data.Fleet, data.Page, data.Form.Name = fleet, page, filter.Name
+	data.Jobs = fleet.Jobs
+	data.EnabledFilter, data.TagFilter, data.View = r.URL.Query().Get("enabled"), r.URL.Query().Get("tag"), view
+	data.ReturnURL, data.StateQuery = fleetState(r), savedQuery(r.URL.Query())
+	data.TableURL, data.BoardURL, data.TimelineURL = viewURL(r, "table"), viewURL(r, "board"), viewURL(r, "timeline")
+	data.SavedViews, err = h.service.ListSavedViews(r.Context(), auth.Key.ID)
+	if err != nil {
+		h.internalError(w, r, err)
+		return
+	}
+	if view == "timeline" {
+		h.fillTimeline(&data)
+	} else {
+		hasNext := len(data.Jobs) > 25
+		if hasNext {
+			data.Jobs = data.Jobs[:25]
+		}
+		data.PreviousURL, data.NextURL = paginationURLs(r, page, hasNext)
+	}
 	data.Notice = noticeText(r.URL.Query().Get("notice"))
-	data.PreviousURL, data.NextURL = paginationURLs(r, page, hasNext)
 	h.render(w, "jobs", data)
 }
 
@@ -103,16 +120,30 @@ func (h *Handler) jobPage(w http.ResponseWriter, r *http.Request) {
 		h.handleServiceError(w, r, err)
 		return
 	}
-	page := positivePage(r.URL.Query().Get("page"))
+	page, pageErr := controlPage(r.URL.Query().Get("page"))
+	if pageErr != nil {
+		h.controlError(w, r, pageErr)
+		return
+	}
 	filter := domain.ExecutionFilter{
 		JobID: id, Namespace: auth.Key.Namespace,
 		ListParams: domain.ListParams{Limit: 26, Offset: (page - 1) * 25},
 	}
 	if value := r.URL.Query().Get("status"); value != "" {
 		status := domain.ExecutionStatus(value)
+		switch status {
+		case domain.ExecutionStatusEmitted, domain.ExecutionStatusInProgress, domain.ExecutionStatusDelivered, domain.ExecutionStatusFailed:
+		default:
+			h.controlError(w, r, domain.ErrInvalidControlInput)
+			return
+		}
 		filter.Status = &status
 	}
 	if value := r.URL.Query().Get("trigger_type"); value != "" {
+		if value != "manual" && value != "scheduled" {
+			h.controlError(w, r, domain.ErrInvalidControlInput)
+			return
+		}
 		filter.TriggerType = &value
 	}
 	executions, err := h.service.ListExecutions(r.Context(), filter)
@@ -122,15 +153,19 @@ func (h *Handler) jobPage(w http.ResponseWriter, r *http.Request) {
 	}
 	_, nextRuns, _, nextErr := h.service.GetNextRunTime(r.Context(), id)
 	if nextErr != nil {
-		if !errors.Is(nextErr, domain.ErrJobDisabled) {
+		if !errors.Is(nextErr, domain.ErrJobDisabled) && !errors.Is(nextErr, domain.ErrInvalidCronExpression) {
 			h.internalError(w, r, nextErr)
 			return
 		}
 		nextRuns = nil
 	}
 	data := h.authPage(auth, job.Name)
+	data.ReturnURL = safeReturn(r.URL.Query().Get("return"))
 	data.Job, data.Schedule, data.Tags = job, schedule, tags
 	data.Notice, data.NextRuns = noticeText(r.URL.Query().Get("notice")), nextRuns
+	if errors.Is(nextErr, domain.ErrInvalidCronExpression) {
+		data.Error = "This schedule has no calculable next run. Check the cron expression and timezone."
+	}
 	data.ExecutionStatusFilter = r.URL.Query().Get("status")
 	data.TriggerTypeFilter = r.URL.Query().Get("trigger_type")
 	if len(executions) > 25 {
@@ -159,6 +194,7 @@ func (h *Handler) editJobPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := h.authPage(auth, "Edit "+job.Name)
+	data.ReturnURL = safeReturn(r.URL.Query().Get("return"))
 	data.Job, data.Edit = job, true
 	data.Form = jobFormValues{
 		Name: job.Name, CronExpression: schedule.CronExpression, Timezone: schedule.Timezone,
@@ -180,6 +216,7 @@ func (h *Handler) editJob(w http.ResponseWriter, r *http.Request) {
 	input, values, err := parseUpdateJobForm(r)
 	if err != nil {
 		data := h.authPage(auth, "Edit job")
+		data.ReturnURL = safeReturn(r.FormValue("return"))
 		data.Job.ID, data.Edit, data.Form, data.Error = id, true, values, err.Error()
 		h.renderStatus(w, "job_form", data, http.StatusUnprocessableEntity)
 		return
@@ -187,6 +224,7 @@ func (h *Handler) editJob(w http.ResponseWriter, r *http.Request) {
 	if _, _, err := h.service.UpdateJob(r.Context(), id, input); err != nil {
 		if isUserError(err) {
 			data := h.authPage(auth, "Edit job")
+			data.ReturnURL = safeReturn(r.FormValue("return"))
 			data.Job.ID, data.Edit, data.Form, data.Error = id, true, values, userErrorText(err)
 			h.renderStatus(w, "job_form", data, http.StatusUnprocessableEntity)
 			return
@@ -194,7 +232,7 @@ func (h *Handler) editJob(w http.ResponseWriter, r *http.Request) {
 		h.handleServiceError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/admin/jobs/"+id.String()+"?notice=updated", http.StatusSeeOther)
+	http.Redirect(w, r, actionRedirect(id, "updated", r.FormValue("return")), http.StatusSeeOther)
 }
 
 func (h *Handler) deleteJobPage(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +250,7 @@ func (h *Handler) deleteJobPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := h.authPage(auth, "Delete "+job.Name)
+	data.ReturnURL = safeReturn(r.URL.Query().Get("return"))
 	data.Job, data.Schedule = job, schedule
 	h.render(w, "delete_job", data)
 }
@@ -228,7 +267,7 @@ func (h *Handler) deleteJob(w http.ResponseWriter, r *http.Request) {
 		h.handleServiceError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/admin/jobs?notice=deleted", http.StatusSeeOther)
+	http.Redirect(w, r, deleteRedirect(r.FormValue("return")), http.StatusSeeOther)
 }
 
 func (h *Handler) pauseJob(w http.ResponseWriter, r *http.Request) {
@@ -264,7 +303,7 @@ func (h *Handler) jobAction(w http.ResponseWriter, r *http.Request, notice strin
 		h.handleServiceError(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/admin/jobs/"+id.String()+"?notice="+notice, http.StatusSeeOther)
+	http.Redirect(w, r, actionRedirect(id, notice, r.FormValue("return")), http.StatusSeeOther)
 }
 
 func (h *Handler) executionPage(w http.ResponseWriter, r *http.Request) {
@@ -282,6 +321,7 @@ func (h *Handler) executionPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := h.authPage(auth, "Execution "+execution.ID.String())
+	data.ReturnURL = safeReturn(r.URL.Query().Get("return"))
 	data.Execution, data.Attempts = execution, attempts
 	h.render(w, "execution", data)
 }

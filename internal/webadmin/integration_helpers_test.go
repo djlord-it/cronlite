@@ -160,7 +160,7 @@ func integrationScanRow(
 func truncateIntegrationTables(t *testing.T, db *sql.DB) {
 	t.Helper()
 	integrationExec(t, db, `
-TRUNCATE delivery_attempts, executions, tags, jobs, schedules, admin_sessions, api_keys CASCADE
+TRUNCATE admin_bulk_batches, admin_saved_views, delivery_attempts, executions, tags, jobs, schedules, admin_sessions, api_keys CASCADE
 `)
 }
 

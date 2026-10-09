@@ -51,6 +51,18 @@ type AdminExecutionService interface {
 	GetExecution(ctx context.Context, id uuid.UUID) (domain.Execution, []domain.DeliveryAttempt, error)
 }
 
+type AdminControlService interface {
+	Fleet(context.Context, domain.JobFilter) (domain.Fleet, error)
+	Runs(context.Context, domain.ExecutionFilter) (domain.RunsPage, error)
+	ListSavedViews(context.Context, uuid.UUID) ([]domain.SavedView, error)
+	SaveView(context.Context, uuid.UUID, string, string) error
+	DeleteView(context.Context, uuid.UUID, uuid.UUID) error
+	PreviewBulk(context.Context, uuid.UUID, string, []uuid.UUID) (domain.BulkBatch, error)
+	ConfirmBulk(context.Context, uuid.UUID, uuid.UUID) (domain.BulkBatch, error)
+	GetBulk(context.Context, uuid.UUID, uuid.UUID) (domain.BulkBatch, error)
+	ListBulk(context.Context, uuid.UUID) ([]domain.BulkBatch, error)
+}
+
 type AdminKeyService interface {
 	CreateAPIKey(context.Context, service.CreateAPIKeyInput) (service.CreateAPIKeyResult, error)
 	ListAPIKeys(context.Context, domain.ListParams) ([]domain.APIKey, error)
@@ -64,6 +76,7 @@ type AdminService interface {
 	ListPendingAck(context.Context, *uuid.UUID, int) ([]domain.Execution, error)
 	AckExecution(context.Context, uuid.UUID) error
 	ResolveSchedule(context.Context, string, string) (service.ResolveResult, error)
+	AdminControlService
 	AdminBootstrapService
 	AdminJobService
 	AdminJobActionService
@@ -96,41 +109,59 @@ type Handler struct {
 }
 
 type pageData struct {
-	Navigation            string
-	APIKeys               []domain.APIKey
-	CurrentKeyID          uuid.UUID
-	SelectedKey           domain.APIKey
-	KeyLabel              string
-	RuntimeSettings       []RuntimeSetting
-	SessionTTL            time.Duration
-	SessionAbsoluteTTL    time.Duration
-	CookieSecure          bool
-	Description           string
-	Resolved              service.ResolveResult
-	Pending               bool
-	Title                 string
-	Namespace             string
-	CSRFToken             string
-	Notice                string
-	Error                 string
-	APIKey                string
-	Jobs                  []domain.JobWithSchedule
-	Job                   domain.Job
-	Schedule              domain.Schedule
-	Tags                  []domain.Tag
-	Executions            []domain.Execution
-	Execution             domain.Execution
-	Attempts              []domain.DeliveryAttempt
-	NextRuns              []time.Time
-	Form                  jobFormValues
-	Edit                  bool
-	EnabledFilter         string
-	ExecutionStatusFilter string
-	TriggerTypeFilter     string
-	Page                  int
-	PreviousURL           string
-	NextURL               string
-	SetupAuthenticated    bool
+	Navigation                      string
+	APIKeys                         []domain.APIKey
+	CurrentKeyID                    uuid.UUID
+	SelectedKey                     domain.APIKey
+	KeyLabel                        string
+	RuntimeSettings                 []RuntimeSetting
+	SessionTTL                      time.Duration
+	SessionAbsoluteTTL              time.Duration
+	CookieSecure                    bool
+	Description                     string
+	Resolved                        service.ResolveResult
+	Pending                         bool
+	Title                           string
+	Namespace                       string
+	CSRFToken                       string
+	Notice                          string
+	Error                           string
+	APIKey                          string
+	Jobs                            []domain.JobWithSchedule
+	Job                             domain.Job
+	Schedule                        domain.Schedule
+	Tags                            []domain.Tag
+	Executions                      []domain.Execution
+	Execution                       domain.Execution
+	Attempts                        []domain.DeliveryAttempt
+	NextRuns                        []time.Time
+	Form                            jobFormValues
+	Edit                            bool
+	EnabledFilter                   string
+	ExecutionStatusFilter           string
+	TriggerTypeFilter               string
+	Page                            int
+	PreviousURL                     string
+	NextURL                         string
+	SetupAuthenticated              bool
+	Fleet                           domain.Fleet
+	View                            string
+	TagFilter                       string
+	ReturnURL                       string
+	StateQuery                      string
+	TableURL, BoardURL, TimelineURL string
+	SavedViews                      []domain.SavedView
+	Timeline                        []timelineEntry
+	TimelineLimited                 bool
+	TimelineInvalid                 int
+	TimelineUntil                   time.Time
+	Runs                            []domain.RunEvidence
+	RunColumns                      []runColumn
+	RunsTotal                       int
+	Window                          string
+	Batch                           domain.BulkBatch
+	Batches                         []domain.BulkBatch
+	Applied, Unchanged, Failed      int
 }
 
 func NewHandler(cfg Config) (http.Handler, error) {
@@ -160,7 +191,17 @@ func NewHandler(cfg Config) (http.Handler, error) {
 			}
 			return t.UTC().Format("2006-01-02 15:04:05 UTC")
 		},
-		"tagsText": tagsText,
+		"tagsText":     tagsText,
+		"jobURL":       jobURL,
+		"executionURL": executionURL,
+		"returnQuery":  returnQuery,
+		"bulkResult":   bulkResultText,
+		"jobCardData": func(row domain.JobWithSchedule, data pageData) any {
+			return struct {
+				Row   domain.JobWithSchedule
+				State string
+			}{row, data.ReturnURL}
+		},
 	}).ParseFS(embeddedFiles, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse admin templates: %w", err)
@@ -206,6 +247,13 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /admin/setup", h.setup)
 	h.mux.HandleFunc("POST /admin/logout", h.logout)
 	h.mux.HandleFunc("GET /admin/jobs", h.jobsPage)
+	h.mux.HandleFunc("GET /admin/runs", h.runsPage)
+	h.mux.HandleFunc("POST /admin/views", h.saveView)
+	h.mux.HandleFunc("POST /admin/views/{id}/delete", h.deleteView)
+	h.mux.HandleFunc("POST /admin/bulk/preview", h.previewBulk)
+	h.mux.HandleFunc("POST /admin/bulk/{id}/confirm", h.confirmBulk)
+	h.mux.HandleFunc("GET /admin/bulk/{id}", h.bulkPage)
+	h.mux.HandleFunc("GET /admin/bulk", h.bulkHistory)
 	h.mux.HandleFunc("GET /admin/jobs/new", h.createJobPage)
 	h.mux.HandleFunc("POST /admin/jobs/new", h.createJob)
 	h.mux.HandleFunc("GET /admin/jobs/{id}", h.jobPage)
@@ -339,13 +387,13 @@ func (h *Handler) renderPublicForm(w http.ResponseWriter, _ *http.Request, name 
 
 func (h *Handler) render(w http.ResponseWriter, name string, data pageData) {
 	switch name {
-	case "jobs", "job_form", "job_detail", "delete_job":
+	case "jobs", "job_form", "job_detail", "delete_job", "bulk":
 		data.Navigation = "jobs"
 	case "keys", "key_new", "key_created", "key_delete":
 		data.Navigation = "keys"
 	case "executions", "execution":
 		data.Navigation = "executions"
-	case "settings", "schedule", "onboarding":
+	case "settings", "schedule", "onboarding", "runs":
 		data.Navigation = name
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

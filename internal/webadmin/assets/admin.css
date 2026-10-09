@@ -120,3 +120,62 @@ body:has(.auth-shell) .page-foot { margin:0; text-align:center; padding:12px; }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; } }
 
 .onboarding-help { margin:24px 0 0; font-size:12px; }
+
+:root { --status-active-bg:#183525; --status-active-border:#437957; --status-active-text:#a0e3b8; --status-paused-bg:#3c3216; --status-paused-border:#87702c; --status-paused-text:#ffe08a; --status-failed-bg:#3c2020; --status-failed-border:#8e4848; --status-failed-text:#ffaaaa; }
+/* Job Control Center: server-rendered views, accessible without scripts. */
+.fleet-counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: .8rem; margin: 1.5rem 0; }
+.fleet-counts > div { background: var(--surface); border: 1px solid var(--border); border-radius: .55rem; padding: 1rem 1.2rem; }
+.fleet-counts strong { display: block; font-size: 1.8rem; line-height: 1.2; }
+.fleet-counts span { color: var(--muted); font-size: .85rem; }
+.jobs-table .badge.status-active {
+ background: var(--status-active-bg); border-color: var(--status-active-border); color: var(--status-active-text);
+}
+.jobs-table .badge.status-paused {
+ background: var(--status-paused-bg); border-color: var(--status-paused-border); color: var(--status-paused-text);
+}
+.jobs-table .badge.status-failed {
+ background: var(--status-failed-bg); border-color: var(--status-failed-border); color: var(--status-failed-text);
+}
+.pagination [aria-current="page"] { font-weight: 700; color: var(--text); }
+.pagination { flex-wrap: wrap; gap: .65rem; }
+.view-toolbar, .bulk-toolbar, .save-form { display: flex; align-items: center; flex-wrap: wrap; gap: .8rem; margin: 1rem 0; }
+.view-toolbar { justify-content: space-between; }
+.view-switch { display: flex; gap: .25rem; padding: .25rem; background: var(--surface); border: 1px solid var(--border); border-radius: .5rem; }
+.view-switch a { padding: .4rem .85rem; text-decoration: none; border-radius: .3rem; }
+.view-switch [aria-current="page"] { background: var(--accent); color: var(--surface); }
+.saved-views { border: 1px solid var(--border); border-radius: .55rem; padding: .8rem 1rem; background: var(--surface); margin: 1rem 0; }
+.saved-views summary { cursor: pointer; font-weight: 650; }
+.saved-list > div { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); padding: .5rem 0; }
+.save-form { align-items: end; }
+.save-form > div { flex: 1; min-width: 12rem; }
+.bulk-toolbar { padding: .8rem 1rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--surface); }
+.bulk-toolbar p { flex: 1; margin: 0; }
+input.job-select, .checkbox input { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); flex-shrink: 0; }
+.job-board, .runs-board { display: grid; gap: 1rem; align-items: start; }
+.job-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.runs-board { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.board-column { border: 1px solid var(--border); border-radius: .55rem; background: var(--bg); padding: .8rem; min-width: 0; }
+.board-column h2 { font-size: 1rem; margin: .4rem 0 1rem; }
+.board-column h2 span { font-size: .8rem; }
+.job-card, .run-card { background: var(--surface); border: 1px solid var(--border); border-radius: .45rem; padding: 1rem; margin-top: .75rem; overflow-wrap: anywhere; }
+.job-card h3, .run-card h3 { margin: .65rem 0; font-size: 1rem; }
+.job-card p { margin: .4rem 0; font-size: .85rem; }
+.job-card label { font-size: .8rem; color: var(--muted); font-weight: 500; }
+.run-card { padding: 0; }
+.run-card h3 { margin: 0; }
+.run-card a { display: block; padding: .9rem 1rem; text-decoration: none; border-radius: .45rem; }
+.run-card a:hover { background: var(--notice); }
+.evidence { border-top: 1px solid var(--border); padding-top: .65rem; margin-top: .7rem; font-size: .8rem; }
+.evidence p { margin: .25rem 0; }
+.confirm-form { margin-top: 1.5rem; }
+@media (max-width: 1050px) { .runs-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) {
+ .fleet-counts { grid-template-columns: repeat(2, 1fr); }
+ .job-board, .runs-board { grid-template-columns: 1fr; }
+ .view-toolbar, .bulk-toolbar { align-items: stretch; flex-direction: column; }
+ .view-switch { justify-content: center; }
+ .bulk-toolbar button { width: 100%; }
+ .pagination { flex-wrap: wrap; }
+ .checkbox { align-items: start; }
+ .namespace { overflow-wrap: anywhere; }
+}
