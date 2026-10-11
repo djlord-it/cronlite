@@ -28,7 +28,7 @@ func summarize(values []float64) Stats {
 		return Stats{Unavailable: true}
 	}
 
-	sorted := slices.Clone(values)
+	sorted := values
 	slices.Sort(sorted)
 
 	var sum float64
