@@ -1,0 +1,71 @@
+# Install in djlord-it/cronlite/.github/workflows/gogobot-review.yml.
+# Generate with scripts/install-github-bot.ts using a reviewed, published reviewer commit.
+# Public Cronlite cannot call a reusable workflow hosted in private GoGoBot.
+name: GoGoBot
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Cronlite PR number to review
+        type: string
+        required: true
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: gogobot-${{ inputs.pr_number }}
+  cancel-in-progress: true
+jobs:
+  review:
+    if: >-
+      github.repository == 'djlord-it/cronlite' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      vars.GOGOBOT_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: gogobot
+    steps:
+      - name: Validate trusted configuration
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,15}$ ]] || exit 1
+          (( PR_NUMBER <= 9007199254740991 )) || exit 1
+      - name: Check out trusted reviewer only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: djlord-it/gogobot
+          ref: 0864bc72a790f4377ac7b24f5616815a7a11e43d
+          path: reviewer
+          persist-credentials: false
+          token: ${{ secrets.GOGOBOT_READ_TOKEN }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version: '1.26.9'
+          cache: false
+      - name: Build trusted reviewer and prepare approved dependencies
+        working-directory: reviewer
+        env:
+          GOENV: 'off'
+          GOWORK: 'off'
+          GOTOOLCHAIN: local
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          cd profiles/cronlite
+          go mod download
+      - name: Review PR and optionally update bot comment
+        working-directory: reviewer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JEV_API: ${{ secrets.JEV_API }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOGOBOT_MODEL: gpt-6-luna
+          GOGOBOT_ALLOW_SOURCE_UPLOAD: 'true'
+        run: npm run bot:github -- --publish
