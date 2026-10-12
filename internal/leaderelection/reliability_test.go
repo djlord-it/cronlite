@@ -13,7 +13,7 @@ import (
 
 func TestElector_DemotionWaitsForStartupCallback(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	expectTCPKeepalive(mock)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").WillReturnRows(sqlmock.NewRows([]string{"acquired"}).AddRow(true))
 	entered, release, demoted, done := make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -58,14 +58,22 @@ func TestElector_CancellationReleasesAdvisoryLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer owner.Close()
+	defer func() {
+		if err := owner.Close(); err != nil {
+			t.Errorf("close owner database: %v", err)
+		}
+	}()
 	owner.SetMaxOpenConns(1)
 	owner.SetMaxIdleConns(1)
 	observer, err := sql.Open("postgres", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer observer.Close()
+	defer func() {
+		if err := observer.Close(); err != nil {
+			t.Errorf("close observer database: %v", err)
+		}
+	}()
 	lockKey := time.Now().UnixNano()
 	for epoch := 0; epoch < 10; epoch++ {
 		ctx, cancel := context.WithCancel(context.Background())

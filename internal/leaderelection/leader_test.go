@@ -78,7 +78,7 @@ func expectTCPKeepalive(mock sqlmock.Sqlmock) {
 
 func TestElector_AcquiresLock_CallsBothCallbacks(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
@@ -123,7 +123,7 @@ func TestElector_AcquiresLock_CallsBothCallbacks(t *testing.T) {
 
 func TestElector_LockHeldByAnother(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(false)
@@ -151,7 +151,7 @@ func TestElector_LockHeldByAnother(t *testing.T) {
 
 func TestElector_ConnFailure_EmitsErrorMetric(t *testing.T) {
 	db, _ := newMockDB(t)
-	db.Close() // Close DB to force Conn() failure
+	_ = db.Close() // Close DB to force Conn() failure
 
 	metrics := newMockMetrics()
 
@@ -173,7 +173,7 @@ func TestElector_ConnFailure_EmitsErrorMetric(t *testing.T) {
 
 func TestElector_QueryFailure_EmitsErrorMetric(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectTCPKeepalive(mock)
 	mock.ExpectQuery("SELECT pg_try_advisory_lock").
@@ -200,7 +200,7 @@ func TestElector_QueryFailure_EmitsErrorMetric(t *testing.T) {
 
 func TestElector_PingFailure_ReturnsConnLost(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
@@ -227,7 +227,7 @@ func TestElector_PingFailure_ReturnsConnLost(t *testing.T) {
 
 func TestElector_ContextCancellation_ReturnsShutdown(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
@@ -251,7 +251,7 @@ func TestElector_ContextCancellation_ReturnsShutdown(t *testing.T) {
 
 func TestElector_MetricsRecorded_FullSequence(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)
@@ -287,7 +287,7 @@ func TestElector_MetricsRecorded_FullSequence(t *testing.T) {
 
 func TestElector_OnDemotedPanic_Recovered(t *testing.T) {
 	db, mock := newMockDB(t)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	expectTCPKeepalive(mock)
 	rows := sqlmock.NewRows([]string{"pg_try_advisory_lock"}).AddRow(true)

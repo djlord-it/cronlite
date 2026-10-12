@@ -118,7 +118,12 @@ func (e *Elector) runOnce(ctx context.Context) string {
 		}
 		return ""
 	}
-	defer conn.Close()
+	defer func() {
+		// Discarding a session below already closes its dedicated connection.
+		if err := conn.Close(); err != nil && err != sql.ErrConnDone {
+			log.Printf("leader: close dedicated connection: %v", err)
+		}
+	}()
 
 	// Set Postgres session-level TCP keepalive on the dedicated connection.
 	// These are a correctness floor for crash failover detection, not a tuning knob.
