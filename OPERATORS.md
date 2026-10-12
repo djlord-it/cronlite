@@ -430,7 +430,7 @@ The `LEADER_HEARTBEAT_INTERVAL` (default 2s) detects local connection failures q
 ./scripts/ha_test.sh
 ```
 
-Starts 3 instances, verifies single leader, kills leader, asserts failover, checks no double-scheduling. The harness sets `API_KEY=ha-test-key` and sends `Authorization: Bearer ha-test-key` on API calls. See [`docs/ha-test.md`](docs/ha-test.md).
+Starts 3 instances, verifies single leader, kills leader, asserts failover, checks no double-scheduling. The harness sets `API_KEY=ha-test-key` and sends `Authorization: Bearer ha-test-key` on API calls. See [`scripts/ha_test.sh`](scripts/ha_test.sh).
 
 ## Monitoring
 
@@ -558,11 +558,11 @@ The blocking [admin workflow](.github/workflows/admin-ci.yml) runs on pull reque
 | Job | Gate |
 |-----|------|
 | `admin-unit-security` | Workflow contract, race-enabled admin/CLI tests, fuzz smoke tests, and admin coverage of at least 80% |
-| `admin-postgres-integration` | Tagged integration tests must run and pass under the race detector, with empty or skipped suites rejected against a fresh dedicated database migrated through 009 |
+| `admin-postgres-integration` | Tagged integration tests must run and pass under the race detector, with empty or skipped suites rejected against a fresh dedicated database migrated through 010 |
 | `admin-assets-launcher` | Launcher/smoke/container shell contracts and Actionlint; template/asset/security-header tests run in the unit suite |
 | `admin-smoke` | Linux/Darwin amd64/arm64 CGO-disabled builds and the isolated Docker admin lifecycle, including workspace views and bundled CSS/font |
 
-Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–009 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
+Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–010 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
 
 ```bash
 set -euo pipefail

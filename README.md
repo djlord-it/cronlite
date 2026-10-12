@@ -2,7 +2,7 @@
 
 **Schedule HTTP webhooks with cron expressions. No SDK, no queue, no complexity.**
 
-[Local CPU, memory, and dispatch benchmark](benchmark.md)
+[Local CPU, memory, and dispatch benchmark](tools/benchmark/README.md)
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
@@ -166,7 +166,7 @@ For local development, Docker and Go are the only prerequisites:
 ./scripts/admin-local.sh
 ```
 
-The launcher starts PostgreSQL, applies missing admin migrations through 008, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits. Apply migration 009 separately to existing databases for the DB dispatch index improvement.
+The launcher starts PostgreSQL, applies missing admin session migrations and migration 010, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits. Apply migration 009 separately to existing databases for the DB dispatch index improvement.
 
 For a manual launch, apply every numbered migration in order through 010, set an installation token, and enable the UI:
 
@@ -221,7 +221,7 @@ Run the primary gate locally:
 ./scripts/admin_ci_test.sh
 ```
 
-The database suite requires Bash, Go, Docker with Compose v2, and OpenSSL. The following starts only a one-off PostgreSQL service with an ephemeral host port in a uniquely named Compose project. Its fresh volume causes the pinned PostgreSQL entrypoint to apply the mounted migrations 001–009 in lexical order with `ON_ERROR_STOP`; the EXIT trap removes only this disposable project and volume, leaving any normal `cronlite` database untouched.
+The database suite requires Bash, Go, Docker with Compose v2, and OpenSSL. The following starts only a one-off PostgreSQL service with an ephemeral host port in a uniquely named Compose project. Its fresh volume causes the pinned PostgreSQL entrypoint to apply the mounted migrations 001–010 in lexical order with `ON_ERROR_STOP`; the EXIT trap removes only this disposable project and volume, leaving any normal `cronlite` database untouched.
 
 ```bash
 set -euo pipefail

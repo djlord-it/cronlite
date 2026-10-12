@@ -194,17 +194,7 @@ func handleCreateJob(svc *service.JobService) server.ToolHandlerFunc {
 			return toolError(err)
 		}
 
-		result := map[string]any{
-			"id":              job.ID.String(),
-			"namespace":       job.Namespace.String(),
-			"name":            job.Name,
-			"enabled":         job.Enabled,
-			"cron_expression": schedule.CronExpression,
-			"timezone":        schedule.Timezone,
-			"webhook_url":     job.Delivery.WebhookURL,
-			"created_at":      job.CreatedAt.Format(time.RFC3339),
-			"updated_at":      job.UpdatedAt.Format(time.RFC3339),
-		}
+		result := jobToMap(job, schedule)
 		if len(tags) > 0 {
 			tagMap := make(map[string]string, len(tags))
 			for _, t := range tags {
@@ -272,17 +262,7 @@ func handleGetJob(svc *service.JobService) server.ToolHandlerFunc {
 			return toolError(err)
 		}
 
-		result := map[string]any{
-			"id":              job.ID.String(),
-			"namespace":       job.Namespace.String(),
-			"name":            job.Name,
-			"enabled":         job.Enabled,
-			"cron_expression": schedule.CronExpression,
-			"timezone":        schedule.Timezone,
-			"webhook_url":     job.Delivery.WebhookURL,
-			"created_at":      job.CreatedAt.Format(time.RFC3339),
-			"updated_at":      job.UpdatedAt.Format(time.RFC3339),
-		}
+		result := jobToMap(job, schedule)
 
 		if len(tags) > 0 {
 			tagMap := make(map[string]string, len(tags))
@@ -353,17 +333,7 @@ func handleUpdateJob(svc *service.JobService) server.ToolHandlerFunc {
 			return toolError(err)
 		}
 
-		result := map[string]any{
-			"id":              job.ID.String(),
-			"namespace":       job.Namespace.String(),
-			"name":            job.Name,
-			"enabled":         job.Enabled,
-			"cron_expression": schedule.CronExpression,
-			"timezone":        schedule.Timezone,
-			"webhook_url":     job.Delivery.WebhookURL,
-			"created_at":      job.CreatedAt.Format(time.RFC3339),
-			"updated_at":      job.UpdatedAt.Format(time.RFC3339),
-		}
+		result := jobToMap(job, schedule)
 
 		return jsonResult(result)
 	}
@@ -549,6 +519,21 @@ func parseTags(raw any) []domain.Tag {
 		tags = append(tags, domain.Tag{Key: k, Value: s})
 	}
 	return tags
+}
+
+// jobToMap is the shared representation for create, get, and update results.
+func jobToMap(job domain.Job, schedule domain.Schedule) map[string]any {
+	return map[string]any{
+		"id":              job.ID.String(),
+		"namespace":       job.Namespace.String(),
+		"name":            job.Name,
+		"enabled":         job.Enabled,
+		"cron_expression": schedule.CronExpression,
+		"timezone":        schedule.Timezone,
+		"webhook_url":     job.Delivery.WebhookURL,
+		"created_at":      job.CreatedAt.Format(time.RFC3339),
+		"updated_at":      job.UpdatedAt.Format(time.RFC3339),
+	}
 }
 
 // executionToMap converts a domain.Execution to a map for JSON serialization.

@@ -143,31 +143,13 @@ func (s *Store) GetJobByID(ctx context.Context, jobID uuid.UUID) (domain.Job, er
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	var job domain.Job
-	var timeoutMs int64
-
-	err := s.db.QueryRowContext(ctx, queryGetJobByID, jobID).Scan(
-		&job.ID,
-		&job.Namespace,
-		&job.Name,
-		&job.Enabled,
-		&job.ScheduleID,
-		&job.Delivery.Type,
-		&job.Delivery.WebhookURL,
-		&job.Delivery.Secret,
-		&timeoutMs,
-		&job.Analytics.Enabled,
-		&job.Analytics.RetentionSeconds,
-		&job.CreatedAt,
-		&job.UpdatedAt,
-	)
+	job, err := scanJobRow(s.db.QueryRowContext(ctx, queryGetJobByID, jobID))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return domain.Job{}, domain.ErrJobNotFound
 		}
 		return domain.Job{}, err
 	}
-	job.Delivery.Timeout = time.Duration(timeoutMs) * time.Millisecond
 	return job, nil
 }
 
@@ -176,38 +158,14 @@ func (s *Store) GetJobWithSchedule(ctx context.Context, id uuid.UUID) (domain.Jo
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	var job domain.Job
-	var sched domain.Schedule
-	var timeoutMs int64
-
-	err := s.db.QueryRowContext(ctx, queryGetJobWithSchedule, id).Scan(
-		&job.ID,
-		&job.Namespace,
-		&job.Name,
-		&job.Enabled,
-		&job.ScheduleID,
-		&job.Delivery.Type,
-		&job.Delivery.WebhookURL,
-		&job.Delivery.Secret,
-		&timeoutMs,
-		&job.Analytics.Enabled,
-		&job.Analytics.RetentionSeconds,
-		&job.CreatedAt,
-		&job.UpdatedAt,
-		&sched.ID,
-		&sched.CronExpression,
-		&sched.Timezone,
-		&sched.CreatedAt,
-		&sched.UpdatedAt,
-	)
+	jws, err := scanJobWithScheduleRow(s.db.QueryRowContext(ctx, queryGetJobWithSchedule, id))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		}
 		return domain.Job{}, domain.Schedule{}, err
 	}
-	job.Delivery.Timeout = time.Duration(timeoutMs) * time.Millisecond
-	return job, sched, nil
+	return jws.Job, jws.Schedule, nil
 }
 
 // GetJobWithScheduleScoped returns a job and its schedule filtered by both ID and namespace.
@@ -216,38 +174,14 @@ func (s *Store) GetJobWithScheduleScoped(ctx context.Context, id uuid.UUID, ns d
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	var job domain.Job
-	var sched domain.Schedule
-	var timeoutMs int64
-
-	err := s.db.QueryRowContext(ctx, queryGetJobWithScheduleScoped, id, string(ns)).Scan(
-		&job.ID,
-		&job.Namespace,
-		&job.Name,
-		&job.Enabled,
-		&job.ScheduleID,
-		&job.Delivery.Type,
-		&job.Delivery.WebhookURL,
-		&job.Delivery.Secret,
-		&timeoutMs,
-		&job.Analytics.Enabled,
-		&job.Analytics.RetentionSeconds,
-		&job.CreatedAt,
-		&job.UpdatedAt,
-		&sched.ID,
-		&sched.CronExpression,
-		&sched.Timezone,
-		&sched.CreatedAt,
-		&sched.UpdatedAt,
-	)
+	jws, err := scanJobWithScheduleRow(s.db.QueryRowContext(ctx, queryGetJobWithScheduleScoped, id, string(ns)))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return domain.Job{}, domain.Schedule{}, domain.ErrJobNotFound
 		}
 		return domain.Job{}, domain.Schedule{}, err
 	}
-	job.Delivery.Timeout = time.Duration(timeoutMs) * time.Millisecond
-	return job, sched, nil
+	return jws.Job, jws.Schedule, nil
 }
 
 // ListJobs returns jobs matching the filter. It supports the full JobFilter
@@ -1320,8 +1254,8 @@ func scanJobWithScheduleRow(row scanner) (domain.JobWithSchedule, error) {
 	return jws, nil
 }
 
-// scanSingleExecution scans a single execution row (from QueryRow).
-func scanSingleExecution(row *sql.Row) (domain.Execution, error) {
+// scanSingleExecution scans an execution from either QueryRow or Rows.
+func scanSingleExecution(row scanner) (domain.Execution, error) {
 	var exec domain.Execution
 	var status string
 	var triggerType string
@@ -1349,26 +1283,10 @@ func scanSingleExecution(row *sql.Row) (domain.Execution, error) {
 func scanExecutionRows(rows *sql.Rows) ([]domain.Execution, error) {
 	var result []domain.Execution
 	for rows.Next() {
-		var exec domain.Execution
-		var status string
-		var triggerType string
-
-		err := rows.Scan(
-			&exec.ID,
-			&exec.JobID,
-			&exec.Namespace,
-			&triggerType,
-			&exec.ScheduledAt,
-			&exec.FiredAt,
-			&status,
-			&exec.AcknowledgedAt,
-			&exec.CreatedAt,
-		)
+		exec, err := scanSingleExecution(rows)
 		if err != nil {
 			return nil, err
 		}
-		exec.Status = domain.ExecutionStatus(status)
-		exec.TriggerType = domain.TriggerType(triggerType)
 		result = append(result, exec)
 	}
 
@@ -1394,20 +1312,7 @@ func isDuplicateKeyError(err error) bool {
 	}
 	// Fallback for wrapped or non-pq errors.
 	errStr := err.Error()
-	return containsSubstring(errStr, "23505") || containsSubstring(errStr, "unique constraint") || containsSubstring(errStr, "duplicate key")
-}
-
-func containsSubstring(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(errStr, "23505") || strings.Contains(errStr, "unique constraint") || strings.Contains(errStr, "duplicate key")
 }
 
 // Compile-time interface assertions

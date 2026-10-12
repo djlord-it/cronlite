@@ -163,11 +163,6 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 	return nil
 }
 
-func (s *Scheduler) processJob(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) (int, error) {
-	result, err := s.processJobWithProgress(ctx, jws, lastTick, now)
-	return result.triggered, err
-}
-
 func (s *Scheduler) processJobWithProgress(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) (processJobResult, error) {
 	job := jws.Job
 	schedule := jws.Schedule

@@ -26,7 +26,6 @@ type MetricsSink interface {
 
 type EventBus struct {
 	ch          chan domain.TriggerEvent
-	capacity    int
 	emitTimeout time.Duration
 	metrics     MetricsSink // optional, nil = disabled
 }
@@ -51,7 +50,6 @@ func WithMetrics(sink MetricsSink) Option {
 func NewEventBus(buffer int, opts ...Option) *EventBus {
 	b := &EventBus{
 		ch:          make(chan domain.TriggerEvent, buffer),
-		capacity:    buffer,
 		emitTimeout: DefaultEmitTimeout,
 	}
 	for _, opt := range opts {
@@ -59,7 +57,7 @@ func NewEventBus(buffer int, opts ...Option) *EventBus {
 	}
 	// Report initial capacity if metrics are enabled
 	if b.metrics != nil {
-		b.metrics.BufferCapacitySet(b.capacity)
+		b.metrics.BufferCapacitySet(cap(b.ch))
 	}
 	return b
 }
@@ -74,7 +72,7 @@ func (b *EventBus) Emit(ctx context.Context, event domain.TriggerEvent) error {
 		if b.metrics != nil {
 			size := len(b.ch)
 			b.metrics.BufferSizeUpdate(size)
-			b.metrics.BufferSaturationUpdate(float64(size) / float64(b.capacity))
+			b.metrics.BufferSaturationUpdate(float64(size) / float64(cap(b.ch)))
 		}
 		return nil
 	case <-ctx.Done():

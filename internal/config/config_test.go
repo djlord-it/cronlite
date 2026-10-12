@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -73,7 +74,7 @@ func TestLoad_AdminSessionLifetimeCustomValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MaskedJSON failed: %v", err)
 	}
-	if !containsString(string(data), `"admin_session_absolute_ttl": "8h"`) {
+	if !strings.Contains(string(data), `"admin_session_absolute_ttl": "8h"`) {
 		t.Fatalf("MaskedJSON missing custom admin_session_absolute_ttl: %s", data)
 	}
 }
@@ -87,7 +88,7 @@ func TestMaskedJSON_IncludesAdminSessionAbsoluteTTL(t *testing.T) {
 		t.Fatalf("MaskedJSON failed: %v", err)
 	}
 
-	if !containsString(string(data), `"admin_session_absolute_ttl": "12h"`) {
+	if !strings.Contains(string(data), `"admin_session_absolute_ttl": "12h"`) {
 		t.Fatalf("MaskedJSON missing admin_session_absolute_ttl: %s", data)
 	}
 }
@@ -151,16 +152,16 @@ func TestMaskedJSON_IncludesTimeoutConfig(t *testing.T) {
 	json := string(data)
 
 	// Check that timeout fields are present in output
-	if !containsString(json, `"db_op_timeout"`) {
+	if !strings.Contains(json, `"db_op_timeout"`) {
 		t.Error("MaskedJSON missing db_op_timeout field")
 	}
-	if !containsString(json, `"http_shutdown_timeout"`) {
+	if !strings.Contains(json, `"http_shutdown_timeout"`) {
 		t.Error("MaskedJSON missing http_shutdown_timeout field")
 	}
-	if !containsString(json, `"dispatcher_drain_timeout"`) {
+	if !strings.Contains(json, `"dispatcher_drain_timeout"`) {
 		t.Error("MaskedJSON missing dispatcher_drain_timeout field")
 	}
-	if !containsString(json, `"db_max_open_conns"`) {
+	if !strings.Contains(json, `"db_max_open_conns"`) {
 		t.Error("MaskedJSON missing db_max_open_conns field")
 	}
 }
@@ -220,7 +221,7 @@ func TestMaskedJSON_IncludesEventBusBufferSize(t *testing.T) {
 		t.Fatalf("MaskedJSON failed: %v", err)
 	}
 
-	if !containsString(string(data), `"eventbus_buffer_size"`) {
+	if !strings.Contains(string(data), `"eventbus_buffer_size"`) {
 		t.Error("MaskedJSON missing eventbus_buffer_size field")
 	}
 }
@@ -320,10 +321,10 @@ func TestMaskedJSON_RedisAddrMasked(t *testing.T) {
 	}
 
 	json := string(data)
-	if containsString(json, "password") {
+	if strings.Contains(json, "password") {
 		t.Error("MaskedJSON should mask REDIS_ADDR credentials")
 	}
-	if !containsString(json, `"redis_addr"`) {
+	if !strings.Contains(json, `"redis_addr"`) {
 		t.Error("MaskedJSON should include redis_addr field")
 	}
 }
@@ -433,7 +434,7 @@ func TestMaskedJSON_DoesNotExposeAdminBootstrapToken(t *testing.T) {
 		t.Fatalf("MaskedJSON failed: %v", err)
 	}
 
-	if containsString(string(data), "never-print-this") {
+	if strings.Contains(string(data), "never-print-this") {
 		t.Error("MaskedJSON exposed ADMIN_BOOTSTRAP_TOKEN")
 	}
 }
@@ -469,19 +470,33 @@ func TestMaskedJSON_ExcludesAPIKey(t *testing.T) {
 		t.Fatalf("MaskedJSON failed: %v", err)
 	}
 
-	if containsString(string(data), "super-secret") {
+	if strings.Contains(string(data), "super-secret") {
 		t.Error("MaskedJSON should NOT include API_KEY value")
 	}
-	if containsString(string(data), "api_key") {
+	if strings.Contains(string(data), "api_key") {
 		t.Error("MaskedJSON should NOT include api_key field at all")
 	}
 }
 
-func containsString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestMaskedJSON_PreservesConfigAndCORSOmission(t *testing.T) {
+	cfg := Config{
+		DatabaseURL: "postgres://user:password@example.com/db",
+		RedisAddr:   "redis://user:password@example.com:6379",
+		CORSOrigins: "https://example.com",
 	}
-	return false
+	original := cfg
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != original {
+		t.Fatal("MaskedJSON changed the runtime configuration")
+	}
+	if strings.Contains(string(data), "password") || strings.Contains(string(data), "cors_origins") {
+		t.Fatal("MaskedJSON exposed credentials or changed the CORS output contract")
+	}
+	if !strings.Contains(string(data), `"database_url": "postgres://***"`) ||
+		!strings.Contains(string(data), `"redis_addr": "redis://***"`) {
+		t.Fatal("MaskedJSON did not preserve masked URI schemes")
+	}
 }

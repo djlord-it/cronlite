@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// PrometheusSink implements Sink using Prometheus client library.
+// PrometheusSink records component metrics using the Prometheus client library.
 // All methods are non-blocking and fire-and-forget.
 // Registration errors are logged but never propagated.
 type PrometheusSink struct {

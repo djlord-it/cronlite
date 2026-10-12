@@ -1564,3 +1564,34 @@ func TestTriggerNow_EmitFailureIsNonFatal(t *testing.T) {
 		t.Error("expected execution to be inserted into repo despite emit failure")
 	}
 }
+
+// Mutation endpoints retain parser-error precedence; ResolveSchedule reports
+// timezone errors separately. Neither invalid mutation may reach persistence.
+func TestJobMutations_InvalidTimezonePreservesParserError(t *testing.T) {
+	jobID := uuid.New()
+	repo := &mockJobRepo{
+		getJobWithScheduleFn: func(context.Context, uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{ID: jobID, Namespace: "t1"}, domain.Schedule{CronExpression: "* * * * *", Timezone: "UTC"}, nil
+		},
+		createJobAggregateFn: func(context.Context, domain.Job, domain.Schedule, []domain.Tag) error {
+			t.Fatal("invalid creation reached persistence")
+			return nil
+		},
+		updateJobAggregateFn: func(context.Context, domain.Job, domain.Schedule, *[]domain.Tag) error {
+			t.Fatal("invalid update reached persistence")
+			return nil
+		},
+	}
+	svc := newTestService(repo)
+	for _, expression := range []string{"* * * * *", "invalid cron"} {
+		timezone := "Invalid/Timezone"
+		_, _, err := svc.CreateJob(ctxWithNS("t1"), CreateJobInput{CronExpression: expression, Timezone: timezone, WebhookURL: "https://example.com/hook"})
+		if !errors.Is(err, domain.ErrInvalidCronExpression) {
+			t.Fatalf("create with %q: got %v, want parser error", expression, err)
+		}
+		_, _, err = svc.UpdateJob(ctxWithNS("t1"), jobID, UpdateJobInput{CronExpression: &expression, Timezone: &timezone})
+		if !errors.Is(err, domain.ErrInvalidCronExpression) {
+			t.Fatalf("update with %q: got %v, want parser error", expression, err)
+		}
+	}
+}

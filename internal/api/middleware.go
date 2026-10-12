@@ -123,17 +123,15 @@ func MultiKeyAuthMiddleware(
 // lastUsedTracker debounces last_used_at updates for API keys.
 // Dirty keys are flushed to the repository every 60 seconds.
 type lastUsedTracker struct {
-	mu     sync.Mutex
-	dirty  map[uuid.UUID]struct{}
-	repo   domain.APIKeyRepository
-	stopCh chan struct{}
+	mu    sync.Mutex
+	dirty map[uuid.UUID]struct{}
+	repo  domain.APIKeyRepository
 }
 
 func newLastUsedTracker(ctx context.Context, repo domain.APIKeyRepository) *lastUsedTracker {
 	t := &lastUsedTracker{
-		dirty:  make(map[uuid.UUID]struct{}),
-		repo:   repo,
-		stopCh: make(chan struct{}),
+		dirty: make(map[uuid.UUID]struct{}),
+		repo:  repo,
 	}
 	go t.flushLoop(ctx)
 	return t
@@ -154,9 +152,6 @@ func (t *lastUsedTracker) flushLoop(ctx context.Context) {
 		case <-ticker.C:
 			t.flush()
 		case <-ctx.Done():
-			t.flush()
-			return
-		case <-t.stopCh:
 			t.flush()
 			return
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,7 +53,7 @@ func TestAPIClientBoundsErrorBodies(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	var apiErr *APIError
-	if !asAPIError(err, &apiErr) {
+	if !errors.As(err, &apiErr) {
 		t.Fatalf("error type = %T", err)
 	}
 	if len(apiErr.Body) > maxAPIErrorBodyBytes {

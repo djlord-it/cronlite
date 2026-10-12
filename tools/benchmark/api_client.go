@@ -28,10 +28,6 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("CronLite API returned HTTP %d: %s", e.StatusCode, e.Body)
 }
 
-func asAPIError(err error, target **APIError) bool {
-	return errors.As(err, target)
-}
-
 type apiClient struct {
 	baseURL string
 	apiKey  string

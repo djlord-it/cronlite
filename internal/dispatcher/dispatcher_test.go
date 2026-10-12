@@ -931,11 +931,16 @@ func TestClassifyStatusForMetrics(t *testing.T) {
 	}{
 		{"200 success", 200, nil, "2xx"},
 		{"201 created", 201, nil, "2xx"},
+		{"204 no content", 204, nil, "2xx"},
 		{"299 upper bound 2xx", 299, nil, "2xx"},
 		{"400 bad request", 400, nil, "4xx"},
 		{"404 not found", 404, nil, "4xx"},
+		{"429 rate limit", 429, nil, "4xx"},
+		{"499 upper bound 4xx", 499, nil, "4xx"},
 		{"500 internal", 500, nil, "5xx"},
+		{"502 bad gateway", 502, nil, "5xx"},
 		{"503 unavailable", 503, nil, "5xx"},
+		{"302 redirect", 302, nil, "other_error"},
 		{"100 informational maps to other_error", 100, nil, "other_error"},
 		{"timeout context deadline exceeded", 0, errors.New("context deadline exceeded"), "timeout"},
 		{"timeout waiting for response", 0, errors.New("Timeout waiting for response"), "timeout"},
@@ -943,6 +948,7 @@ func TestClassifyStatusForMetrics(t *testing.T) {
 		{"dial tcp no such host", 0, errors.New("dial tcp: no such host"), "connection_error"},
 		{"network is unreachable", 0, errors.New("network is unreachable"), "connection_error"},
 		{"random error maps to other_error", 0, errors.New("some random error"), "other_error"},
+		{"empty error", 0, errors.New(""), "other_error"},
 	}
 
 	for _, tt := range tests {

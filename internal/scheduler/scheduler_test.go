@@ -763,16 +763,16 @@ func TestProcessJob_InvalidTimezone(t *testing.T) {
 	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	lastTick := now.Add(-time.Minute)
 
-	triggered, err := sched.processJob(context.Background(), jws, lastTick, now)
+	result, err := sched.processJobWithProgress(context.Background(), jws, lastTick, now)
 	if err == nil {
 		t.Fatal("expected error for invalid timezone, got nil")
 	}
-	if triggered != 0 {
-		t.Errorf("expected 0 triggered jobs for bad timezone, got %d", triggered)
+	if result.triggered != 0 {
+		t.Errorf("expected 0 triggered jobs for bad timezone, got %d", result.triggered)
 	}
 }
 
-// TestProcessJob_CronParseError verifies that processJob returns an error
+// TestProcessJob_CronParseError verifies that processJobWithProgress returns an error
 // when the cron expression cannot be parsed.
 func TestProcessJob_CronParseError(t *testing.T) {
 	store := newMockStore()
@@ -808,15 +808,15 @@ func TestProcessJob_CronParseError(t *testing.T) {
 	now := time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC)
 	lastTick := now.Add(-time.Minute)
 
-	triggered, err := sched.processJob(context.Background(), jws, lastTick, now)
+	result, err := sched.processJobWithProgress(context.Background(), jws, lastTick, now)
 	if err == nil {
 		t.Fatal("expected error for invalid cron expression, got nil")
 	}
 	if !errors.Is(err, parseErr) {
 		t.Errorf("expected wrapped error containing %q, got %q", parseErr, err)
 	}
-	if triggered != 0 {
-		t.Errorf("expected 0 triggered jobs for parse error, got %d", triggered)
+	if result.triggered != 0 {
+		t.Errorf("expected 0 triggered jobs for parse error, got %d", result.triggered)
 	}
 }
 
@@ -873,14 +873,14 @@ func TestProcessJob_EmitError(t *testing.T) {
 	now := fireTime.Add(30 * time.Second)
 	lastTick := fireTime.Add(-time.Minute)
 
-	triggered, err := sched.processJob(context.Background(), jws, lastTick, now)
-	// processJob does not return an error for emit failures; it logs and continues.
+	result, err := sched.processJobWithProgress(context.Background(), jws, lastTick, now)
+	// processJobWithProgress does not return an error for emit failures; it logs and continues.
 	// triggered count should be 0 because the emit failed.
 	if err != nil {
-		t.Fatalf("processJob returned unexpected error: %v", err)
+		t.Fatalf("processJobWithProgress returned unexpected error: %v", err)
 	}
-	if triggered != 0 {
-		t.Errorf("expected 0 triggered (emit failed), got %d", triggered)
+	if result.triggered != 0 {
+		t.Errorf("expected 0 triggered (emit failed), got %d", result.triggered)
 	}
 
 	// The execution should still be in the store (orphaned).
@@ -926,11 +926,11 @@ func TestProcessJob_EmptyTimezoneDefaultsToUTC(t *testing.T) {
 	now := fireTime.Add(30 * time.Second)
 	lastTick := fireTime.Add(-time.Minute)
 
-	triggered, err := sched.processJob(context.Background(), jws, lastTick, now)
+	result, err := sched.processJobWithProgress(context.Background(), jws, lastTick, now)
 	if err != nil {
 		t.Fatalf("expected no error for empty timezone, got: %v", err)
 	}
-	if triggered != 1 {
-		t.Errorf("expected 1 triggered job, got %d", triggered)
+	if result.triggered != 1 {
+		t.Errorf("expected 1 triggered job, got %d", result.triggered)
 	}
 }

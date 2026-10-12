@@ -47,15 +47,7 @@ func (a *cronParserAdapter) Parse(expression string, timezone string) (scheduler
 	if err != nil {
 		return nil, err
 	}
-	return &cronScheduleAdapter{sched: sched}, nil
-}
-
-type cronScheduleAdapter struct {
-	sched cron.Schedule
-}
-
-func (a *cronScheduleAdapter) Next(after time.Time) time.Time {
-	return a.sched.Next(after)
+	return sched, nil
 }
 
 // Build-time variables set via -ldflags
@@ -158,7 +150,7 @@ Environment Variables:
 
   RECONCILE_ENABLED         Enable orphan execution reconciler (default: "false")
   RECONCILE_INTERVAL        How often to scan for orphans (default: "5m")
-  RECONCILE_THRESHOLD       Age before emitted execution is orphaned (default: "15m")
+  RECONCILE_THRESHOLD       Age before emitted execution is orphaned (default: "19m")
   RECONCILE_REQUEUE_THRESHOLD Age before in_progress execution is requeued (default: "19m", db mode)
   RECONCILE_BATCH_SIZE      Max orphans per cycle (default: "100")`)
 }
@@ -174,7 +166,6 @@ type leaderRuntime struct {
 	wg               sync.WaitGroup
 
 	sched       *scheduler.Scheduler
-	recon       *reconciler.Reconciler
 	metricsSink *metrics.PrometheusSink
 	cfg         config.Config
 	store       *postgres.Store
@@ -276,7 +267,6 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 		if lr.metricsSink != nil {
 			recon = recon.WithMetrics(lr.metricsSink)
 		}
-		lr.recon = recon
 
 		lr.wg.Add(1)
 		go func() {
@@ -433,8 +423,7 @@ func runServe() int {
 	}
 
 	// ── Service layer ─────────────────────────────────────────────────────────
-	svcParser := cron.NewParser()
-	jobService := service.NewJobService(store, store, store, store, store, store, svcParser)
+	jobService := service.NewJobService(store, store, store, store, store, store, cronParser.parser)
 
 	if cfg.DispatchMode == "channel" {
 		jobService = jobService.WithEmitter(emitter)

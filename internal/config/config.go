@@ -43,7 +43,7 @@ type Config struct {
 	ReconcileInterval    time.Duration `json:"-"`
 	ReconcileIntervalStr string        `json:"reconcile_interval"`
 
-	// ReconcileThreshold must exceed the dispatcher's maximum retry window (currently 12m30s).
+	// ReconcileThreshold must exceed the dispatcher's maximum retry window (currently 16m30s).
 	ReconcileThreshold    time.Duration `json:"-"`
 	ReconcileThresholdStr string        `json:"reconcile_threshold"`
 
@@ -103,6 +103,15 @@ type Config struct {
 // Load reads configuration from environment variables with defaults.
 func Load() Config {
 	cfg := Config{
+		ReconcileBatchSize:           100,
+		EventBusBufferSize:           100,
+		LeaderLockKey:                728379,
+		DispatcherWorkers:            1,
+		MaxFiresPerTick:              1000,
+		IPRateLimit:                  10,
+		NamespaceRateLimit:           100,
+		DBMaxOpenConns:               25,
+		DBMaxIdleConns:               5,
 		Environment:                  os.Getenv("CRONLITE_ENV"),
 		DatabaseURL:                  os.Getenv("DATABASE_URL"),
 		RedisAddr:                    os.Getenv("REDIS_ADDR"),
@@ -139,9 +148,6 @@ func Load() Config {
 			cfg.ReconcileBatchSize = batch
 		}
 	}
-	if cfg.ReconcileBatchSize == 0 {
-		cfg.ReconcileBatchSize = 100
-	}
 
 	if bufStr := os.Getenv("EVENTBUS_BUFFER_SIZE"); bufStr != "" {
 		if n, err := parseInt(bufStr); err == nil && n > 0 {
@@ -149,9 +155,6 @@ func Load() Config {
 		} else {
 			log.Printf("config: invalid EVENTBUS_BUFFER_SIZE %q (must be a positive integer), using default 100", bufStr)
 		}
-	}
-	if cfg.EventBusBufferSize == 0 {
-		cfg.EventBusBufferSize = 100
 	}
 
 	if cbThreshStr := os.Getenv("CIRCUIT_BREAKER_THRESHOLD"); cbThreshStr != "" {
@@ -183,9 +186,6 @@ func Load() Config {
 			log.Printf("config: invalid LEADER_LOCK_KEY %q (must be a positive integer), using default 728379", lockKeyStr)
 		}
 	}
-	if cfg.LeaderLockKey == 0 {
-		cfg.LeaderLockKey = 728379
-	}
 
 	if workersStr := os.Getenv("DISPATCHER_WORKERS"); workersStr != "" {
 		if n, err := parseInt(workersStr); err == nil && n > 0 {
@@ -193,9 +193,6 @@ func Load() Config {
 		} else {
 			log.Printf("config: invalid DISPATCHER_WORKERS %q (must be a positive integer), using default 1", workersStr)
 		}
-	}
-	if cfg.DispatcherWorkers == 0 {
-		cfg.DispatcherWorkers = 1
 	}
 
 	if mfStr := os.Getenv("MAX_FIRES_PER_TICK"); mfStr != "" {
@@ -205,9 +202,6 @@ func Load() Config {
 			log.Printf("config: invalid MAX_FIRES_PER_TICK %q (must be a positive integer), using default 1000", mfStr)
 		}
 	}
-	if cfg.MaxFiresPerTick == 0 {
-		cfg.MaxFiresPerTick = 1000
-	}
 
 	if rlStr := os.Getenv("RATE_LIMIT"); rlStr != "" {
 		if n, err := parseInt(rlStr); err == nil && n > 0 {
@@ -215,9 +209,6 @@ func Load() Config {
 		} else {
 			log.Printf("config: invalid RATE_LIMIT %q (must be a positive integer), using default 10", rlStr)
 		}
-	}
-	if cfg.IPRateLimit == 0 {
-		cfg.IPRateLimit = 10
 	}
 
 	if nsrlStr := os.Getenv("NAMESPACE_RATE_LIMIT"); nsrlStr != "" {
@@ -227,9 +218,6 @@ func Load() Config {
 			log.Printf("config: invalid NAMESPACE_RATE_LIMIT %q (must be a positive integer), using default 100", nsrlStr)
 		}
 	}
-	if cfg.NamespaceRateLimit == 0 {
-		cfg.NamespaceRateLimit = 100
-	}
 
 	cfg.CORSOrigins = os.Getenv("CORS_ORIGINS")
 
@@ -238,17 +226,11 @@ func Load() Config {
 			cfg.DBMaxOpenConns = n
 		}
 	}
-	if cfg.DBMaxOpenConns == 0 {
-		cfg.DBMaxOpenConns = 25
-	}
 
 	if maxIdleStr := os.Getenv("DB_MAX_IDLE_CONNS"); maxIdleStr != "" {
 		if n, err := parseInt(maxIdleStr); err == nil && n > 0 {
 			cfg.DBMaxIdleConns = n
 		}
-	}
-	if cfg.DBMaxIdleConns == 0 {
-		cfg.DBMaxIdleConns = 5
 	}
 
 	// Support Railway's PORT variable as fallback for HTTP_ADDR.
@@ -308,52 +290,22 @@ func Load() Config {
 		cfg.AdminSessionAbsoluteTTLStr = "12h"
 	}
 
-	// Parse durations; validation is handled separately by Validate().
-	if d, err := time.ParseDuration(cfg.TickIntervalStr); err == nil {
-		cfg.TickInterval = d
-	}
-	if d, err := time.ParseDuration(cfg.DBOpTimeoutStr); err == nil {
-		cfg.DBOpTimeout = d
-	}
-	if d, err := time.ParseDuration(cfg.DBConnMaxLifetimeStr); err == nil {
-		cfg.DBConnMaxLifetime = d
-	}
-	if d, err := time.ParseDuration(cfg.DBConnMaxIdleTimeStr); err == nil {
-		cfg.DBConnMaxIdleTime = d
-	}
-	if d, err := time.ParseDuration(cfg.HTTPShutdownTimeoutStr); err == nil {
-		cfg.HTTPShutdownTimeout = d
-	}
-	if d, err := time.ParseDuration(cfg.DispatcherDrainTimeoutStr); err == nil {
-		cfg.DispatcherDrainTimeout = d
-	}
-	if d, err := time.ParseDuration(cfg.ReconcileIntervalStr); err == nil {
-		cfg.ReconcileInterval = d
-	}
-	if d, err := time.ParseDuration(cfg.ReconcileThresholdStr); err == nil {
-		cfg.ReconcileThreshold = d
-	}
-	if d, err := time.ParseDuration(cfg.ReconcileRequeueThresholdStr); err == nil {
-		cfg.ReconcileRequeueThreshold = d
-	}
-	if d, err := time.ParseDuration(cfg.CircuitBreakerCooldownStr); err == nil {
-		cfg.CircuitBreakerCooldown = d
-	}
-	if d, err := time.ParseDuration(cfg.DBPollIntervalStr); err == nil {
-		cfg.DBPollInterval = d
-	}
-	if d, err := time.ParseDuration(cfg.LeaderRetryIntervalStr); err == nil {
-		cfg.LeaderRetryInterval = d
-	}
-	if d, err := time.ParseDuration(cfg.LeaderHeartbeatIntervalStr); err == nil {
-		cfg.LeaderHeartbeatInterval = d
-	}
-	if d, err := time.ParseDuration(cfg.AdminSessionTTLStr); err == nil {
-		cfg.AdminSessionTTL = d
-	}
-	if d, err := time.ParseDuration(cfg.AdminSessionAbsoluteTTLStr); err == nil {
-		cfg.AdminSessionAbsoluteTTL = d
-	}
+	// ParseDuration returns zero on error; Validate reports invalid values separately.
+	cfg.TickInterval, _ = time.ParseDuration(cfg.TickIntervalStr)
+	cfg.DBOpTimeout, _ = time.ParseDuration(cfg.DBOpTimeoutStr)
+	cfg.DBConnMaxLifetime, _ = time.ParseDuration(cfg.DBConnMaxLifetimeStr)
+	cfg.DBConnMaxIdleTime, _ = time.ParseDuration(cfg.DBConnMaxIdleTimeStr)
+	cfg.HTTPShutdownTimeout, _ = time.ParseDuration(cfg.HTTPShutdownTimeoutStr)
+	cfg.DispatcherDrainTimeout, _ = time.ParseDuration(cfg.DispatcherDrainTimeoutStr)
+	cfg.ReconcileInterval, _ = time.ParseDuration(cfg.ReconcileIntervalStr)
+	cfg.ReconcileThreshold, _ = time.ParseDuration(cfg.ReconcileThresholdStr)
+	cfg.ReconcileRequeueThreshold, _ = time.ParseDuration(cfg.ReconcileRequeueThresholdStr)
+	cfg.CircuitBreakerCooldown, _ = time.ParseDuration(cfg.CircuitBreakerCooldownStr)
+	cfg.DBPollInterval, _ = time.ParseDuration(cfg.DBPollIntervalStr)
+	cfg.LeaderRetryInterval, _ = time.ParseDuration(cfg.LeaderRetryIntervalStr)
+	cfg.LeaderHeartbeatInterval, _ = time.ParseDuration(cfg.LeaderHeartbeatIntervalStr)
+	cfg.AdminSessionTTL, _ = time.ParseDuration(cfg.AdminSessionTTLStr)
+	cfg.AdminSessionAbsoluteTTL, _ = time.ParseDuration(cfg.AdminSessionAbsoluteTTLStr)
 
 	return cfg
 }
@@ -372,82 +324,11 @@ func parseInt(s string) (int, error) {
 
 // MaskedJSON returns the configuration as JSON with secrets masked.
 func (c Config) MaskedJSON() ([]byte, error) {
-	masked := struct {
-		Environment               string `json:"environment,omitempty"`
-		DatabaseURL               string `json:"database_url"`
-		RedisAddr                 string `json:"redis_addr,omitempty"`
-		HTTPAddr                  string `json:"http_addr"`
-		TickInterval              string `json:"tick_interval"`
-		DBOpTimeout               string `json:"db_op_timeout"`
-		DBMaxOpenConns            int    `json:"db_max_open_conns"`
-		DBMaxIdleConns            int    `json:"db_max_idle_conns"`
-		DBConnMaxLifetime         string `json:"db_conn_max_lifetime"`
-		DBConnMaxIdleTime         string `json:"db_conn_max_idle_time"`
-		HTTPShutdownTimeout       string `json:"http_shutdown_timeout"`
-		DispatcherDrainTimeout    string `json:"dispatcher_drain_timeout"`
-		MetricsEnabled            bool   `json:"metrics_enabled"`
-		MetricsPath               string `json:"metrics_path"`
-		MetricsPublic             bool   `json:"metrics_public"`
-		ReconcileEnabled          bool   `json:"reconcile_enabled"`
-		ReconcileInterval         string `json:"reconcile_interval"`
-		ReconcileThreshold        string `json:"reconcile_threshold"`
-		ReconcileRequeueThreshold string `json:"reconcile_requeue_threshold"`
-		ReconcileBatchSize        int    `json:"reconcile_batch_size"`
-		EventBusBufferSize        int    `json:"eventbus_buffer_size"`
-		CircuitBreakerThreshold   int    `json:"circuit_breaker_threshold"`
-		CircuitBreakerCooldown    string `json:"circuit_breaker_cooldown"`
-		DispatchMode              string `json:"dispatch_mode"`
-		DBPollInterval            string `json:"db_poll_interval"`
-		DispatcherWorkers         int    `json:"dispatcher_workers"`
-		LeaderLockKey             int64  `json:"leader_lock_key"`
-		LeaderRetryInterval       string `json:"leader_retry_interval"`
-		LeaderHeartbeatInterval   string `json:"leader_heartbeat_interval"`
-		MaxFiresPerTick           int    `json:"max_fires_per_tick"`
-		IPRateLimit               int    `json:"ip_rate_limit"`
-		NamespaceRateLimit        int    `json:"namespace_rate_limit"`
-		AdminEnabled              bool   `json:"admin_enabled"`
-		AdminSessionTTL           string `json:"admin_session_ttl"`
-		AdminSessionAbsoluteTTL   string `json:"admin_session_absolute_ttl"`
-		AdminCookieSecure         bool   `json:"admin_cookie_secure"`
-	}{
-		Environment:               c.Environment,
-		DatabaseURL:               maskSecret(c.DatabaseURL),
-		RedisAddr:                 maskSecret(c.RedisAddr),
-		HTTPAddr:                  c.HTTPAddr,
-		TickInterval:              c.TickIntervalStr,
-		DBOpTimeout:               c.DBOpTimeoutStr,
-		DBMaxOpenConns:            c.DBMaxOpenConns,
-		DBMaxIdleConns:            c.DBMaxIdleConns,
-		DBConnMaxLifetime:         c.DBConnMaxLifetimeStr,
-		DBConnMaxIdleTime:         c.DBConnMaxIdleTimeStr,
-		HTTPShutdownTimeout:       c.HTTPShutdownTimeoutStr,
-		DispatcherDrainTimeout:    c.DispatcherDrainTimeoutStr,
-		MetricsEnabled:            c.MetricsEnabled,
-		MetricsPath:               c.MetricsPath,
-		MetricsPublic:             c.MetricsPublic,
-		ReconcileEnabled:          c.ReconcileEnabled,
-		ReconcileInterval:         c.ReconcileIntervalStr,
-		ReconcileThreshold:        c.ReconcileThresholdStr,
-		ReconcileRequeueThreshold: c.ReconcileRequeueThresholdStr,
-		ReconcileBatchSize:        c.ReconcileBatchSize,
-		EventBusBufferSize:        c.EventBusBufferSize,
-		CircuitBreakerThreshold:   c.CircuitBreakerThreshold,
-		CircuitBreakerCooldown:    c.CircuitBreakerCooldownStr,
-		DispatchMode:              c.DispatchMode,
-		DBPollInterval:            c.DBPollIntervalStr,
-		DispatcherWorkers:         c.DispatcherWorkers,
-		LeaderLockKey:             c.LeaderLockKey,
-		LeaderRetryInterval:       c.LeaderRetryIntervalStr,
-		LeaderHeartbeatInterval:   c.LeaderHeartbeatIntervalStr,
-		MaxFiresPerTick:           c.MaxFiresPerTick,
-		IPRateLimit:               c.IPRateLimit,
-		NamespaceRateLimit:        c.NamespaceRateLimit,
-		AdminEnabled:              c.AdminEnabled,
-		AdminSessionTTL:           c.AdminSessionTTLStr,
-		AdminSessionAbsoluteTTL:   c.AdminSessionAbsoluteTTLStr,
-		AdminCookieSecure:         c.AdminCookieSecure,
-	}
-	return json.MarshalIndent(masked, "", "  ")
+	c.DatabaseURL = maskSecret(c.DatabaseURL)
+	c.RedisAddr = maskSecret(c.RedisAddr)
+	// Preserve the config command's existing omission of CORS origins.
+	c.CORSOrigins = ""
+	return json.MarshalIndent(c, "", "  ")
 }
 
 // maskSecret masks a secret value, preserving only the URI scheme if present.
@@ -456,7 +337,7 @@ func maskSecret(s string) string {
 		return ""
 	}
 	for _, scheme := range []string{"postgres://", "postgresql://", "redis://", "rediss://"} {
-		if len(s) >= len(scheme) && s[:len(scheme)] == scheme {
+		if strings.HasPrefix(s, scheme) {
 			return scheme + "***"
 		}
 	}
