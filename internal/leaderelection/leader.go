@@ -12,6 +12,7 @@ package leaderelection
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"log"
 	"time"
 )
@@ -139,6 +140,14 @@ func (e *Elector) runOnce(ctx context.Context) string {
 	}
 
 	// Non-blocking lock attempt.
+	// A session may own the lock even if its query response is lost. Discard
+	// acquired or uncertain sessions; Close alone would return them to the pool.
+	discardSession := true
+	defer func() {
+		if discardSession {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+	}()
 	var acquired bool
 	err = conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", e.lockKey).Scan(&acquired)
 	if err != nil {
@@ -149,6 +158,7 @@ func (e *Elector) runOnce(ctx context.Context) string {
 		return ""
 	}
 	if !acquired {
+		discardSession = false
 		log.Printf("leader: lock %d held by another instance, retrying in %s", e.lockKey, e.retryInterval)
 		return ""
 	}
@@ -161,12 +171,18 @@ func (e *Elector) runOnce(ctx context.Context) string {
 
 	leaderCtx, cancelLeader := context.WithCancel(ctx)
 
-	go e.onElected(leaderCtx)
+	electedDone := make(chan struct{})
+	go func() {
+		defer close(electedDone)
+		e.onElected(leaderCtx)
+	}()
 
 	// Ping detects local connection death; it does NOT renew the lock (no TTL).
 	reason := e.holdLock(ctx, conn)
 
 	cancelLeader()
+	// Startup must finish before demotion can stop the duties it creates.
+	<-electedDone
 
 	// Recover from panics in onDemoted to prevent uncontrolled process crash.
 	// A panic here would leave the advisory lock held until Postgres detects

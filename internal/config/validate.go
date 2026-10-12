@@ -74,6 +74,12 @@ func Validate(cfg Config) error {
 
 	// DB dispatch mode: leader election parameters
 	if cfg.DispatchMode == "db" {
+		if cfg.DBMaxOpenConns == 1 {
+			errs = append(errs, ValidationError{Field: "DB_MAX_OPEN_CONNS", Message: "must allow at least 2 connections in db mode; leader election reserves one"})
+		}
+		if cfg.DBPollIntervalStr != "" && cfg.DBPollInterval <= 0 {
+			errs = append(errs, ValidationError{Field: "DB_POLL_INTERVAL", Message: "must be a positive duration"})
+		}
 		if cfg.LeaderRetryInterval <= 0 && cfg.LeaderRetryIntervalStr != "" {
 			errs = append(errs, ValidationError{
 				Field:   "LEADER_RETRY_INTERVAL",
@@ -93,6 +99,12 @@ func Validate(cfg Config) error {
 				Message: fmt.Sprintf("must be less than LEADER_RETRY_INTERVAL (%s)", cfg.LeaderRetryInterval),
 			})
 		}
+	}
+	if cfg.DBOpTimeoutStr != "" && cfg.DBOpTimeout <= 0 {
+		errs = append(errs, ValidationError{Field: "DB_OP_TIMEOUT", Message: "must be a positive duration"})
+	}
+	if cfg.DispatcherWorkers > int(^uint(0)>>1)/4 {
+		errs = append(errs, ValidationError{Field: "DISPATCHER_WORKERS", Message: "delivery slot count overflows int"})
 	}
 
 	// Reconciler parameters (when enabled)

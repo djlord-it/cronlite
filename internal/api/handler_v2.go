@@ -65,6 +65,9 @@ func (s *ServerImpl) CreateJob(ctx context.Context, request CreateJobRequestObje
 
 	var timeout time.Duration
 	if body.WebhookTimeoutSeconds != nil {
+		if *body.WebhookTimeoutSeconds < 1 || *body.WebhookTimeoutSeconds > 60 {
+			return CreateJob422JSONResponse(newErrorResponse(httpError{Code: "invalid_webhook_timeout", Message: "webhook_timeout_seconds must be between 1 and 60"})), nil
+		}
 		timeout = time.Duration(*body.WebhookTimeoutSeconds) * time.Second
 	}
 
@@ -185,6 +188,9 @@ func (s *ServerImpl) UpdateJob(ctx context.Context, request UpdateJobRequestObje
 	}
 
 	if body.WebhookTimeoutSeconds != nil {
+		if *body.WebhookTimeoutSeconds < 1 || *body.WebhookTimeoutSeconds > 60 {
+			return UpdateJob422JSONResponse(newErrorResponse(httpError{Code: "invalid_webhook_timeout", Message: "webhook_timeout_seconds must be between 1 and 60"})), nil
+		}
 		d := time.Duration(*body.WebhookTimeoutSeconds) * time.Second
 		input.Timeout = &d
 	}

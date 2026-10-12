@@ -11,7 +11,7 @@ var ErrCircuitOpen = errors.New("circuit breaker is open")
 type state int
 
 const (
-	stateClosed   state = iota
+	stateClosed state = iota
 	stateOpen
 	stateHalfOpen
 )
@@ -87,13 +87,9 @@ func (cb *CircuitBreaker) RecordSuccess(url string) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
-	s, ok := cb.states[url]
-	if !ok {
-		return
-	}
-	s.state = stateClosed
-	s.consecutiveFailures = 0
-	s.halfOpenProbes = 0
+	// Absence is the closed state. Release recovered destination URLs rather
+	// than retaining every destination that has ever failed.
+	delete(cb.states, url)
 }
 
 func (cb *CircuitBreaker) RecordFailure(url string) {

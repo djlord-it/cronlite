@@ -54,13 +54,14 @@ type Config struct {
 }
 
 type Scheduler struct {
-	config   Config
-	store    Store
-	parser   CronParser
-	emitter  EventEmitter
-	metrics  MetricsSink // optional, nil = disabled
-	clock    func() time.Time
-	lastTick time.Time
+	config         Config
+	store          Store
+	parser         CronParser
+	emitter        EventEmitter
+	metrics        MetricsSink // optional, nil = disabled
+	clock          func() time.Time
+	lastTick       time.Time
+	deferredCursor bool // a prior tick retained progress after a cap or store failure
 }
 
 type processJobResult struct {
@@ -92,6 +93,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	log.Printf("scheduler: started, tick=%s", s.config.TickInterval)
 	startedAt := s.clock().UTC()
 	s.lastTick = time.Time{}
+	s.deferredCursor = false
 	expectedNext := startedAt.Add(s.config.TickInterval)
 
 	for {
@@ -130,6 +132,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 	for {
 		jobs, err := s.store.GetEnabledJobs(ctx, DefaultJobPageSize, afterID)
 		if err != nil {
+			s.deferredCursor = true
 			if s.metrics != nil {
 				s.metrics.TickCompleted(s.clock().Sub(start), jobsTriggered, err)
 			}
@@ -142,7 +145,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 			if jobErr != nil {
 				log.Printf("scheduler: job=%s namespace=%s error: %v", jobs[i].Job.ID, jobs[i].Job.Namespace, jobErr)
 			}
-			if result.capped && !result.cursor.IsZero() && result.cursor.Before(nextLastTick) {
+			if (result.capped || jobErr != nil) && !result.cursor.IsZero() && result.cursor.Before(nextLastTick) {
 				nextLastTick = result.cursor
 			}
 		}
@@ -155,6 +158,7 @@ func (s *Scheduler) processTick(ctx context.Context) error {
 	}
 
 	s.lastTick = nextLastTick
+	s.deferredCursor = nextLastTick.Before(now)
 
 	if s.metrics != nil {
 		s.metrics.TickCompleted(s.clock().Sub(start), jobsTriggered, nil)
@@ -192,19 +196,31 @@ func (s *Scheduler) processJobWithProgress(ctx context.Context, jws domain.JobWi
 		maxIterations = 1000
 	}
 	t := cronSched.Next(lastTickInTZ)
-	result := processJobResult{cursor: now}
+	result := processJobResult{cursor: windowStart}
+	if t.IsZero() || !t.After(lastTickInTZ) {
+		return result, nil
+	}
 
 	for i := 0; i < maxIterations && !t.After(nowInTZ); i++ {
 		scheduledAtUTC := t.UTC().Truncate(time.Minute)
+		persisted, err := s.emitExecution(ctx, job, scheduledAtUTC, now)
+		if !persisted {
+			// Do not persist later slots: recovery resumes from the latest durable
+			// execution, which would otherwise conceal this missing slot.
+			return result, err
+		}
 		result.cursor = scheduledAtUTC
-
-		if err := s.emitExecution(ctx, job, scheduledAtUTC, now); err != nil {
+		if err != nil {
 			log.Printf("scheduler: job=%s namespace=%s at %s error: %v", job.ID, job.Namespace, scheduledAtUTC.Format(time.RFC3339), err)
 		} else {
 			result.triggered++
 		}
 
-		t = cronSched.Next(t)
+		next := cronSched.Next(t)
+		if next.IsZero() || !next.After(t) {
+			return result, nil
+		}
+		t = next
 	}
 
 	if !t.After(nowInTZ) {
@@ -223,15 +239,24 @@ func (s *Scheduler) processJobWithProgress(ctx context.Context, jws domain.JobWi
 }
 
 func (s *Scheduler) windowStart(ctx context.Context, jws domain.JobWithSchedule, lastTick, now time.Time) time.Time {
+	cursor := lastTick
 	if !lastTick.IsZero() {
-		return lastTick
+		if jws.Job.CreatedAt.After(lastTick) && !jws.Job.CreatedAt.After(now) {
+			cursor = jws.Job.CreatedAt.UTC()
+		}
+		if !s.deferredCursor {
+			return cursor
+		}
+	} else {
+		cursor = jws.Job.CreatedAt.UTC()
+		if cursor.IsZero() || cursor.After(now) {
+			cursor = now.Add(-s.tickInterval())
+		}
 	}
 
-	cursor := jws.Job.CreatedAt.UTC()
-	if cursor.IsZero() || cursor.After(now) {
-		cursor = now.Add(-s.tickInterval())
-	}
-
+	// During recovery, another job may hold the shared tick cursor back. Resume
+	// each job from its durable progress so duplicate prefixes cannot consume
+	// its catch-up cap and starve new slots. Ordinary ticks avoid this lookup.
 	store, ok := s.store.(lastScheduledExecutionStore)
 	if !ok {
 		return cursor
@@ -256,7 +281,7 @@ func (s *Scheduler) tickInterval() time.Duration {
 	return time.Minute
 }
 
-func (s *Scheduler) emitExecution(ctx context.Context, job domain.Job, scheduledAt, now time.Time) error {
+func (s *Scheduler) emitExecution(ctx context.Context, job domain.Job, scheduledAt, now time.Time) (bool, error) {
 	executionID := uuid.New()
 
 	execution := domain.Execution{
@@ -274,9 +299,9 @@ func (s *Scheduler) emitExecution(ctx context.Context, job domain.Job, scheduled
 		if errors.Is(err, ErrDuplicateExecution) {
 			// Idempotent: execution already exists, skip silently.
 			// This is expected on scheduler restart or overlapping ticks.
-			return nil
+			return true, nil
 		}
-		return fmt.Errorf("insert execution: %w", err)
+		return false, fmt.Errorf("insert execution: %w", err)
 	}
 
 	event := domain.TriggerEvent{
@@ -289,14 +314,12 @@ func (s *Scheduler) emitExecution(ctx context.Context, job domain.Job, scheduled
 	}
 
 	if err := s.emitter.Emit(ctx, event); err != nil {
-		// CRITICAL: Execution record exists in DB but event was NOT delivered to dispatcher.
-		// This execution is now ORPHANED and will not be retried automatically.
-		// Operators should monitor for executions stuck in 'emitted' status.
+		// The durable emitted row remains available to DB polling or reconciliation.
 		log.Printf("scheduler: ORPHAN execution=%s job=%s scheduled_at=%s emit failed: %v",
 			executionID, job.ID, scheduledAt.Format(time.RFC3339), err)
-		return fmt.Errorf("emit: %w", err)
+		return true, fmt.Errorf("emit: %w", err)
 	}
 
 	log.Printf("scheduler: emitted execution=%s job=%s scheduled_at=%s", executionID, job.ID, scheduledAt.Format(time.RFC3339))
-	return nil
+	return true, nil
 }

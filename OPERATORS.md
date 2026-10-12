@@ -46,12 +46,12 @@ During the gap (3-25s depending on TCP keepalive tuning):
 ### What happens during rolling deploys?
 
 1. Send SIGTERM to old instance
-2. Old instance: scheduler stops → reconciler stops → dispatcher drains → HTTP drains → exit
+2. Old instance: MCP streams close → HTTP drains → scheduler stops → reconciler stops → dispatcher drains → exit
 3. New instance starts, attempts advisory lock
-4. If old leader: lock released on exit, new instance acquires it
+4. If old leader: its dedicated lock session closes after scheduler/reconciler stop, allowing a follower to acquire it
 5. If old follower: no leadership change, new instance joins as follower
 
-Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default 40s). Set deploy health check to wait at least 40s before marking unhealthy.
+HTTP and channel-dispatch drain budgets total `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default 40s). Allow additional time for producer and database cancellation; this is not a hard process-exit deadline.
 
 ## Production Checklist
 
@@ -94,8 +94,8 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 | `METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` |
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures to open circuit (0 = disabled) |
 | `CIRCUIT_BREAKER_COOLDOWN` | `2m` | Cooldown before probe attempt |
-| `DB_OP_TIMEOUT` | `5s` | Max time per DB operation |
-| `DB_MAX_OPEN_CONNS` | `25` | Max open DB connections |
+| `DB_OP_TIMEOUT` | `5s` | Positive context deadline per store operation; not a hard transport deadline |
+| `DB_MAX_OPEN_CONNS` | `25` | Max open DB connections; DB mode needs at least two because leadership reserves one |
 | `DB_MAX_IDLE_CONNS` | `5` | Max idle DB connections |
 | `DB_CONN_MAX_LIFETIME` | `30m` | Connection max lifetime |
 | `DB_CONN_MAX_IDLE_TIME` | `5m` | Connection idle timeout |
@@ -137,8 +137,8 @@ Max shutdown time: `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default
 - Terminal state immutability — `delivered` and `failed` never change once set
 
 **Operations**
-- Bounded DB operations — all queries timeout after `DB_OP_TIMEOUT`
-- Ordered shutdown — scheduler stops → reconciler stops → dispatcher drains → HTTP drains
+- Database operation contexts — store queries use `DB_OP_TIMEOUT`; startup probes and a failed PostgreSQL cancellation exchange can still block
+- Ordered shutdown — MCP streams close → HTTP drains → scheduler stops → reconciler stops → dispatcher drains
 - Automatic leader failover — follower promotes within seconds when the leader dies (DB mode)
 - Zero-downtime rolling deploys — followers continue dispatching and serving API traffic during leadership transitions
 
@@ -278,8 +278,9 @@ CLOSED ──(N consecutive failures)──→ OPEN ──(cooldown)──→ HA
 
 | Failure | Behavior |
 |---------|----------|
-| **Postgres down at startup** | Refuses to start (exit 1) |
-| **Postgres down at runtime** | Tick/dispatch fails after `DB_OP_TIMEOUT`, retried next cycle |
+| **Postgres rejects startup connection** | Refuses to start (exit 1); a silent connection can stall startup |
+| **Postgres down at runtime** | Store operations use `DB_OP_TIMEOUT`, then retry/recovery applies; driver cancellation can still stall on a silent connection |
+| **HTTP listener unavailable** | Refuses to start (exit 1); unexpected serve errors stop the runtime |
 | **Redis down** | Analytics disabled, delivery unaffected |
 | **Webhook timeout/5xx/429** | Retryable, up to 4 attempts |
 | **Webhook 4xx (not 429)** | Non-retryable, marked `failed` immediately |
@@ -305,9 +306,9 @@ WHERE status = 'emitted'
 
 ## Shutdown
 
-On SIGINT/SIGTERM: scheduler stops → reconciler stops → dispatcher drains (`DISPATCHER_DRAIN_TIMEOUT`) → HTTP server stops (`HTTP_SHUTDOWN_TIMEOUT`) → exit 0.
+On SIGINT/SIGTERM: MCP streams close → HTTP server drains (`HTTP_SHUTDOWN_TIMEOUT`) → scheduler stops → reconciler stops → dispatcher drains (`DISPATCHER_DRAIN_TIMEOUT`) → exit 0. HTTP ingress drains first because REST and MCP manual triggers also produce events. If HTTP draining times out, request contexts are cancelled and connections are closed; an interrupted request may have persisted an execution and relies on recovery.
 
-**Max shutdown time:** `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default 40s).
+**Drain budgets:** `DISPATCHER_DRAIN_TIMEOUT` + `HTTP_SHUTDOWN_TIMEOUT` (default 40s), plus producer/database cancellation. These budgets do not establish a hard process-exit deadline.
 
 Events in the in-memory buffer and incomplete retry sequences may be lost.
 
@@ -338,6 +339,8 @@ CronLite exposes an MCP (Model Context Protocol) interface for AI agent integrat
 **Operational notes:**
 - MCP tools are namespace-scoped (same isolation as REST)
 - The embedded server uses SSE for streaming — ensure your reverse proxy supports long-lived connections
+- Abandoned legacy sessions expire after 10 minutes of inactivity (the SDK sweeps every 5 minutes). Active SSE streams send a heartbeat every 30 seconds; application shutdown cancels requests and closes sessions.
+- REST webhook timeouts are validated at 1–60 seconds. Embedded MCP retains its existing support for longer representable timeouts; configure recovery thresholds above their full retry window. The default 19-minute threshold assumes attempts of at most 60 seconds and is not safe for arbitrarily long MCP or stored timeouts.
 - 10 tools available: `create-job`, `list-jobs`, `get-job`, `update-job`, `delete-job`, `pause-job`, `resume-job`, `trigger-job`, `next-run`, `resolve-schedule`
 - `delete-job` is marked as destructive in the MCP tool metadata
 

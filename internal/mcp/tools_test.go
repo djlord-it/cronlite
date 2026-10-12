@@ -1238,17 +1238,23 @@ func TestHandleResolveSchedule_MissingDesc(t *testing.T) {
 // ── parseTags ───────────────────────────────────────────────────────────────
 
 func TestParseTags(t *testing.T) {
+	t.Run("empty object", func(t *testing.T) {
+		tags, err := parseTags(map[string]any{})
+		if err != nil || tags == nil || len(tags) != 0 {
+			t.Fatalf("empty replacement changed: tags=%v err=%v", tags, err)
+		}
+	})
 	t.Run("nil input", func(t *testing.T) {
-		got := parseTags(nil)
-		if got != nil {
-			t.Errorf("expected nil, got %v", got)
+		got, err := parseTags(nil)
+		if got != nil || err != nil {
+			t.Errorf("expected nil tags without error, got %v %v", got, err)
 		}
 	})
 
 	t.Run("non-map input", func(t *testing.T) {
-		got := parseTags("not a map")
-		if got != nil {
-			t.Errorf("expected nil, got %v", got)
+		got, err := parseTags("not a map")
+		if got != nil || err == nil {
+			t.Errorf("expected validation error, got %v %v", got, err)
 		}
 	})
 
@@ -1257,7 +1263,10 @@ func TestParseTags(t *testing.T) {
 			"env":  "prod",
 			"team": "backend",
 		}
-		got := parseTags(input)
+		got, err := parseTags(input)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(got) != 2 {
 			t.Fatalf("expected 2 tags, got %d", len(got))
 		}

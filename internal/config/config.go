@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -312,14 +313,11 @@ func Load() Config {
 
 // parseInt parses a string as an integer.
 func parseInt(s string) (int, error) {
-	var n int
-	for _, c := range s {
-		if c < '0' || c > '9' {
-			return 0, os.ErrInvalid
-		}
-		n = n*10 + int(c-'0')
+	if s == "" {
+		return 0, nil
 	}
-	return n, nil
+	n, err := strconv.ParseUint(s, 10, strconv.IntSize-1)
+	return int(n), err
 }
 
 // MaskedJSON returns the configuration as JSON with secrets masked.

@@ -57,6 +57,12 @@ type batchDequeueStore interface {
 	DequeueExecutions(ctx context.Context, limit int) ([]domain.Execution, error)
 }
 
+// executionLookupStore lets persistent stores suppress known terminal replays
+// before delivery side effects. It does not replace atomic DB dequeue claims.
+type executionLookupStore interface {
+	GetExecutionScoped(ctx context.Context, id uuid.UUID, ns domain.Namespace) (domain.Execution, error)
+}
+
 type WebhookSender interface {
 	Send(ctx context.Context, req WebhookRequest) WebhookResult
 }
@@ -172,7 +178,10 @@ func (d *Dispatcher) Run(ctx context.Context, ch <-chan domain.TriggerEvent) {
 		case <-ctx.Done():
 			d.drain(ch)
 			return
-		case event := <-ch:
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
 			if err := d.Dispatch(ctx, event); err != nil {
 				log.Printf("dispatcher: error: %v", err)
 			}
@@ -336,6 +345,15 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 }
 
 func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) error {
+	if store, ok := d.store.(executionLookupStore); ok {
+		execution, err := store.GetExecutionScoped(ctx, event.ExecutionID, event.Namespace)
+		if err != nil {
+			return fmt.Errorf("get execution: %w", err)
+		}
+		if execution.Status == domain.ExecutionStatusDelivered || execution.Status == domain.ExecutionStatusFailed {
+			return nil
+		}
+	}
 	// Track in-flight events
 	if d.metrics != nil {
 		d.metrics.EventsInFlightIncr()
@@ -358,8 +376,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 
 	// Circuit breaker: skip dispatch if circuit is open for this URL.
 	// Do NOT mark the execution as failed — leave it in its current state
-	// so it can be retried when the circuit closes. In DB poll mode the row
-	// is released and another worker will claim it later.
+	// so reconciliation can retry it after the applicable stale threshold.
 	if d.breaker != nil {
 		if err := d.breaker.Allow(job.Delivery.WebhookURL); err != nil {
 			log.Printf("dispatcher: job=%s circuit open for %s, deferring", event.JobID, job.Delivery.WebhookURL)
@@ -447,6 +464,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 		}
 
 		if result.IsSuccess() {
+			if d.breaker != nil {
+				d.breaker.RecordSuccess(job.Delivery.WebhookURL)
+			}
 			log.Printf("dispatcher: job=%s delivered attempt=%d", event.JobID, attempt)
 			if d.metrics != nil {
 				d.metrics.DeliveryOutcome("success")
@@ -462,9 +482,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 				}
 				return err
 			}
-			if d.breaker != nil {
-				d.breaker.RecordSuccess(job.Delivery.WebhookURL)
-			}
 			return nil
 		}
 
@@ -477,6 +494,9 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 	}
 
 	log.Printf("dispatcher: job=%s failed status=%d err=%v", event.JobID, lastResult.StatusCode, lastResult.Error)
+	if d.breaker != nil {
+		d.breaker.RecordFailure(job.Delivery.WebhookURL)
+	}
 	if d.metrics != nil {
 		d.metrics.DeliveryOutcome("failed")
 	}
@@ -487,9 +507,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 			return nil
 		}
 		return err
-	}
-	if d.breaker != nil {
-		d.breaker.RecordFailure(job.Delivery.WebhookURL)
 	}
 	return nil
 }

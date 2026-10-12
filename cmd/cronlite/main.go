@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -235,7 +236,7 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 	lr.mu.Lock()
 	defer lr.mu.Unlock()
 
-	if lr.running {
+	if lr.running || leaderCtx.Err() != nil {
 		return
 	}
 
@@ -283,24 +284,19 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 
 func (lr *leaderRuntime) stop() {
 	lr.mu.Lock()
-
+	defer lr.mu.Unlock()
 	if !lr.running {
-		lr.mu.Unlock()
 		return
 	}
-
 	if lr.cancelScheduler != nil {
 		lr.cancelScheduler()
 	}
 	if lr.cancelReconciler != nil {
 		lr.cancelReconciler()
 	}
-
-	lr.running = false
-	lr.mu.Unlock()
-
-	// Wait outside the lock so Run goroutines can return without deadlock.
+	// Keep generations serialized until all old duties have stopped.
 	lr.wg.Wait()
+	lr.running = false
 	log.Println("cronlite: leader duties stopped (scheduler + reconciler)")
 }
 
@@ -406,6 +402,7 @@ func runServe() int {
 		redisClient := redis.NewClient(&redis.Options{
 			Addr: cfg.RedisAddr,
 		})
+		defer redisClient.Close()
 		sink := analytics.NewRedisSink(redisClient)
 		disp = disp.WithAnalytics(sink)
 		log.Printf("cronlite: analytics enabled (redis=%s)", cfg.RedisAddr)
@@ -457,7 +454,10 @@ func runServe() int {
 
 	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
 	mcpServer := mcpsrv.NewServer(jobService)
-	mcpHandler := mcpsrv.MountHTTP(mcpServer, store, cfg.APIKey, cfg.NamespaceRateLimit)
+	mcpTransport := mcpsrv.MountHTTP(mcpServer, store, cfg.APIKey, cfg.NamespaceRateLimit)
+	mcpShutdown := mcpTransport.(interface{ Shutdown(context.Context) error }).Shutdown
+	defer mcpShutdown(context.Background())
+	mcpHandler := mcpTransport
 	mcpHandler = api.RateLimitMiddleware(cfg.IPRateLimit, mcpHandler)
 	log.Printf("mcp: SSE transport mounted at /mcp")
 
@@ -479,11 +479,20 @@ func runServe() int {
 
 	// HTTP server runs on all instances regardless of dispatch mode.
 	httpServer := newHTTPServer(cfg.HTTPAddr, httpMux)
+	httpCtx, cancelHTTP := context.WithCancel(context.Background())
+	defer cancelHTTP()
+	httpServer.BaseContext = func(net.Listener) context.Context { return httpCtx }
+	listener, err := net.Listen("tcp", cfg.HTTPAddr)
+	if err != nil {
+		log.Printf("cronlite: http listen error: %v", err)
+		return exitRuntimeError
+	}
+	httpErrors := make(chan error, 1)
 
 	go func() {
 		log.Printf("cronlite: http server listening on %s", cfg.HTTPAddr)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("cronlite: http server error: %v", err)
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			httpErrors <- err
 		}
 	}()
 
@@ -605,13 +614,31 @@ func runServe() int {
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	received := <-sig
+	defer signal.Stop(sig)
+	exitCode := exitSuccess
+	select {
+	case received := <-sig:
+		log.Printf("cronlite: received signal %v, shutting down", received)
+	case err := <-httpErrors:
+		log.Printf("cronlite: http server error: %v, shutting down", err)
+		exitCode = exitRuntimeError
+	}
 
-	log.Printf("cronlite: received signal %v, shutting down", received)
-
-	// Shutdown order: scheduler/reconciler first, then dispatcher (drains buffered
-	// events), then HTTP server. This ensures no new events are emitted while the
-	// dispatcher finishes in-flight work.
+	// HTTP handlers can emit manual triggers too. Finish ingress before stopping
+	// producers and draining the dispatcher; close MCP streams so they cannot
+	// hold HTTP shutdown open indefinitely.
+	log.Println("cronlite: stopping http server...")
+	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), cfg.HTTPShutdownTimeout)
+	if err := mcpShutdown(httpShutdownCtx); err != nil {
+		log.Printf("mcp: shutdown error: %v", err)
+	}
+	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
+		log.Printf("cronlite: http server shutdown error: %v", err)
+		cancelHTTP()
+		_ = httpServer.Close()
+	}
+	httpShutdownCancel()
+	log.Println("cronlite: http server stopped")
 	shutdown()
 
 	log.Println("cronlite: stopping dispatcher (draining events)...")
@@ -619,16 +646,8 @@ func runServe() int {
 	dispatcherWg.Wait()
 	log.Println("cronlite: dispatcher stopped")
 
-	log.Println("cronlite: stopping http server...")
-	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), cfg.HTTPShutdownTimeout)
-	defer httpShutdownCancel()
-	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
-		log.Printf("cronlite: http server shutdown error: %v", err)
-	}
-	log.Println("cronlite: http server stopped")
-
 	log.Println("cronlite: stopped")
-	return exitSuccess
+	return exitCode
 }
 
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
