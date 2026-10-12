@@ -17,7 +17,6 @@ type EventEmitter interface {
 // transport middleware).
 type JobService struct {
 	jobs       domain.JobRepository
-	schedules  domain.ScheduleRepository
 	executions domain.ExecutionRepository
 	tags       domain.TagRepository
 	apiKeys    domain.APIKeyRepository
@@ -30,7 +29,7 @@ type JobService struct {
 // dependencies and a cron parser for schedule validation.
 func NewJobService(
 	jobs domain.JobRepository,
-	schedules domain.ScheduleRepository,
+	_ domain.ScheduleRepository, // Retained for constructor compatibility; writes use job aggregates.
 	executions domain.ExecutionRepository,
 	tags domain.TagRepository,
 	apiKeys domain.APIKeyRepository,
@@ -39,7 +38,6 @@ func NewJobService(
 ) *JobService {
 	return &JobService{
 		jobs:       jobs,
-		schedules:  schedules,
 		executions: executions,
 		tags:       tags,
 		apiKeys:    apiKeys,

@@ -60,11 +60,7 @@ func (s *JobService) CreateJob(ctx context.Context, input CreateJobInput) (domai
 		return domain.Job{}, domain.Schedule{}, domain.ErrInvalidCronExpression
 	}
 
-	// Validate timezone.
-	if _, err := time.LoadLocation(input.Timezone); err != nil {
-		return domain.Job{}, domain.Schedule{}, domain.ErrInvalidTimezone
-	}
-	if err := validateWebhookURL(input.WebhookURL); err != nil {
+	if err := webhookurl.Validate(input.WebhookURL); err != nil {
 		return domain.Job{}, domain.Schedule{}, domain.ErrInvalidWebhookURL
 	}
 
@@ -187,7 +183,7 @@ func (s *JobService) UpdateJob(ctx context.Context, id uuid.UUID, input UpdateJo
 		job.Name = *input.Name
 	}
 	if input.WebhookURL != nil {
-		if err := validateWebhookURL(*input.WebhookURL); err != nil {
+		if err := webhookurl.Validate(*input.WebhookURL); err != nil {
 			return domain.Job{}, domain.Schedule{}, domain.ErrInvalidWebhookURL
 		}
 		job.Delivery.WebhookURL = *input.WebhookURL
@@ -216,9 +212,6 @@ func (s *JobService) UpdateJob(ctx context.Context, id uuid.UUID, input UpdateJo
 	if scheduleChanged {
 		if _, err := s.parser.Parse(cronExpr, tz); err != nil {
 			return domain.Job{}, domain.Schedule{}, domain.ErrInvalidCronExpression
-		}
-		if _, err := time.LoadLocation(tz); err != nil {
-			return domain.Job{}, domain.Schedule{}, domain.ErrInvalidTimezone
 		}
 		schedule.CronExpression = cronExpr
 		schedule.Timezone = tz
@@ -451,10 +444,6 @@ func computeNextRuns(sched interface{ Next(time.Time) time.Time }, n int) []time
 		cursor = next
 	}
 	return runs
-}
-
-func validateWebhookURL(rawURL string) error {
-	return webhookurl.Validate(rawURL)
 }
 
 // Natural language patterns.

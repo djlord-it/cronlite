@@ -59,6 +59,7 @@ run_launcher() {
       "$project_dir/schema/008_admin_session_absolute_expiry.sql"
   fi
   cp "$ROOT/schema/010_job_control_center.sql" "$project_dir/schema/010_job_control_center.sql"
+  cp "$ROOT/schema/011_execution_ownership.sql" "$project_dir/schema/011_execution_ownership.sql"
   touch "$project_dir/docker-compose.yml"
   printf 'HTTP_ADDR=:8080\n' > "$project_dir/.cronlite.local.env"
   env_checksum_before="$(cksum "$project_dir/.cronlite.local.env")"
@@ -130,6 +131,8 @@ case "$*" in
       fi
     elif [[ "$migration_input" == *"admin_saved_views"* ]]; then
       printf 'migration-010-input\n' >> "$FAKE_DOCKER_CALLS"
+    elif [[ "$migration_input" == *"claim_generation"* ]]; then
+      printf 'migration-011-input\n' >> "$FAKE_DOCKER_CALLS"
     else
       printf 'unknown-migration-input\n' >> "$FAKE_DOCKER_CALLS"
     fi
@@ -213,6 +216,7 @@ test_happy_path() {
   assert_contains "$calls" "migration-007-input"
   assert_contains "$calls" "migration-007-transaction"
   assert_contains "$calls" "migration-007-idempotent"
+  assert_contains "$calls" "migration-011-input"
   assert_contains "$calls" \
     "SELECT column_name FROM information_schema.columns"
   assert_contains "$calls" "migration-008-input"

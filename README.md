@@ -2,7 +2,7 @@
 
 **Schedule HTTP webhooks with cron expressions. No SDK, no queue, no complexity.**
 
-[Local CPU, memory, and dispatch benchmark](benchmark.md)
+[Local CPU, memory, and dispatch benchmark](tools/benchmark/README.md)
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go)](https://go.dev)
 [![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
@@ -166,9 +166,9 @@ For local development, Docker and Go are the only prerequisites:
 ./scripts/admin-local.sh
 ```
 
-The launcher starts PostgreSQL, applies missing admin migrations through 008, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits. Apply migration 009 separately to existing databases for the DB dispatch index improvement.
+The launcher starts PostgreSQL, applies missing admin session migrations and migrations 010/011, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits. Apply migration 009 separately to existing databases for the DB dispatch index improvement.
 
-For a manual launch, apply every numbered migration in order through 010, set an installation token, and enable the UI:
+For a manual launch, apply every numbered migration in order through 011, set an installation token, and enable the UI:
 
 ```bash
 set -e
@@ -221,7 +221,7 @@ Run the primary gate locally:
 ./scripts/admin_ci_test.sh
 ```
 
-The database suite requires Bash, Go, Docker with Compose v2, and OpenSSL. The following starts only a one-off PostgreSQL service with an ephemeral host port in a uniquely named Compose project. Its fresh volume causes the pinned PostgreSQL entrypoint to apply the mounted migrations 001–009 in lexical order with `ON_ERROR_STOP`; the EXIT trap removes only this disposable project and volume, leaving any normal `cronlite` database untouched.
+The database suite requires Bash, Go, Docker with Compose v2, and OpenSSL. The following starts only a one-off PostgreSQL service with an ephemeral host port in a uniquely named Compose project. Its fresh volume causes the pinned PostgreSQL entrypoint to apply the mounted migrations 001–011 in lexical order with `ON_ERROR_STOP`; the EXIT trap removes only this disposable project and volume, leaving any normal `cronlite` database untouched.
 
 ```bash
 set -euo pipefail
@@ -365,3 +365,10 @@ All configuration is via environment variables. Run `./cronlite --help` for defa
 ## License
 
 [AGPL-3.0](LICENSE)
+
+Execution ownership uses generation-fenced PostgreSQL leases in both dispatch
+modes. The default lease is two minutes and renews every thirty seconds during
+HTTP requests and retry backoffs. Channel executions now use `in_progress` too.
+Before upgrading, stop/drain all old writers and apply additive migration 011;
+see [the migration instructions](schema/README.md#execution-ownership-migration-011).
+At-least-once delivery remains: use the stable execution ID for receiver deduplication.

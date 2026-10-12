@@ -42,10 +42,10 @@ var ErrStatusTransitionDenied = errors.New("status transition denied: execution 
 type Store interface {
 	GetJobByID(ctx context.Context, jobID uuid.UUID) (domain.Job, error)
 	InsertDeliveryAttempt(ctx context.Context, attempt domain.DeliveryAttempt) error
-	// UpdateExecutionStatus sets the execution status. Implementations MUST
-	// reject transitions from terminal states (delivered/failed) and return
-	// ErrStatusTransitionDenied. This ensures idempotency on replay.
-	UpdateExecutionStatus(ctx context.Context, executionID uuid.UUID, status domain.ExecutionStatus) error
+	ClaimExecution(ctx context.Context, id uuid.UUID, ns domain.Namespace) (*domain.Execution, error)
+	RenewExecutionClaim(ctx context.Context, execution domain.Execution) error
+	CompleteExecution(ctx context.Context, execution domain.Execution, status domain.ExecutionStatus) error
+	ExecutionLeaseDuration() time.Duration
 	// DequeueExecution atomically claims one emitted execution (DB poll mode).
 	// Returns nil, nil if no work available.
 	DequeueExecution(ctx context.Context) (*domain.Execution, error)
@@ -78,7 +78,7 @@ type MetricsSink interface {
 
 // CircuitBreaker controls whether dispatch attempts are allowed for a given URL.
 type CircuitBreaker interface {
-	Allow(url string) error
+	AllowWithCancel(url string) (func(), error)
 	RecordSuccess(url string)
 	RecordFailure(url string)
 }
@@ -172,7 +172,10 @@ func (d *Dispatcher) Run(ctx context.Context, ch <-chan domain.TriggerEvent) {
 		case <-ctx.Done():
 			d.drain(ch)
 			return
-		case event := <-ch:
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
 			if err := d.Dispatch(ctx, event); err != nil {
 				log.Printf("dispatcher: error: %v", err)
 			}
@@ -265,6 +268,7 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 			}
 		}
 
+		claimStarted := time.Now()
 		var executions []domain.Execution
 		var err error
 		if batching {
@@ -326,7 +330,7 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 			go func() {
 				defer deliveryWG.Done()
 				defer func() { <-slots }()
-				if err := d.Dispatch(ctx, event); err != nil {
+				if err := d.dispatchOwned(ctx, *exec, event, claimStarted); err != nil {
 					log.Printf("dispatcher: worker=%d dispatch error: %v", workerID, err)
 				}
 			}()
@@ -336,20 +340,44 @@ func (d *Dispatcher) dbPollWorker(ctx context.Context, workerID int, pollInterva
 }
 
 func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) error {
+	claimStarted := time.Now()
+	execution, err := d.store.ClaimExecution(ctx, event.ExecutionID, event.Namespace)
+	if err != nil {
+		return fmt.Errorf("claim execution: %w", err)
+	}
+	if execution == nil {
+		return nil
+	}
+	event = domain.TriggerEvent{ExecutionID: execution.ID, JobID: execution.JobID, Namespace: execution.Namespace, ScheduledAt: execution.ScheduledAt, FiredAt: execution.FiredAt, CreatedAt: execution.CreatedAt}
+	return d.dispatchOwned(ctx, *execution, event, claimStarted)
+}
+
+func (d *Dispatcher) dispatchOwned(ctx context.Context, execution domain.Execution, event domain.TriggerEvent, claimStarted time.Time) error {
+	if execution.ClaimGeneration <= 0 || d.store.ExecutionLeaseDuration() < time.Millisecond {
+		return domain.ErrExecutionClaimLost
+	}
+	lease := newExecutionLease(ctx, d.store, execution, claimStarted)
+	defer lease.close()
+	ctx = lease.ctx
 	// Track in-flight events
 	if d.metrics != nil {
 		d.metrics.EventsInFlightIncr()
 		defer d.metrics.EventsInFlightDecr()
 	}
 
-	job, err := d.store.GetJobByID(ctx, event.JobID)
+	jobCtx, jobDone := lease.operationContext(ctx)
+	job, err := d.store.GetJobByID(jobCtx, event.JobID)
+	jobDone()
 	if err != nil {
 		return fmt.Errorf("get job: %w", err)
 	}
 
 	// Write analytics immediately on every TriggerEvent, independent of delivery outcome.
 	// This counts executions, not successful deliveries.
-	d.writeAnalytics(ctx, event, job)
+	// Analytics stays best effort; its deadline must not revoke delivery ownership.
+	analyticsCtx, analyticsDone := context.WithTimeout(ctx, domain.OwnershipOperationTimeout)
+	d.writeAnalytics(analyticsCtx, event, job)
+	analyticsDone()
 
 	if job.Delivery.WebhookURL == "" {
 		log.Printf("dispatcher: job=%s has no webhook URL configured", event.JobID)
@@ -358,15 +386,18 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 
 	// Circuit breaker: skip dispatch if circuit is open for this URL.
 	// Do NOT mark the execution as failed — leave it in its current state
-	// so it can be retried when the circuit closes. In DB poll mode the row
-	// is released and another worker will claim it later.
+	// so reconciliation can retry it after the applicable stale threshold.
 	if d.breaker != nil {
-		if err := d.breaker.Allow(job.Delivery.WebhookURL); err != nil {
+		cancelProbe, err := d.breaker.AllowWithCancel(job.Delivery.WebhookURL)
+		if err != nil {
 			log.Printf("dispatcher: job=%s circuit open for %s, deferring", event.JobID, job.Delivery.WebhookURL)
 			if d.metrics != nil {
 				d.metrics.DeliveryOutcome("circuit_open")
 			}
 			return nil
+		}
+		if cancelProbe != nil {
+			defer cancelProbe()
 		}
 	}
 
@@ -416,6 +447,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 			}
 		}
 
+		if err := lease.renew(ctx); err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
+		}
 		attemptID := uuid.New()
 		req.AttemptID = attemptID.String()
 
@@ -423,6 +460,10 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 		result := d.sender.Send(ctx, req)
 		finishedAt := time.Now().UTC()
 		lastResult = result
+		// Destination success is independent of persistence/ownership afterwards.
+		if result.IsSuccess() && d.breaker != nil {
+			d.breaker.RecordSuccess(job.Delivery.WebhookURL)
+		}
 
 		// Record delivery attempt metrics
 		if d.metrics != nil {
@@ -431,19 +472,25 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 		}
 
 		attemptRecord := domain.DeliveryAttempt{
-			ID:          attemptID,
-			ExecutionID: event.ExecutionID,
-			Attempt:     attempt,
-			StatusCode:  result.StatusCode,
-			StartedAt:   startedAt,
-			FinishedAt:  finishedAt,
+			ID:              attemptID,
+			ExecutionID:     event.ExecutionID,
+			Attempt:         attempt,
+			ClaimGeneration: execution.ClaimGeneration,
+			StatusCode:      result.StatusCode,
+			StartedAt:       startedAt,
+			FinishedAt:      finishedAt,
 		}
 		if result.Error != nil {
 			attemptRecord.Error = result.Error.Error()
 		}
 
-		if err := d.store.InsertDeliveryAttempt(ctx, attemptRecord); err != nil {
+		attemptCtx, attemptDone := lease.operationContext(ctx)
+		if err := d.store.InsertDeliveryAttempt(attemptCtx, attemptRecord); err != nil {
 			log.Printf("dispatcher: failed to record attempt: %v", err)
+		}
+		attemptDone()
+		if ctx.Err() != nil {
+			return context.Cause(ctx)
 		}
 
 		if result.IsSuccess() {
@@ -454,18 +501,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 				latency := time.Since(event.ScheduledAt).Seconds()
 				d.metrics.ExecutionLatencyObserve(latency)
 			}
-			if err := d.store.UpdateExecutionStatus(ctx, event.ExecutionID, domain.ExecutionStatusDelivered); err != nil {
-				if errors.Is(err, ErrStatusTransitionDenied) {
-					// Execution already in terminal state (likely reprocessing). Safe to ignore.
-					log.Printf("dispatcher: job=%s execution=%s already terminal, skipping status update", event.JobID, event.ExecutionID)
-					return nil
-				}
-				return err
-			}
-			if d.breaker != nil {
-				d.breaker.RecordSuccess(job.Delivery.WebhookURL)
-			}
-			return nil
+			return lease.complete(domain.ExecutionStatusDelivered)
 		}
 
 		if !result.IsRetryable() {
@@ -477,21 +513,13 @@ func (d *Dispatcher) Dispatch(ctx context.Context, event domain.TriggerEvent) er
 	}
 
 	log.Printf("dispatcher: job=%s failed status=%d err=%v", event.JobID, lastResult.StatusCode, lastResult.Error)
-	if d.metrics != nil {
-		d.metrics.DeliveryOutcome("failed")
-	}
-	if err := d.store.UpdateExecutionStatus(ctx, event.ExecutionID, domain.ExecutionStatusFailed); err != nil {
-		if errors.Is(err, ErrStatusTransitionDenied) {
-			// Execution already in terminal state (likely reprocessing). Safe to ignore.
-			log.Printf("dispatcher: job=%s execution=%s already terminal, skipping status update", event.JobID, event.ExecutionID)
-			return nil
-		}
-		return err
-	}
 	if d.breaker != nil {
 		d.breaker.RecordFailure(job.Delivery.WebhookURL)
 	}
-	return nil
+	if d.metrics != nil {
+		d.metrics.DeliveryOutcome("failed")
+	}
+	return lease.complete(domain.ExecutionStatusFailed)
 }
 
 // writeAnalytics records execution metrics as a best-effort side-effect.

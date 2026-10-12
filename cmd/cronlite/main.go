@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,15 +48,7 @@ func (a *cronParserAdapter) Parse(expression string, timezone string) (scheduler
 	if err != nil {
 		return nil, err
 	}
-	return &cronScheduleAdapter{sched: sched}, nil
-}
-
-type cronScheduleAdapter struct {
-	sched cron.Schedule
-}
-
-func (a *cronScheduleAdapter) Next(after time.Time) time.Time {
-	return a.sched.Next(after)
+	return sched, nil
 }
 
 // Build-time variables set via -ldflags
@@ -158,8 +151,8 @@ Environment Variables:
 
   RECONCILE_ENABLED         Enable orphan execution reconciler (default: "false")
   RECONCILE_INTERVAL        How often to scan for orphans (default: "5m")
-  RECONCILE_THRESHOLD       Age before emitted execution is orphaned (default: "15m")
-  RECONCILE_REQUEUE_THRESHOLD Age before in_progress execution is requeued (default: "19m", db mode)
+  RECONCILE_THRESHOLD       Age before emitted execution is orphaned (default: "19m")
+  RECONCILE_REQUEUE_THRESHOLD Renewable execution lease duration (default: "2m", both modes)
   RECONCILE_BATCH_SIZE      Max orphans per cycle (default: "100")`)
 }
 
@@ -174,7 +167,6 @@ type leaderRuntime struct {
 	wg               sync.WaitGroup
 
 	sched       *scheduler.Scheduler
-	recon       *reconciler.Reconciler
 	metricsSink *metrics.PrometheusSink
 	cfg         config.Config
 	store       *postgres.Store
@@ -244,7 +236,7 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 	lr.mu.Lock()
 	defer lr.mu.Unlock()
 
-	if lr.running {
+	if lr.running || leaderCtx.Err() != nil {
 		return
 	}
 
@@ -265,10 +257,9 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 
 		recon := reconciler.New(
 			reconciler.Config{
-				Interval:         lr.cfg.ReconcileInterval,
-				Threshold:        lr.cfg.ReconcileThreshold,
-				RequeueThreshold: lr.cfg.ReconcileRequeueThreshold,
-				BatchSize:        lr.cfg.ReconcileBatchSize,
+				Interval:  lr.cfg.ReconcileInterval,
+				Threshold: lr.cfg.ReconcileThreshold,
+				BatchSize: lr.cfg.ReconcileBatchSize,
 			},
 			lr.store,
 			lr.emitter,
@@ -276,7 +267,6 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 		if lr.metricsSink != nil {
 			recon = recon.WithMetrics(lr.metricsSink)
 		}
-		lr.recon = recon
 
 		lr.wg.Add(1)
 		go func() {
@@ -293,24 +283,19 @@ func (lr *leaderRuntime) start(leaderCtx context.Context) {
 
 func (lr *leaderRuntime) stop() {
 	lr.mu.Lock()
-
+	defer lr.mu.Unlock()
 	if !lr.running {
-		lr.mu.Unlock()
 		return
 	}
-
 	if lr.cancelScheduler != nil {
 		lr.cancelScheduler()
 	}
 	if lr.cancelReconciler != nil {
 		lr.cancelReconciler()
 	}
-
-	lr.running = false
-	lr.mu.Unlock()
-
-	// Wait outside the lock so Run goroutines can return without deadlock.
+	// Keep generations serialized until all old duties have stopped.
 	lr.wg.Wait()
+	lr.running = false
 	log.Println("cronlite: leader duties stopped (scheduler + reconciler)")
 }
 
@@ -351,14 +336,12 @@ func runServe() int {
 		return exitRuntimeError
 	}
 
-	if cfg.DispatchMode == "db" {
-		if err := probeClaimedAtColumn(db); err != nil {
-			fmt.Fprintf(os.Stderr, "DISPATCH_MODE=db migration probe failed: %v\n", err)
-			return exitInvalidConfig
-		}
+	if err := probeExecutionOwnership(db); err != nil {
+		fmt.Fprintf(os.Stderr, "execution ownership migration probe failed: %v\n", err)
+		return exitInvalidConfig
 	}
 
-	store := postgres.New(db, cfg.DBOpTimeout)
+	store := postgres.New(db, cfg.DBOpTimeout).WithExecutionLease(cfg.ReconcileRequeueThreshold)
 	cronParser := &cronParserAdapter{parser: cron.NewParser()}
 	webhookSender := dispatcher.NewHTTPWebhookSender()
 
@@ -416,6 +399,7 @@ func runServe() int {
 		redisClient := redis.NewClient(&redis.Options{
 			Addr: cfg.RedisAddr,
 		})
+		defer redisClient.Close()
 		sink := analytics.NewRedisSink(redisClient)
 		disp = disp.WithAnalytics(sink)
 		log.Printf("cronlite: analytics enabled (redis=%s)", cfg.RedisAddr)
@@ -433,8 +417,7 @@ func runServe() int {
 	}
 
 	// ── Service layer ─────────────────────────────────────────────────────────
-	svcParser := cron.NewParser()
-	jobService := service.NewJobService(store, store, store, store, store, store, svcParser)
+	jobService := service.NewJobService(store, store, store, store, store, store, cronParser.parser)
 
 	if cfg.DispatchMode == "channel" {
 		jobService = jobService.WithEmitter(emitter)
@@ -468,7 +451,14 @@ func runServe() int {
 
 	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
 	mcpServer := mcpsrv.NewServer(jobService)
-	mcpHandler := mcpsrv.MountHTTP(mcpServer, store, cfg.APIKey, cfg.NamespaceRateLimit)
+	mcpTransport := mcpsrv.MountHTTP(mcpServer, store, cfg.APIKey, cfg.NamespaceRateLimit)
+	mcpShutdown := mcpTransport.(interface{ Shutdown(context.Context) error }).Shutdown
+	defer func() {
+		if err := mcpShutdown(context.Background()); err != nil {
+			log.Printf("mcp: cleanup: %v", err)
+		}
+	}()
+	mcpHandler := mcpTransport
 	mcpHandler = api.RateLimitMiddleware(cfg.IPRateLimit, mcpHandler)
 	log.Printf("mcp: SSE transport mounted at /mcp")
 
@@ -490,11 +480,20 @@ func runServe() int {
 
 	// HTTP server runs on all instances regardless of dispatch mode.
 	httpServer := newHTTPServer(cfg.HTTPAddr, httpMux)
+	httpCtx, cancelHTTP := context.WithCancel(context.Background())
+	defer cancelHTTP()
+	httpServer.BaseContext = func(net.Listener) context.Context { return httpCtx }
+	listener, err := net.Listen("tcp", cfg.HTTPAddr)
+	if err != nil {
+		log.Printf("cronlite: http listen error: %v", err)
+		return exitRuntimeError
+	}
+	httpErrors := make(chan error, 1)
 
 	go func() {
 		log.Printf("cronlite: http server listening on %s", cfg.HTTPAddr)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("cronlite: http server error: %v", err)
+		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			httpErrors <- err
 		}
 	}()
 
@@ -575,10 +574,9 @@ func runServe() int {
 			reconcilerCtx, cancelReconciler = context.WithCancel(context.Background())
 			recon := reconciler.New(
 				reconciler.Config{
-					Interval:         cfg.ReconcileInterval,
-					Threshold:        cfg.ReconcileThreshold,
-					RequeueThreshold: cfg.ReconcileRequeueThreshold,
-					BatchSize:        cfg.ReconcileBatchSize,
+					Interval:  cfg.ReconcileInterval,
+					Threshold: cfg.ReconcileThreshold,
+					BatchSize: cfg.ReconcileBatchSize,
 				},
 				store,
 				emitter,
@@ -616,13 +614,31 @@ func runServe() int {
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	received := <-sig
+	defer signal.Stop(sig)
+	exitCode := exitSuccess
+	select {
+	case received := <-sig:
+		log.Printf("cronlite: received signal %v, shutting down", received)
+	case err := <-httpErrors:
+		log.Printf("cronlite: http server error: %v, shutting down", err)
+		exitCode = exitRuntimeError
+	}
 
-	log.Printf("cronlite: received signal %v, shutting down", received)
-
-	// Shutdown order: scheduler/reconciler first, then dispatcher (drains buffered
-	// events), then HTTP server. This ensures no new events are emitted while the
-	// dispatcher finishes in-flight work.
+	// HTTP handlers can emit manual triggers too. Finish ingress before stopping
+	// producers and draining the dispatcher; close MCP streams so they cannot
+	// hold HTTP shutdown open indefinitely.
+	log.Println("cronlite: stopping http server...")
+	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), cfg.HTTPShutdownTimeout)
+	if err := mcpShutdown(httpShutdownCtx); err != nil {
+		log.Printf("mcp: shutdown error: %v", err)
+	}
+	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
+		log.Printf("cronlite: http server shutdown error: %v", err)
+		cancelHTTP()
+		_ = httpServer.Close()
+	}
+	httpShutdownCancel()
+	log.Println("cronlite: http server stopped")
 	shutdown()
 
 	log.Println("cronlite: stopping dispatcher (draining events)...")
@@ -630,16 +646,8 @@ func runServe() int {
 	dispatcherWg.Wait()
 	log.Println("cronlite: dispatcher stopped")
 
-	log.Println("cronlite: stopping http server...")
-	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), cfg.HTTPShutdownTimeout)
-	defer httpShutdownCancel()
-	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
-		log.Printf("cronlite: http server shutdown error: %v", err)
-	}
-	log.Println("cronlite: http server stopped")
-
 	log.Println("cronlite: stopped")
-	return exitSuccess
+	return exitCode
 }
 
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
@@ -730,17 +738,19 @@ func runCreateKey() int {
 	return exitSuccess
 }
 
-// probeClaimedAtColumn checks that the claimed_at column exists on the
-// executions table, which is required for DB dispatch mode (migration 003).
-func probeClaimedAtColumn(db *sql.DB) error {
-	var col string
-	err := db.QueryRow(
-		"SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='executions' AND column_name='claimed_at'",
-	).Scan(&col)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("column 'claimed_at' not found on 'executions' table — apply migration 003_add_claimed_at.sql")
+func probeExecutionOwnership(db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), domain.OwnershipOperationTimeout)
+	defer cancel()
+	for _, query := range []string{"SELECT claimed_at, claim_generation, lease_until FROM executions LIMIT 0", "SELECT claim_generation FROM delivery_attempts LIMIT 0"} {
+		rows, err := db.QueryContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("apply migrations 003 and 011_execution_ownership.sql: %w", err)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
 	}
-	return err
+	return nil
 }
 
 // logConfigWarnings emits startup warnings for dangerous or suboptimal
@@ -764,7 +774,7 @@ func logConfigWarnings(cfg *config.Config) {
 	}
 
 	if cfg.DispatchMode == "channel" {
-		log.Printf("INFO: DISPATCH_MODE=channel — single-instance only. DO NOT run multiple instances in this mode (causes duplicate webhooks with no coordination).")
+		log.Printf("INFO: DISPATCH_MODE=channel — single-instance only. Use db mode for supported multi-instance scheduling and failover.")
 	}
 
 	if cfg.DispatchMode == "db" && cfg.DispatcherWorkers == 1 {
@@ -773,9 +783,9 @@ func logConfigWarnings(cfg *config.Config) {
 
 	if cfg.Environment == "benchmark" &&
 		cfg.ReconcileRequeueThreshold > 0 &&
-		cfg.ReconcileRequeueThreshold < dispatcher.MaxRetryDuration() {
+		cfg.ReconcileRequeueThreshold < 30*time.Second {
 		log.Printf(
-			"WARNING [P0]: RECONCILE_REQUEUE_THRESHOLD=%s is an unsafe benchmark-only fault-injection setting; active retry workers may deliver the same execution concurrently.",
+			"WARNING [P0]: RECONCILE_REQUEUE_THRESHOLD=%s is a benchmark-only short lease; short leases can expire during delays; ownership is fenced but remote effects may overlap.",
 			cfg.ReconcileRequeueThreshold,
 		)
 	}

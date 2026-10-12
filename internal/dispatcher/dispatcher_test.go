@@ -24,6 +24,7 @@ type mockStore struct {
 	mu               sync.Mutex
 	jobs             map[uuid.UUID]domain.Job
 	executionStatus  map[uuid.UUID]domain.ExecutionStatus
+	generation       map[uuid.UUID]int64
 	deliveryAttempts []domain.DeliveryAttempt
 	statusUpdates    []statusUpdate
 	dequeueResults   []*domain.Execution // for DB poll mode
@@ -40,6 +41,7 @@ func newMockStore() *mockStore {
 	return &mockStore{
 		jobs:            make(map[uuid.UUID]domain.Job),
 		executionStatus: make(map[uuid.UUID]domain.ExecutionStatus),
+		generation:      make(map[uuid.UUID]int64),
 	}
 }
 
@@ -94,7 +96,61 @@ func (s *mockStore) DequeueExecution(ctx context.Context) (*domain.Execution, er
 	}
 	result := s.dequeueResults[0]
 	s.dequeueResults = s.dequeueResults[1:]
+	if result != nil {
+		*result = s.claimLocked(*result)
+	}
 	return result, nil
+}
+
+func (s *mockStore) ExecutionLeaseDuration() time.Duration { return domain.DefaultExecutionLease }
+
+func (s *mockStore) claimLocked(execution domain.Execution) domain.Execution {
+	s.generation[execution.ID]++
+	s.executionStatus[execution.ID] = domain.ExecutionStatusInProgress
+	execution.ClaimGeneration = s.generation[execution.ID]
+	execution.Status = domain.ExecutionStatusInProgress
+	return execution
+}
+
+func (s *mockStore) ClaimExecution(ctx context.Context, id uuid.UUID, ns domain.Namespace) (*domain.Execution, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if status := s.executionStatus[id]; status == domain.ExecutionStatusDelivered || status == domain.ExecutionStatusFailed || status == domain.ExecutionStatusInProgress {
+		return nil, nil
+	}
+	execution := domain.Execution{ID: id, Namespace: ns, CreatedAt: time.Now(), ScheduledAt: time.Now(), FiredAt: time.Now()}
+	for jobID := range s.jobs {
+		execution.JobID = jobID
+		break
+	}
+	execution = s.claimLocked(execution)
+	return &execution, nil
+}
+
+func (s *mockStore) RenewExecutionClaim(ctx context.Context, execution domain.Execution) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.executionStatus[execution.ID] != domain.ExecutionStatusInProgress || s.generation[execution.ID] != execution.ClaimGeneration {
+		return domain.ErrExecutionClaimLost
+	}
+	return nil
+}
+
+func (s *mockStore) CompleteExecution(ctx context.Context, execution domain.Execution, status domain.ExecutionStatus) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.executionStatus[execution.ID] != domain.ExecutionStatusInProgress || s.generation[execution.ID] != execution.ClaimGeneration {
+		return domain.ErrExecutionClaimLost
+	}
+	s.executionStatus[execution.ID] = status
+	s.statusUpdates = append(s.statusUpdates, statusUpdate{ExecutionID: execution.ID, Status: status})
+	return nil
 }
 
 func (s *mockStore) setExecutionStatus(id uuid.UUID, status domain.ExecutionStatus) {
@@ -203,13 +259,10 @@ func TestDispatcher_TerminalState_DeliveredCannotRegress(t *testing.T) {
 		t.Error("execution status should remain delivered")
 	}
 
-	// Should have recorded the denied transition
+	// Terminal replay is rejected at admission, before HTTP or completion.
 	updates := store.getStatusUpdates()
-	if len(updates) != 1 {
-		t.Fatalf("expected 1 status update attempt, got %d", len(updates))
-	}
-	if !updates[0].Denied {
-		t.Error("status update should have been denied")
+	if len(updates) != 0 || sender.callCount() != 0 {
+		t.Fatalf("terminal replay admitted side effects: updates=%d sends=%d", len(updates), sender.callCount())
 	}
 }
 
@@ -447,6 +500,8 @@ func (m *mockCircuitBreaker) Allow(url string) error {
 	defer m.mu.Unlock()
 	return m.allowErr[url]
 }
+
+func (m *mockCircuitBreaker) AllowWithCancel(url string) (func(), error) { return nil, m.Allow(url) }
 
 func (m *mockCircuitBreaker) RecordSuccess(url string) {
 	m.mu.Lock()
@@ -701,7 +756,7 @@ func (s *batchMockStore) DequeueExecutions(_ context.Context, limit int) ([]doma
 	n := min(limit, len(s.dequeueResults))
 	result := make([]domain.Execution, 0, n)
 	for _, execution := range s.dequeueResults[:n] {
-		result = append(result, *execution)
+		result = append(result, s.claimLocked(*execution))
 	}
 	s.dequeueResults = s.dequeueResults[n:]
 	return result, nil
@@ -931,11 +986,16 @@ func TestClassifyStatusForMetrics(t *testing.T) {
 	}{
 		{"200 success", 200, nil, "2xx"},
 		{"201 created", 201, nil, "2xx"},
+		{"204 no content", 204, nil, "2xx"},
 		{"299 upper bound 2xx", 299, nil, "2xx"},
 		{"400 bad request", 400, nil, "4xx"},
 		{"404 not found", 404, nil, "4xx"},
+		{"429 rate limit", 429, nil, "4xx"},
+		{"499 upper bound 4xx", 499, nil, "4xx"},
 		{"500 internal", 500, nil, "5xx"},
+		{"502 bad gateway", 502, nil, "5xx"},
 		{"503 unavailable", 503, nil, "5xx"},
+		{"302 redirect", 302, nil, "other_error"},
 		{"100 informational maps to other_error", 100, nil, "other_error"},
 		{"timeout context deadline exceeded", 0, errors.New("context deadline exceeded"), "timeout"},
 		{"timeout waiting for response", 0, errors.New("Timeout waiting for response"), "timeout"},
@@ -943,6 +1003,7 @@ func TestClassifyStatusForMetrics(t *testing.T) {
 		{"dial tcp no such host", 0, errors.New("dial tcp: no such host"), "connection_error"},
 		{"network is unreachable", 0, errors.New("network is unreachable"), "connection_error"},
 		{"random error maps to other_error", 0, errors.New("some random error"), "other_error"},
+		{"empty error", 0, errors.New(""), "other_error"},
 	}
 
 	for _, tt := range tests {

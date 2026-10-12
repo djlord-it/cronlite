@@ -1,4 +1,4 @@
-package api
+package webhookurl
 
 import (
 	"testing"
@@ -17,8 +17,8 @@ func TestValidateWebhookURL_Valid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateWebhookURL(tt.url); err != nil {
-				t.Errorf("validateWebhookURL(%q) = %v, want nil", tt.url, err)
+			if err := Validate(tt.url); err != nil {
+				t.Errorf("Validate(%q) = %v, want nil", tt.url, err)
 			}
 		})
 	}
@@ -47,8 +47,8 @@ func TestValidateWebhookURL_SSRF_Blocked(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateWebhookURL(tt.url); err == nil {
-				t.Errorf("validateWebhookURL(%q) should return error for SSRF", tt.url)
+			if err := Validate(tt.url); err == nil {
+				t.Errorf("Validate(%q) should return error for SSRF", tt.url)
 			}
 		})
 	}
@@ -67,26 +67,9 @@ func TestValidateWebhookURL_Invalid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := validateWebhookURL(tt.url); err == nil {
-				t.Errorf("validateWebhookURL(%q) should return error", tt.url)
+			if err := Validate(tt.url); err == nil {
+				t.Errorf("Validate(%q) should return error", tt.url)
 			}
 		})
-	}
-}
-
-func TestValidateTimezone_Valid(t *testing.T) {
-	zones := []string{"UTC", "America/New_York", "Europe/London", "Asia/Tokyo"}
-	for _, tz := range zones {
-		t.Run(tz, func(t *testing.T) {
-			if err := validateTimezone(tz); err != nil {
-				t.Errorf("validateTimezone(%q) = %v, want nil", tz, err)
-			}
-		})
-	}
-}
-
-func TestValidateTimezone_Invalid(t *testing.T) {
-	if err := validateTimezone("Invalid/Zone"); err == nil {
-		t.Error("validateTimezone(Invalid/Zone) should return error")
 	}
 }

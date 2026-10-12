@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
 	"time"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
@@ -170,14 +172,15 @@ func handleCreateJob(svc *service.JobService) server.ToolHandlerFunc {
 		}
 
 		secret := request.GetString("webhook_secret", "")
-		timeoutSec := request.GetFloat("webhook_timeout_seconds", 0)
-
-		var timeout time.Duration
-		if timeoutSec > 0 {
-			timeout = time.Duration(timeoutSec) * time.Second
+		timeout, err := webhookTimeout(request)
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
 		}
 
-		tags := parseTags(request.GetArguments()["tags"])
+		tags, err := parseTags(request.GetArguments()["tags"])
+		if err != nil {
+			return mcpgo.NewToolResultError(err.Error()), nil
+		}
 
 		input := service.CreateJobInput{
 			Name:           name,
@@ -194,17 +197,7 @@ func handleCreateJob(svc *service.JobService) server.ToolHandlerFunc {
 			return toolError(err)
 		}
 
-		result := map[string]any{
-			"id":              job.ID.String(),
-			"namespace":       job.Namespace.String(),
-			"name":            job.Name,
-			"enabled":         job.Enabled,
-			"cron_expression": schedule.CronExpression,
-			"timezone":        schedule.Timezone,
-			"webhook_url":     job.Delivery.WebhookURL,
-			"created_at":      job.CreatedAt.Format(time.RFC3339),
-			"updated_at":      job.UpdatedAt.Format(time.RFC3339),
-		}
+		result := jobToMap(job, schedule)
 		if len(tags) > 0 {
 			tagMap := make(map[string]string, len(tags))
 			for _, t := range tags {
@@ -272,17 +265,7 @@ func handleGetJob(svc *service.JobService) server.ToolHandlerFunc {
 			return toolError(err)
 		}
 
-		result := map[string]any{
-			"id":              job.ID.String(),
-			"namespace":       job.Namespace.String(),
-			"name":            job.Name,
-			"enabled":         job.Enabled,
-			"cron_expression": schedule.CronExpression,
-			"timezone":        schedule.Timezone,
-			"webhook_url":     job.Delivery.WebhookURL,
-			"created_at":      job.CreatedAt.Format(time.RFC3339),
-			"updated_at":      job.UpdatedAt.Format(time.RFC3339),
-		}
+		result := jobToMap(job, schedule)
 
 		if len(tags) > 0 {
 			tagMap := make(map[string]string, len(tags))
@@ -318,33 +301,53 @@ func handleUpdateJob(svc *service.JobService) server.ToolHandlerFunc {
 		args := request.GetArguments()
 		input := service.UpdateJobInput{}
 
-		if v, ok := args["name"]; ok {
-			s := v.(string)
+		if _, ok := args["name"]; ok {
+			s, err := request.RequireString("name")
+			if err != nil {
+				return mcpgo.NewToolResultError(err.Error()), nil
+			}
 			input.Name = &s
 		}
-		if v, ok := args["cron_expression"]; ok {
-			s := v.(string)
+		if _, ok := args["cron_expression"]; ok {
+			s, err := request.RequireString("cron_expression")
+			if err != nil {
+				return mcpgo.NewToolResultError(err.Error()), nil
+			}
 			input.CronExpression = &s
 		}
-		if v, ok := args["timezone"]; ok {
-			s := v.(string)
+		if _, ok := args["timezone"]; ok {
+			s, err := request.RequireString("timezone")
+			if err != nil {
+				return mcpgo.NewToolResultError(err.Error()), nil
+			}
 			input.Timezone = &s
 		}
-		if v, ok := args["webhook_url"]; ok {
-			s := v.(string)
+		if _, ok := args["webhook_url"]; ok {
+			s, err := request.RequireString("webhook_url")
+			if err != nil {
+				return mcpgo.NewToolResultError(err.Error()), nil
+			}
 			input.WebhookURL = &s
 		}
-		if v, ok := args["webhook_secret"]; ok {
-			s := v.(string)
+		if _, ok := args["webhook_secret"]; ok {
+			s, err := request.RequireString("webhook_secret")
+			if err != nil {
+				return mcpgo.NewToolResultError(err.Error()), nil
+			}
 			input.Secret = &s
 		}
-		if v, ok := args["webhook_timeout_seconds"]; ok {
-			f, _ := v.(float64)
-			d := time.Duration(f) * time.Second
+		if _, ok := args["webhook_timeout_seconds"]; ok {
+			d, err := webhookTimeout(request)
+			if err != nil {
+				return mcpgo.NewToolResultError(err.Error()), nil
+			}
 			input.Timeout = &d
 		}
 		if v, ok := args["tags"]; ok {
-			tags := parseTags(v)
+			tags, err := parseTags(v)
+			if err != nil {
+				return mcpgo.NewToolResultError(err.Error()), nil
+			}
 			input.Tags = &tags
 		}
 
@@ -353,20 +356,26 @@ func handleUpdateJob(svc *service.JobService) server.ToolHandlerFunc {
 			return toolError(err)
 		}
 
-		result := map[string]any{
-			"id":              job.ID.String(),
-			"namespace":       job.Namespace.String(),
-			"name":            job.Name,
-			"enabled":         job.Enabled,
-			"cron_expression": schedule.CronExpression,
-			"timezone":        schedule.Timezone,
-			"webhook_url":     job.Delivery.WebhookURL,
-			"created_at":      job.CreatedAt.Format(time.RFC3339),
-			"updated_at":      job.UpdatedAt.Format(time.RFC3339),
-		}
+		result := jobToMap(job, schedule)
 
 		return jsonResult(result)
 	}
+}
+
+// Preserve MCP's accepted numeric representations and whole-second conversion,
+// while rejecting values that would overflow time.Duration before persistence.
+func webhookTimeout(request mcpgo.CallToolRequest) (time.Duration, error) {
+	if _, supplied := request.GetArguments()["webhook_timeout_seconds"]; !supplied {
+		return 0, nil
+	}
+	seconds, err := request.RequireFloat("webhook_timeout_seconds")
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 || seconds > float64(math.MaxInt64/int64(time.Second)) {
+		return 0, fmt.Errorf("webhook_timeout_seconds must be finite, nonnegative and representable as a duration")
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 func handleDeleteJob(svc *service.JobService) server.ToolHandlerFunc {
@@ -534,21 +543,40 @@ func jsonResult(v any) (*mcpgo.CallToolResult, error) {
 }
 
 // parseTags converts a raw tags argument (expected to be map[string]any) to
-// a slice of domain.Tag. Returns nil for nil or non-map input.
-func parseTags(raw any) []domain.Tag {
+// a slice of domain.Tag. Nil/empty tags preserve their existing clear semantics;
+// malformed replacements must be rejected before any job mutation.
+func parseTags(raw any) ([]domain.Tag, error) {
 	if raw == nil {
-		return nil
+		return nil, nil
 	}
 	m, ok := raw.(map[string]any)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("tags must be an object with string values")
 	}
 	tags := make([]domain.Tag, 0, len(m))
 	for k, v := range m {
-		s, _ := v.(string)
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("tag %q must have a string value", k)
+		}
 		tags = append(tags, domain.Tag{Key: k, Value: s})
 	}
-	return tags
+	return tags, nil
+}
+
+// jobToMap is the shared representation for create, get, and update results.
+func jobToMap(job domain.Job, schedule domain.Schedule) map[string]any {
+	return map[string]any{
+		"id":              job.ID.String(),
+		"namespace":       job.Namespace.String(),
+		"name":            job.Name,
+		"enabled":         job.Enabled,
+		"cron_expression": schedule.CronExpression,
+		"timezone":        schedule.Timezone,
+		"webhook_url":     job.Delivery.WebhookURL,
+		"created_at":      job.CreatedAt.Format(time.RFC3339),
+		"updated_at":      job.UpdatedAt.Format(time.RFC3339),
+	}
 }
 
 // executionToMap converts a domain.Execution to a map for JSON serialization.

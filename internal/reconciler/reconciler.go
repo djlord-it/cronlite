@@ -3,10 +3,8 @@
 // An execution is orphaned when it has status='emitted' but was never
 // delivered to the dispatcher (e.g., due to buffer overflow or crash).
 //
-// The reconciler periodically scans for orphaned executions and re-emits
-// them to the event bus. Idempotency is guaranteed by the dispatcher's
-// terminal state guards - if an execution was already processed, the
-// re-emit is safely ignored.
+// Re-emitted notifications pass through the dispatcher's atomic claim gate.
+// Lease expiry is decided by PostgreSQL, independently of the leader's clock.
 package reconciler
 
 import (
@@ -25,7 +23,7 @@ const SafetyMargin = 150 * time.Second
 // Store defines the interface for fetching orphaned executions.
 type Store interface {
 	GetOrphanedExecutions(ctx context.Context, olderThan time.Time, maxResults int) ([]domain.Execution, error)
-	RequeueStaleExecutions(ctx context.Context, olderThan time.Time, limit int) (int, error)
+	RequeueExpiredExecutions(ctx context.Context, limit int) (int, error)
 }
 
 // EventEmitter defines the interface for emitting trigger events.
@@ -46,17 +44,10 @@ type Config struct {
 	Interval time.Duration
 
 	// Threshold is the age after which an emitted execution is considered orphaned.
-	// Must be >= dispatcher.MaxRetryDuration() to avoid re-emitting executions
-	// that are still being actively retried.
+	// This controls initial lost-notification recovery. Previously claimed
+	// rows are eligible immediately after lease recovery.
 	// Default: MaxRetryDuration + SafetyMargin (~19 minutes).
 	Threshold time.Duration
-
-	// RequeueThreshold is the age after which an in_progress execution is
-	// considered stale and requeued back to emitted (DB dispatch mode crash
-	// recovery). It must exceed the complete dispatcher retry window because
-	// dequeue locks are released before webhook attempts and backoffs begin.
-	// Default: MaxRetryDuration + SafetyMargin.
-	RequeueThreshold time.Duration
 
 	// BatchSize is the maximum number of orphans to process per cycle.
 	// Default: 100.
@@ -64,19 +55,13 @@ type Config struct {
 }
 
 // DefaultConfig returns the default reconciler configuration.
-// The threshold is derived from the dispatcher's maximum retry duration plus
-// a safety margin, ensuring the reconciler never re-emits executions that are
-// still being actively retried.
-// DefaultRequeueThreshold is the default age after which in_progress executions
-// are requeued. It includes the same retry safety margin as Threshold.
-var DefaultRequeueThreshold = dispatcher.MaxRetryDuration() + SafetyMargin
-
+// Initial notification recovery retains its existing age policy; active
+// delivery is protected by database leases and atomic claim admission.
 func DefaultConfig() Config {
 	return Config{
-		Interval:         5 * time.Minute,
-		Threshold:        dispatcher.MaxRetryDuration() + SafetyMargin,
-		RequeueThreshold: DefaultRequeueThreshold,
-		BatchSize:        100,
+		Interval:  5 * time.Minute,
+		Threshold: dispatcher.MaxRetryDuration() + SafetyMargin,
+		BatchSize: 100,
 	}
 }
 
@@ -131,21 +116,10 @@ func (r *Reconciler) Run(ctx context.Context) {
 func (r *Reconciler) runCycle(ctx context.Context) {
 	now := r.clock().UTC()
 
-	// Use separate thresholds for the two recovery operations:
-	// - RequeueThreshold (default 19m): must exceed MaxRetryDuration because
-	//   dequeue row locks are released while the dispatcher retries.
-	// - Threshold (conservative, default 19m): must exceed MaxRetryDuration to
-	//   avoid re-emitting executions still being retried.
-	requeueThreshold := r.config.RequeueThreshold
-	if requeueThreshold == 0 {
-		requeueThreshold = r.config.Threshold // backward compat
-	}
-	requeueCutoff := now.Add(-requeueThreshold)
 	orphanCutoff := now.Add(-r.config.Threshold)
 
-	// Requeue stale in_progress executions (DB dispatch mode crash recovery).
-	// In channel mode this is a no-op (no in_progress rows exist).
-	requeued, err := r.store.RequeueStaleExecutions(ctx, requeueCutoff, r.config.BatchSize)
+	// Both modes claim persistently. Only PostgreSQL decides lease eligibility.
+	requeued, err := r.store.RequeueExpiredExecutions(ctx, r.config.BatchSize)
 	if err != nil {
 		log.Printf("reconciler: failed to requeue stale executions: %v", err)
 	} else if requeued > 0 {

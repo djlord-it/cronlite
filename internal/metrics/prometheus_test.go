@@ -143,9 +143,9 @@ func TestPrometheusSink_DeliveryAttemptLabels(t *testing.T) {
 func TestPrometheusSink_DeliveryOutcome(t *testing.T) {
 	sink, reg := newTestSink(t)
 
-	sink.DeliveryOutcome(OutcomeSuccess)
-	sink.DeliveryOutcome(OutcomeFailed)
-	sink.DeliveryOutcome(OutcomeSuccess)
+	sink.DeliveryOutcome("success")
+	sink.DeliveryOutcome("failed")
+	sink.DeliveryOutcome("success")
 
 	successVal := getCounterVecValue(t, reg, "cronlite_dispatcher_delivery_outcomes_total",
 		map[string]string{"outcome": "success"})
@@ -212,6 +212,3 @@ func TestPrometheusSink_DuplicateRegistration_NoPanic(t *testing.T) {
 		t.Fatal("second NewPrometheusSink returned nil")
 	}
 }
-
-// Verify PrometheusSink implements Sink interface.
-var _ Sink = (*PrometheusSink)(nil)

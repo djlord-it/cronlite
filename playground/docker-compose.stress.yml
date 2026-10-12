@@ -10,7 +10,7 @@ x-easycron-env: &easycron-env
   METRICS_ENABLED: "true"
   RECONCILE_ENABLED: "true"
   RECONCILE_INTERVAL: 15s
-  RECONCILE_THRESHOLD: 15m
+  RECONCILE_THRESHOLD: 19m
   RECONCILE_REQUEUE_THRESHOLD: 30s
   EVENTBUS_BUFFER_SIZE: "1000"
   DB_MAX_OPEN_CONNS: "50"
@@ -35,6 +35,7 @@ services:
       - ../schema/004_agent_platform.sql:/docker-entrypoint-initdb.d/004_agent_platform.sql
       - ../schema/005_drop_scopes.sql:/docker-entrypoint-initdb.d/005_drop_scopes.sql
       - ../schema/006_add_claimed_at_index.sql:/docker-entrypoint-initdb.d/006_add_claimed_at_index.sql
+      - ../schema/011_execution_ownership.sql:/docker-entrypoint-initdb.d/011_execution_ownership.sql
       - ../schema/007_admin_sessions.sql:/docker-entrypoint-initdb.d/007_admin_sessions.sql
       - ../schema/008_admin_session_absolute_expiry.sql:/docker-entrypoint-initdb.d/008_admin_session_absolute_expiry.sql
       - ../schema/009_emitted_claim_index.sql:/docker-entrypoint-initdb.d/009_emitted_claim_index.sql

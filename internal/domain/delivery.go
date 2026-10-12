@@ -20,9 +20,10 @@ type DeliveryConfig struct {
 }
 
 type DeliveryAttempt struct {
-	ID          uuid.UUID
-	ExecutionID uuid.UUID
-	Attempt     int
+	ID              uuid.UUID
+	ExecutionID     uuid.UUID
+	Attempt         int
+	ClaimGeneration int64 // identifies the owner that observed this HTTP result
 
 	StatusCode int
 	Error      string

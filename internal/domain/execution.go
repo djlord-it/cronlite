@@ -1,10 +1,17 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// Execution leases are independent of webhook timeout and retry duration.
+const DefaultExecutionLease = 2 * time.Minute
+const OwnershipOperationTimeout = 5 * time.Second
+
+var ErrExecutionClaimLost = errors.New("execution claim lost or expired")
 
 type ExecutionStatus string
 
@@ -35,6 +42,8 @@ type Execution struct {
 	Status         ExecutionStatus
 	AcknowledgedAt *time.Time
 
-	CreatedAt time.Time
-	ClaimedAt *time.Time // set when dequeued, nil otherwise
+	CreatedAt       time.Time
+	ClaimedAt       *time.Time // set when dequeued, nil otherwise
+	ClaimGeneration int64
+	LeaseUntil      *time.Time
 }

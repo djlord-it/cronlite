@@ -74,6 +74,12 @@ func Validate(cfg Config) error {
 
 	// DB dispatch mode: leader election parameters
 	if cfg.DispatchMode == "db" {
+		if cfg.DBMaxOpenConns == 1 {
+			errs = append(errs, ValidationError{Field: "DB_MAX_OPEN_CONNS", Message: "must allow at least 2 connections in db mode; leader election reserves one"})
+		}
+		if cfg.DBPollIntervalStr != "" && cfg.DBPollInterval <= 0 {
+			errs = append(errs, ValidationError{Field: "DB_POLL_INTERVAL", Message: "must be a positive duration"})
+		}
 		if cfg.LeaderRetryInterval <= 0 && cfg.LeaderRetryIntervalStr != "" {
 			errs = append(errs, ValidationError{
 				Field:   "LEADER_RETRY_INTERVAL",
@@ -94,6 +100,22 @@ func Validate(cfg Config) error {
 			})
 		}
 	}
+	if cfg.DBOpTimeoutStr != "" && cfg.DBOpTimeout <= 0 {
+		errs = append(errs, ValidationError{Field: "DB_OP_TIMEOUT", Message: "must be a positive duration"})
+	}
+	if cfg.DispatcherWorkers > int(^uint(0)>>1)/4 {
+		errs = append(errs, ValidationError{Field: "DISPATCHER_WORKERS", Message: "delivery slot count overflows int"})
+	}
+	// Both dispatch modes use leases even when automatic recovery is disabled.
+	if cfg.ReconcileRequeueThresholdStr != "" {
+		minimum := 30 * time.Second
+		if cfg.Environment == "benchmark" {
+			minimum = time.Millisecond
+		}
+		if cfg.ReconcileRequeueThreshold < minimum {
+			errs = append(errs, ValidationError{Field: "RECONCILE_REQUEUE_THRESHOLD", Message: fmt.Sprintf("execution lease must be >= %s", minimum)})
+		}
+	}
 
 	// Reconciler parameters (when enabled)
 	if cfg.ReconcileEnabled {
@@ -109,26 +131,11 @@ func Validate(cfg Config) error {
 				Message: "must be positive",
 			})
 		}
-		if cfg.ReconcileRequeueThreshold <= 0 && cfg.ReconcileRequeueThresholdStr != "" {
-			errs = append(errs, ValidationError{
-				Field:   "RECONCILE_REQUEUE_THRESHOLD",
-				Message: "must be positive",
-			})
-		}
 		maxRetry := dispatcher.MaxRetryDuration()
 		if cfg.ReconcileThreshold > 0 && cfg.ReconcileThreshold < maxRetry {
 			errs = append(errs, ValidationError{
 				Field: "RECONCILE_THRESHOLD",
-				Message: fmt.Sprintf("must be >= dispatcher max retry duration (%s) to prevent duplicate deliveries",
-					maxRetry),
-			})
-		}
-		if cfg.Environment != "benchmark" &&
-			cfg.ReconcileRequeueThreshold > 0 &&
-			cfg.ReconcileRequeueThreshold < maxRetry {
-			errs = append(errs, ValidationError{
-				Field: "RECONCILE_REQUEUE_THRESHOLD",
-				Message: fmt.Sprintf("must be >= dispatcher max retry duration (%s) to prevent concurrent retry workers",
+				Message: fmt.Sprintf("must retain the initial-notification age minimum (%s)",
 					maxRetry),
 			})
 		}

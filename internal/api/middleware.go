@@ -123,17 +123,15 @@ func MultiKeyAuthMiddleware(
 // lastUsedTracker debounces last_used_at updates for API keys.
 // Dirty keys are flushed to the repository every 60 seconds.
 type lastUsedTracker struct {
-	mu     sync.Mutex
-	dirty  map[uuid.UUID]struct{}
-	repo   domain.APIKeyRepository
-	stopCh chan struct{}
+	mu    sync.Mutex
+	dirty map[uuid.UUID]struct{}
+	repo  domain.APIKeyRepository
 }
 
 func newLastUsedTracker(ctx context.Context, repo domain.APIKeyRepository) *lastUsedTracker {
 	t := &lastUsedTracker{
-		dirty:  make(map[uuid.UUID]struct{}),
-		repo:   repo,
-		stopCh: make(chan struct{}),
+		dirty: make(map[uuid.UUID]struct{}),
+		repo:  repo,
 	}
 	go t.flushLoop(ctx)
 	return t
@@ -154,9 +152,6 @@ func (t *lastUsedTracker) flushLoop(ctx context.Context) {
 		case <-ticker.C:
 			t.flush()
 		case <-ctx.Done():
-			t.flush()
-			return
-		case <-t.stopCh:
 			t.flush()
 			return
 		}
@@ -232,7 +227,7 @@ type ipRateLimiter struct {
 }
 
 type clientBucket struct {
-	tokens   int
+	tokens   float64
 	lastSeen time.Time
 }
 
@@ -267,19 +262,19 @@ func (l *ipRateLimiter) allow(ip string) bool {
 		if len(l.clients) >= l.maxClients {
 			return false
 		}
-		l.clients[ip] = &clientBucket{tokens: l.rate - 1, lastSeen: now}
+		l.clients[ip] = &clientBucket{tokens: float64(l.rate - 1), lastSeen: now}
 		return true
 	}
 
 	// Refill tokens based on elapsed time
 	elapsed := now.Sub(b.lastSeen).Seconds()
-	b.tokens += int(elapsed * float64(l.rate))
-	if b.tokens > l.rate {
-		b.tokens = l.rate
+	b.tokens += elapsed * float64(l.rate)
+	if b.tokens > float64(l.rate) {
+		b.tokens = float64(l.rate)
 	}
 	b.lastSeen = now
 
-	if b.tokens <= 0 {
+	if b.tokens < 1 {
 		return false
 	}
 	b.tokens--
@@ -368,15 +363,18 @@ func NamespaceRateLimitMiddleware(ratePerSecond int, next http.Handler) http.Han
 
 // namespaceRateLimiter tracks request counts per namespace using a token bucket.
 type namespaceRateLimiter struct {
-	mu         sync.Mutex
-	rate       int
-	namespaces map[string]*clientBucket
+	mu          sync.Mutex
+	rate        int
+	namespaces  map[string]*clientBucket
+	nextCleanup time.Time
+	now         func() time.Time
 }
 
 func newNamespaceRateLimiter(ratePerSecond int) *namespaceRateLimiter {
 	return &namespaceRateLimiter{
 		rate:       ratePerSecond,
 		namespaces: make(map[string]*clientBucket),
+		now:        time.Now,
 	}
 }
 
@@ -384,21 +382,31 @@ func (l *namespaceRateLimiter) allow(ns string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	now := time.Now()
+	now := l.now()
+	if !now.Before(l.nextCleanup) {
+		// An idle bucket would be completely refilled on its next request.
+		// Prune it without limiting the number of active authenticated tenants.
+		for namespace, bucket := range l.namespaces {
+			if now.Sub(bucket.lastSeen) >= ipRateLimiterClientTTL {
+				delete(l.namespaces, namespace)
+			}
+		}
+		l.nextCleanup = now.Add(ipRateLimiterCleanupInterval)
+	}
 	b, exists := l.namespaces[ns]
 	if !exists {
-		l.namespaces[ns] = &clientBucket{tokens: l.rate - 1, lastSeen: now}
+		l.namespaces[ns] = &clientBucket{tokens: float64(l.rate - 1), lastSeen: now}
 		return true
 	}
 
 	elapsed := now.Sub(b.lastSeen).Seconds()
-	b.tokens += int(elapsed * float64(l.rate))
-	if b.tokens > l.rate {
-		b.tokens = l.rate
+	b.tokens += elapsed * float64(l.rate)
+	if b.tokens > float64(l.rate) {
+		b.tokens = float64(l.rate)
 	}
 	b.lastSeen = now
 
-	if b.tokens <= 0 {
+	if b.tokens < 1 {
 		return false
 	}
 	b.tokens--

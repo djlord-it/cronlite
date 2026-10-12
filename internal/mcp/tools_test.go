@@ -2,7 +2,9 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -521,11 +523,15 @@ func TestHandleListJobs_Empty(t *testing.T) {
 // ── handleGetJob ────────────────────────────────────────────────────────────
 
 func TestHandleGetJob_HappyPath(t *testing.T) {
-	jobID := fixedJob().ID
+	job := fixedJob()
+	job.Delivery.Secret = "must-never-appear"
+	job.CreatedAt = time.Date(2025, 1, 1, 2, 3, 4, 123456789, time.FixedZone("fixture", 3*60*60))
+	job.UpdatedAt = job.CreatedAt.Add(time.Second)
+	jobID := job.ID
 
 	jr := &mockJobRepo{
 		getJobWithScheduleFn: func(_ context.Context, _ uuid.UUID) (domain.Job, domain.Schedule, error) {
-			return fixedJob(), fixedSchedule(), nil
+			return job, fixedSchedule(), nil
 		},
 	}
 	tr := &mockTagRepo{
@@ -567,6 +573,25 @@ func TestHandleGetJob_HappyPath(t *testing.T) {
 	}
 	if !strings.Contains(text, "recent_executions") {
 		t.Errorf("expected recent_executions in result, got: %s", text)
+	}
+
+	// Compare the serialized tool response against its public JSON contract,
+	// including existing timestamp precision/offset and omitted delivery secrets.
+	var actual, expected map[string]any
+	if err := json.Unmarshal([]byte(text), &actual); err != nil {
+		t.Fatal(err)
+	}
+	if len(actual) != 11 {
+		t.Fatalf("unexpected response keys: %v", actual)
+	}
+	delete(actual, "tags")
+	delete(actual, "recent_executions")
+	const contract = `{"id":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","namespace":"t1","name":"my-job","enabled":true,"cron_expression":"*/5 * * * *","timezone":"UTC","webhook_url":"https://example.com/hook","created_at":"2025-01-01T02:03:04+03:00","updated_at":"2025-01-01T02:03:05+03:00"}`
+	if err := json.Unmarshal([]byte(contract), &expected); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("job response contract changed: got %v, want %v", actual, expected)
 	}
 }
 
@@ -1213,17 +1238,23 @@ func TestHandleResolveSchedule_MissingDesc(t *testing.T) {
 // ── parseTags ───────────────────────────────────────────────────────────────
 
 func TestParseTags(t *testing.T) {
+	t.Run("empty object", func(t *testing.T) {
+		tags, err := parseTags(map[string]any{})
+		if err != nil || tags == nil || len(tags) != 0 {
+			t.Fatalf("empty replacement changed: tags=%v err=%v", tags, err)
+		}
+	})
 	t.Run("nil input", func(t *testing.T) {
-		got := parseTags(nil)
-		if got != nil {
-			t.Errorf("expected nil, got %v", got)
+		got, err := parseTags(nil)
+		if got != nil || err != nil {
+			t.Errorf("expected nil tags without error, got %v %v", got, err)
 		}
 	})
 
 	t.Run("non-map input", func(t *testing.T) {
-		got := parseTags("not a map")
-		if got != nil {
-			t.Errorf("expected nil, got %v", got)
+		got, err := parseTags("not a map")
+		if got != nil || err == nil {
+			t.Errorf("expected validation error, got %v %v", got, err)
 		}
 	})
 
@@ -1232,7 +1263,10 @@ func TestParseTags(t *testing.T) {
 			"env":  "prod",
 			"team": "backend",
 		}
-		got := parseTags(input)
+		got, err := parseTags(input)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if len(got) != 2 {
 			t.Fatalf("expected 2 tags, got %d", len(got))
 		}

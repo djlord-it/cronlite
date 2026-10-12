@@ -263,10 +263,12 @@ go run ./tools/benchmark \
   --output ./benchmark-output/resilience
 ```
 
-The five-second requeue threshold is deliberately unsafe and is accepted only
-by the managed `CRONLITE_ENV=benchmark` stack. CronLite emits a P0 warning when
-it is active. Normal environments reject a requeue threshold shorter than the
-complete dispatcher retry window.
+The five-second execution lease is accepted only by the managed
+`CRONLITE_ENV=benchmark` stack. Short leases stress renewal and cancellation;
+active long deliveries renew ownership instead of relying on a fixed retry-age
+cutoff. Normal environments require at least thirty seconds. The production and
+benchmark defaults are two minutes. Remote duplicates after an ambiguous response
+remain possible; generation fencing protects persisted execution state.
 
 ### Retry profiles
 

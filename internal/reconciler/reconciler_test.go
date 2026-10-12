@@ -42,7 +42,7 @@ func (s *mockStore) GetOrphanedExecutions(ctx context.Context, olderThan time.Ti
 	return result, nil
 }
 
-func (s *mockStore) RequeueStaleExecutions(ctx context.Context, olderThan time.Time, limit int) (int, error) {
+func (s *mockStore) RequeueExpiredExecutions(ctx context.Context, limit int) (int, error) {
 	return 0, nil
 }
 
@@ -457,9 +457,6 @@ func TestReconciler_DefaultConfig(t *testing.T) {
 	if cfg.Threshold != expectedThreshold {
 		t.Errorf("default threshold should be %s, got %s", expectedThreshold, cfg.Threshold)
 	}
-	if cfg.RequeueThreshold != DefaultRequeueThreshold {
-		t.Errorf("default requeue threshold should be %s, got %s", DefaultRequeueThreshold, cfg.RequeueThreshold)
-	}
 	if cfg.BatchSize != 100 {
 		t.Errorf("default batch size should be 100, got %d", cfg.BatchSize)
 	}
@@ -477,10 +474,6 @@ func TestReconciler_ThresholdExceedsMaxRetryDuration(t *testing.T) {
 	if cfg.Threshold <= maxRetry {
 		t.Errorf("reconciler threshold (%s) must exceed dispatcher max retry duration (%s) "+
 			"to prevent duplicate webhook deliveries", cfg.Threshold, maxRetry)
-	}
-	if cfg.RequeueThreshold <= maxRetry {
-		t.Errorf("requeue threshold (%s) must exceed dispatcher max retry duration (%s) "+
-			"to prevent concurrent retry workers", cfg.RequeueThreshold, maxRetry)
 	}
 }
 
@@ -514,35 +507,34 @@ type mockStoreWithRequeue struct {
 	requeueOlderThan time.Time
 }
 
-func (s *mockStoreWithRequeue) RequeueStaleExecutions(ctx context.Context, olderThan time.Time, limit int) (int, error) {
+func (s *mockStoreWithRequeue) RequeueExpiredExecutions(ctx context.Context, limit int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.requeueCalled = true
-	s.requeueOlderThan = olderThan
+	s.requeueOlderThan = time.Time{}
 	return 0, nil
 }
 
-// TestReconciler_SplitThresholds verifies that RequeueStaleExecutions uses
-// RequeueThreshold while GetOrphanedExecutions uses Threshold.
-func TestReconciler_SplitThresholds(t *testing.T) {
+// TestReconciler_RecoveryDoesNotPassApplicationTime verifies that RequeueStaleExecutions uses
+// database expiry while orphan notifications retain their age threshold.
+func TestReconciler_RecoveryDoesNotPassApplicationTime(t *testing.T) {
 	store := &mockStoreWithThresholdCapture{}
 	emitter := &mockEmitter{}
 
-	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2126, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	recon := New(Config{
-		Interval:         time.Hour,
-		Threshold:        15 * time.Minute,
-		RequeueThreshold: 2 * time.Minute,
-		BatchSize:        100,
+		Interval:  time.Hour,
+		Threshold: 15 * time.Minute,
+		BatchSize: 100,
 	}, store, emitter)
 	recon.clock = func() time.Time { return now }
 
 	ctx := context.Background()
 	recon.runCycle(ctx)
 
-	// RequeueStaleExecutions should use the aggressive RequeueThreshold (2m)
-	expectedRequeue := now.Add(-2 * time.Minute)
+	// Lease recovery must not receive an application-clock cutoff.
+	expectedRequeue := time.Time{}
 	if !store.requeueOlderThan.Equal(expectedRequeue) {
 		t.Errorf("RequeueStaleExecutions olderThan: want %s, got %s", expectedRequeue, store.requeueOlderThan)
 	}
@@ -554,26 +546,25 @@ func TestReconciler_SplitThresholds(t *testing.T) {
 	}
 }
 
-// TestReconciler_RequeueThresholdFallback verifies that when RequeueThreshold
+// TestReconciler_RecoveryIgnoresApplicationClockSkew verifies that when RequeueThreshold
 // is zero, the reconciler falls back to using Threshold for both operations.
-func TestReconciler_RequeueThresholdFallback(t *testing.T) {
+func TestReconciler_RecoveryIgnoresApplicationClockSkew(t *testing.T) {
 	store := &mockStoreWithThresholdCapture{}
 	emitter := &mockEmitter{}
 
-	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2126, 1, 1, 12, 0, 0, 0, time.UTC)
 
 	recon := New(Config{
-		Interval:         time.Hour,
-		Threshold:        15 * time.Minute,
-		RequeueThreshold: 0, // not set — should fall back to Threshold
-		BatchSize:        100,
+		Interval:  time.Hour,
+		Threshold: 15 * time.Minute,
+		BatchSize: 100,
 	}, store, emitter)
 	recon.clock = func() time.Time { return now }
 
 	ctx := context.Background()
 	recon.runCycle(ctx)
 
-	expected := now.Add(-15 * time.Minute)
+	expected := time.Time{}
 	if !store.requeueOlderThan.Equal(expected) {
 		t.Errorf("RequeueStaleExecutions should fall back to Threshold: want %s, got %s", expected, store.requeueOlderThan)
 	}
@@ -585,10 +576,10 @@ type mockStoreWithThresholdCapture struct {
 	orphanOlderThan  time.Time
 }
 
-func (s *mockStoreWithThresholdCapture) RequeueStaleExecutions(ctx context.Context, olderThan time.Time, limit int) (int, error) {
+func (s *mockStoreWithThresholdCapture) RequeueExpiredExecutions(ctx context.Context, limit int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.requeueOlderThan = olderThan
+	s.requeueOlderThan = time.Time{}
 	return 0, nil
 }
 
