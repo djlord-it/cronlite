@@ -4,9 +4,9 @@ Operational contract: what CronLite guarantees, how it fails, and how to run it.
 
 ## Important Notes
 
-**Use `DISPATCH_MODE=db` for multi-instance deployments.** Channel mode (the default) uses an in-memory event bus with no cross-instance coordination. Running multiple instances in channel mode causes duplicate webhook deliveries. If you're running a single instance, channel mode works fine.
+**Use `DISPATCH_MODE=db` for multi-instance deployments.** Channel mode (the default) uses local in-memory notifications and single-instance scheduler wiring. Persistent claims coordinate delivery admission, but channel mode does not provide supported multi-instance scheduling or leader failover. If you're running a single instance, channel mode works fine.
 
-**Make sure `RECONCILE_ENABLED=true` in production.** Without the reconciler, orphaned executions from crashes, buffer overflow, or stale claims have no automatic recovery path. The only alternative is direct SQL intervention.
+**Make sure `RECONCILE_ENABLED=true` in production.** Without the reconciler, orphaned executions from crashes, buffer overflow, or stale claims have no automatic recovery path. DB mode can recover with deliberate SQL intervention; channel mode also needs a notification or temporarily enabled reconciliation.
 
 ## Deployment Decision Tree
 
@@ -23,7 +23,7 @@ Operational contract: what CronLite guarantees, how it fails, and how to run it.
              ├─ NO → 1 instance, DISPATCH_MODE=db
              │        Required: DATABASE_URL, RECONCILE_ENABLED=true, METRICS_ENABLED=true
              │        Apply all migrations (see [Migrations](#migrations))
-             │        Benefit: crash recovery via claimed_at; ready to scale later
+             │        Benefit: crash recovery via fenced renewable leases; ready to scale later
              │
              └─ YES → 2+ instances, DISPATCH_MODE=db
                        Required: DATABASE_URL (same on all), DISPATCH_MODE=db,
@@ -89,7 +89,7 @@ HTTP and channel-dispatch drain budgets total `DISPATCHER_DRAIN_TIMEOUT` + `HTTP
 | `RECONCILE_ENABLED` | `false` | Enable orphan recovery |
 | `RECONCILE_INTERVAL` | `5m` | Orphan scan frequency |
 | `RECONCILE_THRESHOLD` | `19m` | Age before execution is considered orphaned |
-| `RECONCILE_REQUEUE_THRESHOLD` | `19m` | Age before in-progress execution is requeued (crash recovery); must exceed the full retry window |
+| `RECONCILE_REQUEUE_THRESHOLD` | `2m` | Renewable execution lease in both modes; production minimum 30s |
 | `RECONCILE_BATCH_SIZE` | `100` | Max orphans per cycle |
 | `METRICS_ENABLED` | `false` | Enable Prometheus `/metrics` |
 | `CIRCUIT_BREAKER_THRESHOLD` | `5` | Consecutive failures to open circuit (0 = disabled) |
@@ -156,7 +156,7 @@ HTTP and channel-dispatch drain budgets total `DISPATCHER_DRAIN_TIMEOUT` + `HTTP
 | **Scaling** | Single process only | Multiple workers / instances |
 | **DB load** | Lower | Higher (polling every `DB_POLL_INTERVAL`) |
 
-DB mode requires all migrations to be applied. See [Migrations](#migrations).
+Both modes require all migrations to be applied. See [Migrations](#migrations).
 
 ## Migrations
 
@@ -182,13 +182,15 @@ Current migrations:
 | `007_admin_sessions.sql` | Revocable browser sessions for the optional admin UI |
 | `008_admin_session_absolute_expiry.sql` | Absolute lifetime cap for admin sessions |
 | `009_emitted_claim_index.sql` | Partial queue-claim index for DB dispatch |
+| `010_job_control_center.sql` | Admin saved views and bulk audit |
+| `011_execution_ownership.sql` | Generation fencing and renewable leases in both modes |
 
 Migration 009 builds an index and drops the previous broad status index. Apply
 it during a maintenance window on large existing databases because a regular
 index build can briefly block writes. Fresh Compose databases apply it during
 initialization.
 
-Current releases require all migrations through 009. Skipping migrations may cause auth failures, missing columns, or degraded DB dispatch and reconciler performance.
+Current releases require all migrations through 011. Skipping migrations may cause auth failures, missing columns, or degraded DB dispatch and reconciler performance.
 
 ## Admin UI Operations
 
@@ -198,7 +200,7 @@ The UI supports the complete namespace administration API: job configuration and
 
 For a fresh database:
 
-1. Apply migrations through `009_emitted_claim_index.sql`.
+1. Stop/drain old writers and apply migrations through `011_execution_ownership.sql`.
 2. Set a long random `ADMIN_BOOTSTRAP_TOKEN`.
 3. Start CronLite and open `/admin/setup`.
 4. Enter the installation token, namespace, and first key label.
@@ -241,18 +243,32 @@ CronLite keys its per-IP limiter from Go's `RemoteAddr` and does not trust `X-Fo
 ## Execution Lifecycle
 
 ```
-emitted ──→ delivered  (terminal)
-   │
-   ├──→ failed  (terminal)
-   │
-   └──→ in_progress ──→ delivered  (DB mode only)
+emitted ──→ in_progress ──→ delivered  (both modes)
             │
             ├──→ failed
             │
             └──→ emitted  (stale requeue by reconciler)
 ```
 
-Terminal states (`delivered`, `failed`) are immutable.
+Terminal states (`delivered`, `failed`) are immutable. Completion is conditional
+on the current claim generation and an unexpired lease.
+
+The default two-minute lease renews every thirty seconds across HTTP and retry
+backoffs. PostgreSQL decides expiry after acquiring the row lock; application
+clock skew cannot reclaim a valid lease. With the default five-minute scan,
+recovery typically waits the remaining lease plus a scan (up to roughly seven
+minutes under healthy, uncongested conditions). A live worker losing confirmation
+stops further attempts. Old in-flight remote effects can still overlap recovery.
+
+Before upgrade, stop/drain all old writers, apply migration 011, then start the
+new instances. Old unfenced writers invalidate this guarantee during mixed-version
+operation. Legacy null-lease rows are recovered in bounded batches; see
+[schema migration instructions](schema/README.md#execution-ownership-migration-011).
+Persistence stages have five-second contexts and a separate cancellation watchdog.
+A database transport that ignores cancellation can still retain a bounded delivery
+slot and block shutdown. An audit-write deadline after HTTP success abandons
+completion conservatively; ordinary immediate audit errors remain best effort.
+Redis analytics deadlines do not revoke ownership or prevent delivery.
 
 ## Circuit Breaker
 
@@ -340,7 +356,7 @@ CronLite exposes an MCP (Model Context Protocol) interface for AI agent integrat
 - MCP tools are namespace-scoped (same isolation as REST)
 - The embedded server uses SSE for streaming — ensure your reverse proxy supports long-lived connections
 - Abandoned legacy sessions expire after 10 minutes of inactivity (the SDK sweeps every 5 minutes). Active SSE streams send a heartbeat every 30 seconds; application shutdown cancels requests and closes sessions.
-- REST webhook timeouts are validated at 1–60 seconds. Embedded MCP retains its existing support for longer representable timeouts; configure recovery thresholds above their full retry window. The default 19-minute threshold assumes attempts of at most 60 seconds and is not safe for arbitrarily long MCP or stored timeouts.
+- REST webhook timeouts are validated at 1–60 seconds. Embedded MCP retains its existing support for longer representable timeouts; renewable ownership is independent of those timeouts and the retry window.
 - 10 tools available: `create-job`, `list-jobs`, `get-job`, `update-job`, `delete-job`, `pause-job`, `resume-job`, `trigger-job`, `next-run`, `resolve-schedule`
 - `delete-job` is marked as destructive in the MCP tool metadata
 
@@ -542,7 +558,7 @@ leader: released advisory lock 728379              # Lost leadership
 | Event buffer (channel mode) | 100 events | Drops after 5s block → orphan |
 | Fires per job per tick | 1000 (configurable via `MAX_FIRES_PER_TICK`) | Excess skipped until next tick |
 | Webhook timeout | 1–60s (default 30) | Retried up to 4 attempts |
-| Max retry duration | ~12 min | Then marked `failed` |
+| HTTP/backoff budget | 16m30s at 60s attempts | Four attempts; DB/analytics work adds time |
 | Max shutdown time | 40s default | Buffer + HTTP drain |
 
 ### Safe Operating Ranges
@@ -561,11 +577,11 @@ The blocking [admin workflow](.github/workflows/admin-ci.yml) runs on pull reque
 | Job | Gate |
 |-----|------|
 | `admin-unit-security` | Workflow contract, race-enabled admin/CLI tests, fuzz smoke tests, and admin coverage of at least 80% |
-| `admin-postgres-integration` | Tagged integration tests must run and pass under the race detector, with empty or skipped suites rejected against a fresh dedicated database migrated through 010 |
+| `admin-postgres-integration` | Tagged integration tests must run and pass under the race detector, with empty or skipped suites rejected against a fresh dedicated database migrated through 011 |
 | `admin-assets-launcher` | Launcher/smoke/container shell contracts and Actionlint; template/asset/security-header tests run in the unit suite |
 | `admin-smoke` | Linux/Darwin amd64/arm64 CGO-disabled builds and the isolated Docker admin lifecycle, including workspace views and bundled CSS/font |
 
-Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–010 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
+Run the main local gate with `./scripts/admin_ci_test.sh`. The PostgreSQL gate requires Bash, Go, Docker with Compose v2, and OpenSSL. This procedure starts only a one-off PostgreSQL service with an ephemeral host port in a unique disposable Compose project. Its fresh volume causes migrations 001–011 to run in lexical order with `ON_ERROR_STOP`, and its EXIT trap removes only that project and volume:
 
 ```bash
 set -euo pipefail

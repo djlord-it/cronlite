@@ -19,8 +19,8 @@ func TestDequeueExecutionEmptyQueueUsesOneStatement(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	mock.ExpectQuery(regexp.QuoteMeta(queryDequeueExecution)).WillReturnRows(sqlmock.NewRows([]string{
-		"id", "job_id", "namespace", "trigger_type", "scheduled_at", "fired_at", "status", "acknowledged_at", "created_at",
+	mock.ExpectQuery(regexp.QuoteMeta(queryDequeueExecution)).WithArgs(domain.DefaultExecutionLease.Milliseconds()).WillReturnRows(sqlmock.NewRows([]string{
+		"id", "job_id", "namespace", "trigger_type", "scheduled_at", "fired_at", "status", "acknowledged_at", "created_at", "claimed_at", "claim_generation", "lease_until",
 	}))
 	exec, err := New(db, 0).DequeueExecution(context.Background())
 	if err != nil || exec != nil {
@@ -130,9 +130,9 @@ func TestDequeueExecutionClaimsOneRow(t *testing.T) {
 	defer db.Close()
 	id, jobID, now := uuid.New(), uuid.New(), time.Now().UTC()
 	rows := sqlmock.NewRows([]string{
-		"id", "job_id", "namespace", "trigger_type", "scheduled_at", "fired_at", "status", "acknowledged_at", "created_at",
-	}).AddRow(id.String(), jobID.String(), "tenant-A", "manual", now, now, "in_progress", nil, now)
-	mock.ExpectQuery(regexp.QuoteMeta(queryDequeueExecution)).WillReturnRows(rows)
+		"id", "job_id", "namespace", "trigger_type", "scheduled_at", "fired_at", "status", "acknowledged_at", "created_at", "claimed_at", "claim_generation", "lease_until",
+	}).AddRow(id.String(), jobID.String(), "tenant-A", "manual", now, now, "in_progress", nil, now, now, int64(1), now.Add(domain.DefaultExecutionLease))
+	mock.ExpectQuery(regexp.QuoteMeta(queryDequeueExecution)).WithArgs(domain.DefaultExecutionLease.Milliseconds()).WillReturnRows(rows)
 	exec, err := New(db, 0).DequeueExecution(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -153,10 +153,10 @@ func TestDequeueExecutionsClaimsBoundedBatchInOneStatement(t *testing.T) {
 	defer db.Close()
 	id1, id2, jobID, now := uuid.New(), uuid.New(), uuid.New(), time.Now().UTC()
 	rows := sqlmock.NewRows([]string{
-		"id", "job_id", "namespace", "trigger_type", "scheduled_at", "fired_at", "status", "acknowledged_at", "created_at",
-	}).AddRow(id1.String(), jobID.String(), "tenant-A", "manual", now, now, "in_progress", nil, now).
-		AddRow(id2.String(), jobID.String(), "tenant-A", "manual", now, now, "in_progress", nil, now)
-	mock.ExpectQuery(regexp.QuoteMeta(queryDequeueExecutions)).WithArgs(3).WillReturnRows(rows)
+		"id", "job_id", "namespace", "trigger_type", "scheduled_at", "fired_at", "status", "acknowledged_at", "created_at", "claimed_at", "claim_generation", "lease_until",
+	}).AddRow(id1.String(), jobID.String(), "tenant-A", "manual", now, now, "in_progress", nil, now, now, int64(1), now.Add(domain.DefaultExecutionLease)).
+		AddRow(id2.String(), jobID.String(), "tenant-A", "manual", now, now, "in_progress", nil, now, now, int64(1), now.Add(domain.DefaultExecutionLease))
+	mock.ExpectQuery(regexp.QuoteMeta(queryDequeueExecutions)).WithArgs(3, domain.DefaultExecutionLease.Milliseconds()).WillReturnRows(rows)
 	got, err := New(db, 0).DequeueExecutions(context.Background(), 3)
 	if err != nil {
 		t.Fatal(err)

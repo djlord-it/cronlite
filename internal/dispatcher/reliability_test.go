@@ -24,6 +24,13 @@ func (s *executionLookupMock) GetExecutionScoped(_ context.Context, id uuid.UUID
 	return domain.Execution{ID: id, Status: s.getExecutionStatus(id)}, nil
 }
 
+func (s *executionLookupMock) ClaimExecution(ctx context.Context, id uuid.UUID, ns domain.Namespace) (*domain.Execution, error) {
+	if s.lookupErr != nil {
+		return nil, s.lookupErr
+	}
+	return s.mockStore.ClaimExecution(ctx, id, ns)
+}
+
 func TestDispatcher_TerminalReplayHasNoDeliverySideEffects(t *testing.T) {
 	for _, status := range []domain.ExecutionStatus{domain.ExecutionStatusDelivered, domain.ExecutionStatusFailed} {
 		t.Run(string(status), func(t *testing.T) {
@@ -57,7 +64,7 @@ func TestDispatcher_ExecutionLookupFailureDoesNotSend(t *testing.T) {
 
 type terminalWriteFailureStore struct{ *mockStore }
 
-func (*terminalWriteFailureStore) UpdateExecutionStatus(context.Context, uuid.UUID, domain.ExecutionStatus) error {
+func (*terminalWriteFailureStore) CompleteExecution(context.Context, domain.Execution, domain.ExecutionStatus) error {
 	return errors.New("database unavailable")
 }
 

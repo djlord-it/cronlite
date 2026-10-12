@@ -36,6 +36,21 @@ func (s *sustainedStore) UpdateExecutionStatus(context.Context, uuid.UUID, domai
 	s.terminal.Add(1)
 	return nil
 }
+
+func (s *sustainedStore) ExecutionLeaseDuration() time.Duration { return domain.DefaultExecutionLease }
+func (s *sustainedStore) ClaimExecution(context.Context, uuid.UUID, domain.Namespace) (*domain.Execution, error) {
+	return nil, nil
+}
+func (s *sustainedStore) RenewExecutionClaim(ctx context.Context, _ domain.Execution) error {
+	return ctx.Err()
+}
+func (s *sustainedStore) CompleteExecution(ctx context.Context, _ domain.Execution, _ domain.ExecutionStatus) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.terminal.Add(1)
+	return nil
+}
 func (s *sustainedStore) DequeueExecution(ctx context.Context) (*domain.Execution, error) {
 	executions, err := s.DequeueExecutions(ctx, 1)
 	if len(executions) == 0 {
@@ -58,7 +73,7 @@ func (s *sustainedStore) DequeueExecutions(ctx context.Context, limit int) ([]do
 		}
 		executions := make([]domain.Execution, n)
 		for i := range executions {
-			executions[i] = domain.Execution{ID: uuid.New(), JobID: s.job.ID, Namespace: s.job.Namespace, ScheduledAt: time.Now()}
+			executions[i] = domain.Execution{ID: uuid.New(), JobID: s.job.ID, Namespace: s.job.Namespace, ScheduledAt: time.Now(), Status: domain.ExecutionStatusInProgress, ClaimGeneration: 1}
 		}
 		return executions, nil
 	}

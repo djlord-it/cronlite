@@ -48,9 +48,7 @@ type Config struct {
 	ReconcileThreshold    time.Duration `json:"-"`
 	ReconcileThresholdStr string        `json:"reconcile_threshold"`
 
-	// ReconcileRequeueThreshold is the age before an in_progress execution is
-	// requeued for crash recovery. It must exceed the complete dispatcher retry
-	// window because row locks are not held across webhook attempts and backoffs.
+	// ReconcileRequeueThreshold is the renewable execution lease duration.
 	ReconcileRequeueThreshold    time.Duration `json:"-"`
 	ReconcileRequeueThresholdStr string        `json:"reconcile_requeue_threshold"`
 
@@ -270,7 +268,7 @@ func Load() Config {
 		cfg.ReconcileThresholdStr = "19m"
 	}
 	if cfg.ReconcileRequeueThresholdStr == "" {
-		cfg.ReconcileRequeueThresholdStr = "19m"
+		cfg.ReconcileRequeueThresholdStr = "2m"
 	}
 	if cfg.CircuitBreakerCooldownStr == "" {
 		cfg.CircuitBreakerCooldownStr = "2m"

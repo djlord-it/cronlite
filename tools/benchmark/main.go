@@ -292,7 +292,7 @@ func parseConfig(args []string, stderr io.Writer) (Config, string, error) {
 		&cfg.RequeueThreshold,
 		"requeue-threshold",
 		cfg.RequeueThreshold,
-		"configured stale claim requeue threshold",
+		"renewable execution lease duration",
 	)
 	flags.BoolVar(&cfg.Diagnostic, "diagnostic", false, "enable read-only PostgreSQL diagnostics")
 	flags.StringVar(&cfg.DatabaseURL, "database-url", cfg.DatabaseURL, "diagnostic PostgreSQL URL")

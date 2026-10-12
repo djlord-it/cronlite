@@ -67,7 +67,7 @@ api/openapi.yaml       — OpenAPI 3.0 spec
 - **No ORM** — all SQL queries are in `internal/store/postgres/queries.go`, parameterized with no string concatenation.
 - **OpenAPI codegen** — types and handlers in `internal/api/server.gen.go` are auto-generated. Edit `api/openapi.yaml` and run `go generate ./internal/api/` instead.
 - **Namespace scoping** — all data access is filtered by namespace. Keep this in mind when adding new endpoints or queries.
-- **Schema migrations** — new migrations go in `schema/` with the next sequential number (currently `011_your_migration.sql`).
+- **Schema migrations** — new migrations go in `schema/` with the next sequential number (currently `012_your_migration.sql`).
 
 ## Submitting Changes
 

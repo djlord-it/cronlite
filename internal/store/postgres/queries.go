@@ -178,13 +178,14 @@ UPDATE executions
 SET status = $1
 WHERE id = $2
   AND status NOT IN ('delivered', 'failed')
+  AND claim_generation = 0
 `
 
 const queryGetOrphanedExecutions = `
 SELECT id, job_id, namespace, trigger_type, scheduled_at, fired_at, status, acknowledged_at, created_at
 FROM executions
 WHERE status = 'emitted'
-  AND created_at < $1
+  AND (created_at < $1 OR claim_generation > 0)
 ORDER BY created_at ASC
 LIMIT $2
 `
@@ -198,11 +199,14 @@ WITH next_execution AS (
     LIMIT 1
 )
 UPDATE executions AS e
-SET status = 'in_progress', claimed_at = NOW()
+SET status = 'in_progress', claimed_at = clock_timestamp(),
+    claim_generation = e.claim_generation + 1,
+    lease_until = clock_timestamp() + $1 * INTERVAL '1 millisecond'
 FROM next_execution
 WHERE e.id = next_execution.id
 RETURNING e.id, e.job_id, e.namespace, e.trigger_type, e.scheduled_at,
-          e.fired_at, e.status, e.acknowledged_at, e.created_at
+          e.fired_at, e.status, e.acknowledged_at, e.created_at,
+          e.claimed_at, e.claim_generation, e.lease_until
 `
 
 // Claim several ready executions with one statement. The limit is supplied by
@@ -216,24 +220,73 @@ WITH next_executions AS (
     LIMIT $1
 )
 UPDATE executions AS e
-SET status = 'in_progress', claimed_at = NOW()
+SET status = 'in_progress', claimed_at = clock_timestamp(),
+    claim_generation = e.claim_generation + 1,
+    lease_until = clock_timestamp() + $2 * INTERVAL '1 millisecond'
 FROM next_executions
 WHERE e.id = next_executions.id
 RETURNING e.id, e.job_id, e.namespace, e.trigger_type, e.scheduled_at,
-          e.fired_at, e.status, e.acknowledged_at, e.created_at
+          e.fired_at, e.status, e.acknowledged_at, e.created_at,
+          e.claimed_at, e.claim_generation, e.lease_until
+`
+
+// Lock before testing state/time: a row lock wait must not renew an expired claim.
+const queryClaimExecution = `
+WITH locked AS MATERIALIZED (
+    SELECT id, status FROM executions WHERE id = $1 AND namespace = $2 FOR UPDATE
+)
+UPDATE executions AS e
+SET status = 'in_progress', claimed_at = clock_timestamp(),
+    claim_generation = e.claim_generation + 1,
+    lease_until = clock_timestamp() + $3 * INTERVAL '1 millisecond'
+FROM locked
+WHERE e.id = locked.id AND locked.status = 'emitted' AND e.status = 'emitted'
+RETURNING e.id, e.job_id, e.namespace, e.trigger_type, e.scheduled_at,
+          e.fired_at, e.status, e.acknowledged_at, e.created_at,
+          e.claimed_at, e.claim_generation, e.lease_until
+`
+
+const queryRenewExecutionClaim = `
+WITH locked AS MATERIALIZED (
+    SELECT id, status, claim_generation, lease_until FROM executions
+    WHERE id = $1 AND namespace = $2 FOR UPDATE
+), observed AS MATERIALIZED (
+    SELECT *, clock_timestamp() AS checked_at FROM locked
+)
+UPDATE executions AS e
+SET lease_until = observed.checked_at + $4 * INTERVAL '1 millisecond'
+FROM observed
+WHERE e.id = observed.id AND observed.status = 'in_progress'
+  AND observed.claim_generation = $3 AND observed.lease_until > observed.checked_at
+`
+
+const queryCompleteExecution = `
+WITH locked AS MATERIALIZED (
+    SELECT id, status, claim_generation, lease_until FROM executions
+    WHERE id = $1 AND namespace = $2 FOR UPDATE
+), observed AS MATERIALIZED (
+    SELECT *, clock_timestamp() AS checked_at FROM locked
+)
+UPDATE executions AS e
+SET status = $4, lease_until = NULL
+FROM observed
+WHERE e.id = observed.id AND observed.status = 'in_progress'
+  AND observed.claim_generation = $3 AND observed.lease_until > observed.checked_at
 `
 
 const queryRequeueStaleExecutions = `
 WITH stale AS (
     SELECT id FROM executions
     WHERE status = 'in_progress'
-      AND claimed_at < $1
-    ORDER BY claimed_at ASC
-    LIMIT $2
+      AND (lease_until <= clock_timestamp() OR
+           (lease_until IS NULL AND claim_generation = 0))
+    ORDER BY lease_until ASC NULLS FIRST, id
+    LIMIT $1
     FOR UPDATE SKIP LOCKED
 )
 UPDATE executions
-SET status = 'emitted', claimed_at = NULL
+SET status = 'emitted', claimed_at = NULL, lease_until = NULL,
+    claim_generation = GREATEST(executions.claim_generation, 1)
 FROM stale
 WHERE executions.id = stale.id
 `
@@ -241,12 +294,12 @@ WHERE executions.id = stale.id
 // ── Delivery Attempts ─────────────────────────────────────────────────────────
 
 const queryInsertDeliveryAttempt = `
-INSERT INTO delivery_attempts (id, execution_id, attempt, status_code, error, started_at, finished_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO delivery_attempts (id, execution_id, attempt, status_code, error, started_at, finished_at, claim_generation)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 const queryGetDeliveryAttempts = `
-SELECT id, execution_id, attempt, status_code, error, started_at, finished_at
+SELECT id, execution_id, attempt, status_code, error, started_at, finished_at, claim_generation
 FROM delivery_attempts
 WHERE execution_id = $1
 ORDER BY attempt

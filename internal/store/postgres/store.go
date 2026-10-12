@@ -18,8 +18,9 @@ import (
 
 // Store implements scheduler.Store and dispatcher.Store using PostgreSQL.
 type Store struct {
-	db        *sql.DB
-	opTimeout time.Duration
+	db            *sql.DB
+	opTimeout     time.Duration
+	leaseDuration time.Duration
 }
 
 const adminBootstrapLockKey int64 = 728380
@@ -28,7 +29,26 @@ const adminBootstrapLockKey int64 = 728380
 // opTimeout specifies the maximum duration for individual DB operations.
 // If opTimeout is 0, no timeout is applied (not recommended for production).
 func New(db *sql.DB, opTimeout time.Duration) *Store {
-	return &Store{db: db, opTimeout: opTimeout}
+	return &Store{db: db, opTimeout: opTimeout, leaseDuration: domain.DefaultExecutionLease}
+}
+
+// WithExecutionLease is configured once before workers start.
+func (s *Store) WithExecutionLease(duration time.Duration) *Store {
+	if duration < time.Millisecond {
+		panic("execution lease must be at least one millisecond")
+	}
+	s.leaseDuration = duration.Truncate(time.Millisecond)
+	return s
+}
+
+func (s *Store) ExecutionLeaseDuration() time.Duration { return s.leaseDuration }
+
+func (s *Store) withOwnershipTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	timeout := domain.OwnershipOperationTimeout
+	if s.opTimeout > 0 && s.opTimeout < timeout {
+		timeout = s.opTimeout
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 // withTimeout returns a context with the store's operation timeout applied.
@@ -715,7 +735,8 @@ func (s *Store) AckExecution(ctx context.Context, id uuid.UUID, ns domain.Namesp
 	return nil
 }
 
-// UpdateExecutionStatus updates the status of an execution.
+// UpdateExecutionStatus is the legacy repository operation, limited to generation
+// zero. Owned executions must use generation-conditional CompleteExecution.
 // Returns dispatcher.ErrStatusTransitionDenied if the execution is already in a terminal state.
 // This uses an atomic UPDATE with WHERE clause to prevent TOCTOU race conditions.
 func (s *Store) UpdateExecutionStatus(ctx context.Context, executionID uuid.UUID, status domain.ExecutionStatus) error {
@@ -746,8 +767,10 @@ func (s *Store) UpdateExecutionStatus(ctx context.Context, executionID uuid.UUID
 		if err != nil {
 			return err
 		}
-		// Row exists but wasn't updated => terminal state
-		return dispatcher.ErrStatusTransitionDenied
+		if currentStatus == "delivered" || currentStatus == "failed" {
+			return dispatcher.ErrStatusTransitionDenied
+		}
+		return domain.ErrExecutionClaimLost
 	}
 
 	return nil
@@ -758,10 +781,10 @@ func (s *Store) UpdateExecutionStatus(ctx context.Context, executionID uuid.UUID
 // A single UPDATE statement claims the row without an explicit transaction on empty polls.
 // SELECT FOR UPDATE SKIP LOCKED prevents double-claim under concurrency.
 func (s *Store) DequeueExecution(ctx context.Context) (*domain.Execution, error) {
-	ctx, cancel := s.withTimeout(ctx)
+	ctx, cancel := s.withOwnershipTimeout(ctx)
 	defer cancel()
 
-	exec, err := scanSingleExecution(s.db.QueryRowContext(ctx, queryDequeueExecution))
+	exec, err := scanExecution(s.db.QueryRowContext(ctx, queryDequeueExecution, s.leaseDuration.Milliseconds()), true)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -777,18 +800,71 @@ func (s *Store) DequeueExecutions(ctx context.Context, limit int) ([]domain.Exec
 	if limit < 1 {
 		return nil, nil
 	}
-	ctx, cancel := s.withTimeout(ctx)
+	ctx, cancel := s.withOwnershipTimeout(ctx)
 	defer cancel()
-	rows, err := s.db.QueryContext(ctx, queryDequeueExecutions, limit)
+	rows, err := s.db.QueryContext(ctx, queryDequeueExecutions, limit, s.leaseDuration.Milliseconds())
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanExecutionRows(rows)
+	var executions []domain.Execution
+	for rows.Next() {
+		execution, err := scanExecution(rows, true)
+		if err != nil {
+			return nil, err
+		}
+		executions = append(executions, execution)
+	}
+	return executions, rows.Err()
 }
 
-// GetOrphanedExecutions returns executions that are stuck in 'emitted' status
-// and were created before the given threshold time.
+// ClaimExecution atomically admits a channel/direct notification.
+func (s *Store) ClaimExecution(ctx context.Context, id uuid.UUID, ns domain.Namespace) (*domain.Execution, error) {
+	ctx, cancel := s.withOwnershipTimeout(ctx)
+	defer cancel()
+	execution, err := scanExecution(s.db.QueryRowContext(ctx, queryClaimExecution, id, string(ns), s.leaseDuration.Milliseconds()), true)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &execution, nil
+}
+
+func (s *Store) RenewExecutionClaim(ctx context.Context, execution domain.Execution) error {
+	ctx, cancel := s.withOwnershipTimeout(ctx)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, queryRenewExecutionClaim, execution.ID, string(execution.Namespace), execution.ClaimGeneration, s.leaseDuration.Milliseconds())
+	return claimMutationResult(result, err)
+}
+
+func (s *Store) CompleteExecution(ctx context.Context, execution domain.Execution, status domain.ExecutionStatus) error {
+	if status != domain.ExecutionStatusDelivered && status != domain.ExecutionStatusFailed {
+		return fmt.Errorf("invalid execution completion: %s", status)
+	}
+	ctx, cancel := s.withOwnershipTimeout(ctx)
+	defer cancel()
+	result, err := s.db.ExecContext(ctx, queryCompleteExecution, execution.ID, string(execution.Namespace), execution.ClaimGeneration, string(status))
+	return claimMutationResult(result, err)
+}
+
+func claimMutationResult(result sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return domain.ErrExecutionClaimLost
+	}
+	return nil
+}
+
+// GetOrphanedExecutions returns old initial notifications and immediately ready
+// recovered claims. Atomic dispatch admission makes duplicate notifications safe.
 // Results are ordered by created_at ASC (oldest first) and limited to maxResults.
 func (s *Store) GetOrphanedExecutions(ctx context.Context, olderThan time.Time, maxResults int) ([]domain.Execution, error) {
 	ctx, cancel := s.withTimeout(ctx)
@@ -803,14 +879,18 @@ func (s *Store) GetOrphanedExecutions(ctx context.Context, olderThan time.Time, 
 	return scanExecutionRows(rows)
 }
 
-// RequeueStaleExecutions resets in_progress executions older than olderThan back
-// to emitted status. Uses a CTE with FOR UPDATE SKIP LOCKED to avoid interfering
-// with active DequeueExecution transactions.
-func (s *Store) RequeueStaleExecutions(ctx context.Context, olderThan time.Time, limit int) (int, error) {
+// RequeueStaleExecutions preserves the legacy repository signature. Its caller's
+// clock is deliberately ignored; only database lease expiry permits recovery.
+func (s *Store) RequeueStaleExecutions(ctx context.Context, _ time.Time, limit int) (int, error) {
+	return s.RequeueExpiredExecutions(ctx, limit)
+}
+
+// RequeueExpiredExecutions uses database time, including bounded legacy recovery.
+func (s *Store) RequeueExpiredExecutions(ctx context.Context, limit int) (int, error) {
 	ctx, cancel := s.withTimeout(ctx)
 	defer cancel()
 
-	result, err := s.db.ExecContext(ctx, queryRequeueStaleExecutions, olderThan, limit)
+	result, err := s.db.ExecContext(ctx, queryRequeueStaleExecutions, limit)
 	if err != nil {
 		return 0, err
 	}
@@ -1148,6 +1228,7 @@ func (s *Store) InsertDeliveryAttempt(ctx context.Context, attempt domain.Delive
 		attempt.Error,
 		attempt.StartedAt,
 		attempt.FinishedAt,
+		attempt.ClaimGeneration,
 	)
 	return err
 }
@@ -1174,6 +1255,7 @@ func (s *Store) GetAttempts(ctx context.Context, executionID uuid.UUID) ([]domai
 			&a.Error,
 			&a.StartedAt,
 			&a.FinishedAt,
+			&a.ClaimGeneration,
 		)
 		if err != nil {
 			return nil, err
@@ -1256,11 +1338,15 @@ func scanJobWithScheduleRow(row scanner) (domain.JobWithSchedule, error) {
 
 // scanSingleExecution scans an execution from either QueryRow or Rows.
 func scanSingleExecution(row scanner) (domain.Execution, error) {
+	return scanExecution(row, false)
+}
+
+func scanExecution(row scanner, claimed bool) (domain.Execution, error) {
 	var exec domain.Execution
 	var status string
 	var triggerType string
 
-	err := row.Scan(
+	fields := []any{
 		&exec.ID,
 		&exec.JobID,
 		&exec.Namespace,
@@ -1270,7 +1356,11 @@ func scanSingleExecution(row scanner) (domain.Execution, error) {
 		&status,
 		&exec.AcknowledgedAt,
 		&exec.CreatedAt,
-	)
+	}
+	if claimed {
+		fields = append(fields, &exec.ClaimedAt, &exec.ClaimGeneration, &exec.LeaseUntil)
+	}
+	err := row.Scan(fields...)
 	if err != nil {
 		return domain.Execution{}, err
 	}
