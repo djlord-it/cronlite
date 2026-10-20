@@ -8,7 +8,7 @@ require github.com/google/uuid v1.6.0
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
-	github.com/getkin/kin-openapi v0.149.0
+	github.com/getkin/kin-openapi v0.151.0
 	github.com/lib/pq v1.12.3
 	github.com/mark3labs/mcp-go v1.2.1
 	github.com/oapi-codegen/runtime v1.7.0
