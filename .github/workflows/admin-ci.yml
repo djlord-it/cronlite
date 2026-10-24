@@ -179,14 +179,14 @@ jobs:
       - name: Check launcher and smoke shell syntax
         run: |
           bash -n \
-            scripts/admin-local.sh \
-            scripts/admin_local_test.sh \
+            scripts/dev.sh \
+            scripts/dev_test.sh \
             scripts/admin_smoke_test.sh \
             scripts/admin_smoke_test_test.sh \
             scripts/container_contract_test.sh
 
       - name: Run launcher contract
-        run: ./scripts/admin_local_test.sh --all
+        run: ./scripts/dev_test.sh --all
 
       - name: Run smoke contract
         run: ./scripts/admin_smoke_test_test.sh

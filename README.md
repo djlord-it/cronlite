@@ -12,59 +12,59 @@ CronLite is a self-hosted cron-as-a-service with namespace-scoped API keys and M
 
 ## Quick Start
 
+Requires Docker and Go 1.25+.
+
 ```bash
 git clone https://github.com/djlord-it/cronlite.git
 cd cronlite
-docker compose up -d
+./scripts/dev.sh
 ```
 
-Bootstrap an API key:
+`dev.sh` starts PostgreSQL, applies migrations, creates an API key (saved to `.cronlite.local.env`, gitignored), and runs CronLite with the admin UI. Re-run it any time; it reuses the saved key. `./scripts/dev.sh --reset` wipes the local database.
+
+- **Admin UI:** http://localhost:8080/admin. Sign in with the printed key.
+- **API:** http://localhost:8080
+
+In a second terminal, create a job and watch it fire:
 
 ```bash
-docker compose exec cronlite cronlite create-key default local-dev
-```
+source .cronlite.local.env
 
-Copy the printed token and export it:
-
-```bash
-export CRONLITE_API_KEY="ec_..."
-```
-
-Create a job:
-
-```bash
-curl -X POST http://localhost:8080/jobs \
-  -H "Authorization: Bearer ${CRONLITE_API_KEY}" \
+job_id=$(curl -s -X POST http://localhost:8080/jobs \
+  -H "Authorization: Bearer $CRONLITE_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "test-job",
-    "cron_expression": "* * * * *",
-    "timezone": "UTC",
-    "webhook_url": "https://httpbin.org/post",
-    "webhook_secret": "my-secret"
-  }'
-```
+  -d '{"name":"test-job","cron_expression":"* * * * *","timezone":"UTC",
+       "webhook_url":"https://httpbin.org/post","webhook_secret":"my-secret"}' |
+  jq -r .id)
 
-Check executions:
-
-```bash
-curl -H "Authorization: Bearer ${CRONLITE_API_KEY}" \
-  http://localhost:8080/jobs/{job_id}/executions
+curl -s -H "Authorization: Bearer $CRONLITE_API_KEY" \
+  "http://localhost:8080/jobs/$job_id/executions" | jq
 ```
 
 <details>
-<summary>Manual setup (without Docker)</summary>
+<summary>Docker only (no Go toolchain)</summary>
 
 ```bash
-set -euo pipefail
+docker compose up -d
+docker compose exec cronlite cronlite create-key default local-dev
+export CRONLITE_API_KEY="ec_..."   # the printed token
+```
+
+The API and admin UI are on the same URLs as above. PostgreSQL is published on `127.0.0.1:54329`; set `POSTGRES_HOST_PORT` to change it. Stop the app container (`docker compose stop cronlite`) before switching to `./scripts/dev.sh`.
+</details>
+
+<details>
+<summary>Manual setup (your own PostgreSQL)</summary>
+
+```bash
 go build -o cronlite ./cmd/cronlite
 createdb cronlite
 for f in schema/0*.sql; do
-  psql -v ON_ERROR_STOP=1 cronlite < "$f"
+  psql -v ON_ERROR_STOP=1 cronlite < "$f" || break
 done
 export DATABASE_URL="postgres://localhost/cronlite?sslmode=disable"
 ./cronlite create-key default local-dev
-./cronlite serve
+ADMIN_ENABLED=true ./cronlite serve
 ```
 </details>
 
@@ -160,13 +160,7 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates with embedded CSS, system fonts, a local icon, and a small optional script for live job search. The UI uses a consistent light theme and works without JavaScript, a frontend framework, a Node runtime, or a CDN.
 
-For local development, Docker and Go are the only prerequisites:
-
-```bash
-./scripts/admin-local.sh
-```
-
-The launcher starts PostgreSQL, applies missing admin session migrations and migrations 010/011, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits. Apply migration 009 separately to existing databases for the DB dispatch index improvement.
+For local development, `./scripts/dev.sh` (see [Quick Start](#quick-start)) enables the UI, applies any missing idempotent migrations (007–011) to an existing local database, and signs you in with the key it saves to `.cronlite.local.env`. PostgreSQL remains running after CronLite exits.
 
 For a manual launch, apply every numbered migration in order through 011, set an installation token, and enable the UI:
 
