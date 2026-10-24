@@ -9,7 +9,7 @@ WORKDIR /app
 # Install gcc + musl-dev when race detection is enabled (requires CGO)
 RUN apk add --no-cache git=2.52.0-r0 && \
     if [ "$RACE_ENABLED" = "1" ]; then \
-      apk add --no-cache gcc=15.2.0-r2 musl-dev=1.2.5-r23; \
+      apk add --no-cache gcc=15.2.0-r2 musl-dev=1.2.5-r24; \
     fi
 
 # Copy go mod files first for better caching
@@ -43,7 +43,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
 
 # Install runtime dependencies at reviewed versions for reproducible builds.
-RUN apk add --no-cache ca-certificates=20260909-r0 tzdata=2026e-r0
+RUN apk add --no-cache ca-certificates=20261020-r0 tzdata=2026e-r0
 
 # Create non-root user
 RUN addgroup -g 1000 cronlite && \

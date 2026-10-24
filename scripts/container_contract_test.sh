@@ -30,8 +30,8 @@ assert_contains Dockerfile \
   'FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0'
 assert_contains Dockerfile 'git=2.52.0-r0'
 assert_contains Dockerfile 'gcc=15.2.0-r2'
-assert_contains Dockerfile 'musl-dev=1.2.5-r23'
-assert_contains Dockerfile 'ca-certificates=20260909-r0'
+assert_contains Dockerfile 'musl-dev=1.2.5-r24'
+assert_contains Dockerfile 'ca-certificates=20261020-r0'
 assert_contains Dockerfile 'tzdata=2026e-r0'
 assert_not_contains Dockerfile 'apk upgrade'
 
