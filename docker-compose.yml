@@ -40,6 +40,7 @@ services:
       DISPATCHER_WORKERS: "4"
       RECONCILE_ENABLED: "true"
       METRICS_ENABLED: "true"
+      MIGRATE_ON_START: "true"
       ADMIN_ENABLED: "true"
       ADMIN_COOKIE_SECURE: "false"
       # Only needed for /admin/setup when no API key exists yet.

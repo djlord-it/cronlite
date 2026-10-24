@@ -24,6 +24,10 @@ type Config struct {
 	DBOpTimeout    time.Duration `json:"-"`
 	DBOpTimeoutStr string        `json:"db_op_timeout"`
 
+	MigrateOnStart        bool          `json:"migrate_on_start"`
+	MigrateLockTimeout    time.Duration `json:"-"`
+	MigrateLockTimeoutStr string        `json:"migrate_lock_timeout"`
+
 	DBMaxOpenConns       int           `json:"db_max_open_conns"`
 	DBMaxIdleConns       int           `json:"db_max_idle_conns"`
 	DBConnMaxLifetime    time.Duration `json:"-"`
@@ -130,6 +134,8 @@ func Load() Config {
 		ReconcileThresholdStr:        os.Getenv("RECONCILE_THRESHOLD"),
 		ReconcileRequeueThresholdStr: os.Getenv("RECONCILE_REQUEUE_THRESHOLD"),
 		AdminEnabled:                 os.Getenv("ADMIN_ENABLED") == "true",
+		MigrateOnStart:               os.Getenv("MIGRATE_ON_START") == "true",
+		MigrateLockTimeoutStr:        os.Getenv("MIGRATE_LOCK_TIMEOUT"),
 		AdminBootstrapToken:          os.Getenv("ADMIN_BOOTSTRAP_TOKEN"),
 		AdminSessionTTLStr:           os.Getenv("ADMIN_SESSION_TTL"),
 		AdminSessionAbsoluteTTLStr:   os.Getenv("ADMIN_SESSION_ABSOLUTE_TTL"),
@@ -243,6 +249,9 @@ func Load() Config {
 	if cfg.TickIntervalStr == "" {
 		cfg.TickIntervalStr = "30s"
 	}
+	if cfg.MigrateLockTimeoutStr == "" {
+		cfg.MigrateLockTimeoutStr = "2m"
+	}
 	if cfg.DBOpTimeoutStr == "" {
 		cfg.DBOpTimeoutStr = "5s"
 	}
@@ -292,6 +301,7 @@ func Load() Config {
 	// ParseDuration returns zero on error; Validate reports invalid values separately.
 	cfg.TickInterval, _ = time.ParseDuration(cfg.TickIntervalStr)
 	cfg.DBOpTimeout, _ = time.ParseDuration(cfg.DBOpTimeoutStr)
+	cfg.MigrateLockTimeout, _ = time.ParseDuration(cfg.MigrateLockTimeoutStr)
 	cfg.DBConnMaxLifetime, _ = time.ParseDuration(cfg.DBConnMaxLifetimeStr)
 	cfg.DBConnMaxIdleTime, _ = time.ParseDuration(cfg.DBConnMaxIdleTimeStr)
 	cfg.HTTPShutdownTimeout, _ = time.ParseDuration(cfg.HTTPShutdownTimeoutStr)

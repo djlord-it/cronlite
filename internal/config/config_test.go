@@ -500,3 +500,43 @@ func TestMaskedJSON_PreservesConfigAndCORSOmission(t *testing.T) {
 		t.Fatal("MaskedJSON did not preserve masked URI schemes")
 	}
 }
+
+func TestLoadMigrateDefaults(t *testing.T) {
+	t.Setenv("MIGRATE_ON_START", "")
+	t.Setenv("MIGRATE_LOCK_TIMEOUT", "")
+	cfg := Load()
+	if cfg.MigrateOnStart {
+		t.Error("MigrateOnStart should default to false")
+	}
+	if cfg.MigrateLockTimeout != 2*time.Minute {
+		t.Errorf("MigrateLockTimeout = %v, want 2m", cfg.MigrateLockTimeout)
+	}
+}
+
+func TestLoadMigrateFromEnv(t *testing.T) {
+	t.Setenv("MIGRATE_ON_START", "true")
+	t.Setenv("MIGRATE_LOCK_TIMEOUT", "30s")
+	cfg := Load()
+	if !cfg.MigrateOnStart {
+		t.Error("MigrateOnStart should be true")
+	}
+	if cfg.MigrateLockTimeout != 30*time.Second {
+		t.Errorf("MigrateLockTimeout = %v, want 30s", cfg.MigrateLockTimeout)
+	}
+}
+
+func TestValidateRejectsBadMigrateLockTimeout(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+	t.Setenv("MIGRATE_LOCK_TIMEOUT", "abc")
+	err := Validate(Load())
+	errs, ok := err.(ValidationErrors)
+	if !ok {
+		t.Fatalf("expected ValidationErrors, got %T (%v)", err, err)
+	}
+	for _, e := range errs {
+		if e.Field == "MIGRATE_LOCK_TIMEOUT" {
+			return
+		}
+	}
+	t.Fatalf("no MIGRATE_LOCK_TIMEOUT error in %v", errs)
+}

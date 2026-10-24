@@ -46,7 +46,7 @@ curl -s -H "Authorization: Bearer $CRONLITE_API_KEY" \
 
 ```bash
 docker compose up -d
-docker compose exec cronlite cronlite create-key default local-dev
+docker compose exec cronlite cronlite create-key default local-dev   # schema is applied automatically (MIGRATE_ON_START=true)
 export CRONLITE_API_KEY="ec_..."   # the printed token
 ```
 
@@ -288,6 +288,12 @@ ADMIN_BASE_URL="http://127.0.0.1:${published_address##*:}" \
 | `cronlite config` | Print effective config (secrets masked) |
 | `cronlite version` | Print version |
 | `cronlite create-key <namespace> <label>` | Create namespace API key and print plaintext token once |
+| `cronlite migrate [--status]` | Apply pending schema migrations, or list their state |
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MIGRATE_ON_START` | `false` | Apply pending schema migrations before `cronlite serve` starts (set in `docker-compose.yml`) |
+| `MIGRATE_LOCK_TIMEOUT` | `2m` | Max wait for the migration lock when another instance is migrating |
 
 ## MCP (Model Context Protocol)
 

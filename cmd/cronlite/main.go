@@ -29,12 +29,14 @@ import (
 	"github.com/djlord-it/cronlite/internal/leaderelection"
 	mcpsrv "github.com/djlord-it/cronlite/internal/mcp"
 	"github.com/djlord-it/cronlite/internal/metrics"
+	"github.com/djlord-it/cronlite/internal/migrate"
 	"github.com/djlord-it/cronlite/internal/reconciler"
 	"github.com/djlord-it/cronlite/internal/scheduler"
 	"github.com/djlord-it/cronlite/internal/service"
 	"github.com/djlord-it/cronlite/internal/store/postgres"
 	"github.com/djlord-it/cronlite/internal/transport/channel"
 	"github.com/djlord-it/cronlite/internal/webadmin"
+	"github.com/djlord-it/cronlite/schema"
 
 	_ "github.com/lib/pq"
 )
@@ -86,6 +88,8 @@ func main() {
 		os.Exit(runVersion())
 	case "create-key":
 		os.Exit(runCreateKey())
+	case "migrate":
+		os.Exit(runMigrate(os.Args[2:]))
 	case "--help", "-h", "help":
 		printUsage()
 		os.Exit(exitSuccess)
@@ -108,6 +112,7 @@ Commands:
   config       Print effective configuration as JSON (secrets masked)
   version      Print version information
   create-key   Create a new API key  (usage: cronlite create-key <namespace> <label>)
+  migrate      Apply pending schema migrations (--status to list)
 
 Environment Variables:
   CRONLITE_ENV              Runtime environment; "production" enables strict validation
@@ -116,6 +121,8 @@ Environment Variables:
   HTTP_ADDR                 HTTP server address (default: ":8080")
   API_KEY                   DEPRECATED legacy single key; use 'cronlite create-key' instead
   TICK_INTERVAL             Scheduler tick interval (default: "30s")
+  MIGRATE_ON_START          Apply pending schema migrations on 'serve' start (default: "false")
+  MIGRATE_LOCK_TIMEOUT      Max wait for the migration lock (default: "2m")
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
   DB_MAX_OPEN_CONNS         Max open database connections (default: "25")
@@ -334,6 +341,15 @@ func runServe() int {
 	if err := db.Ping(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
 		return exitRuntimeError
+	}
+
+	if cfg.MigrateOnStart {
+		res, err := applyMigrations(context.Background(), db, cfg.MigrateLockTimeout, log.Printf)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
+			return exitRuntimeError
+		}
+		log.Printf("cronlite: migrations complete (applied=%d, baselined=%d)", len(res.Applied), len(res.Baselined))
 	}
 
 	if err := probeExecutionOwnership(db); err != nil {
@@ -814,4 +830,74 @@ func logConfigWarnings(cfg *config.Config) {
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
 		log.Printf("WARNING [P1]: DATABASE_URL contains sslmode=disable — database connections are NOT encrypted. Use sslmode=require or sslmode=verify-full for production.")
 	}
+}
+
+// runMigrate applies pending schema migrations, or with --status lists the
+// state of every known migration.
+func runMigrate(args []string) int {
+	status := false
+	for _, a := range args {
+		switch a {
+		case "--status":
+			status = true
+		default:
+			fmt.Fprintf(os.Stderr, "usage: cronlite migrate [--status]\n")
+			return exitInvalidConfig
+		}
+	}
+
+	cfg := config.Load()
+	if err := config.Validate(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "configuration error: %v\n", err)
+		return exitInvalidConfig
+	}
+
+	db, err := sql.Open("postgres", cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
+		return exitRuntimeError
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
+		return exitRuntimeError
+	}
+
+	ctx := context.Background()
+
+	if status {
+		ms, err := migrate.Load(schema.FS)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migration status failed: %v\n", err)
+			return exitRuntimeError
+		}
+		rows, err := migrate.StatusOf(ctx, db, ms)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migration status failed: %v\n", err)
+			return exitRuntimeError
+		}
+		for _, r := range rows {
+			fmt.Printf("%03d  %-40s  %s\n", r.Version, r.Name, r.State)
+		}
+		return exitSuccess
+	}
+
+	res, err := applyMigrations(ctx, db, cfg.MigrateLockTimeout, log.Printf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
+		return exitRuntimeError
+	}
+	fmt.Printf("applied: %v\nbaselined: %v\n", res.Applied, res.Baselined)
+	return exitSuccess
+}
+
+// applyMigrations loads the embedded schema migrations and applies any that
+// are pending. It is shared by `cronlite migrate` and MIGRATE_ON_START.
+func applyMigrations(ctx context.Context, db *sql.DB, lockTimeout time.Duration, logf func(string, ...any)) (migrate.Result, error) {
+	ms, err := migrate.Load(schema.FS)
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	return migrate.Run(ctx, db, ms, migrate.Options{LockTimeout: lockTimeout, Logf: logf})
 }
