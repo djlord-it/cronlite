@@ -36,6 +36,7 @@ import (
 	"github.com/djlord-it/cronlite/internal/store/postgres"
 	"github.com/djlord-it/cronlite/internal/transport/channel"
 	"github.com/djlord-it/cronlite/internal/webadmin"
+	"github.com/djlord-it/cronlite/internal/webhookurl"
 	"github.com/djlord-it/cronlite/schema"
 
 	_ "github.com/lib/pq"
@@ -123,6 +124,8 @@ Environment Variables:
   TICK_INTERVAL             Scheduler tick interval (default: "30s")
   MIGRATE_ON_START          Apply pending schema migrations on 'serve' start (default: "false")
   MIGRATE_LOCK_TIMEOUT      Max wait for the migration lock (default: "2m")
+  WEBHOOK_ALLOWED_PRIVATE_SUFFIXES  Comma-separated hostnames (".suffix" or exact) allowed to resolve
+                            to private ranges (RFC 1918 / fc00::/7); loopback and link-local stay blocked
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
   DB_MAX_OPEN_CONNS         Max open database connections (default: "25")
@@ -359,7 +362,12 @@ func runServe() int {
 
 	store := postgres.New(db, cfg.DBOpTimeout).WithExecutionLease(cfg.ReconcileRequeueThreshold)
 	cronParser := &cronParserAdapter{parser: cron.NewParser()}
-	webhookSender := dispatcher.NewHTTPWebhookSender()
+	webhookAllowlist, err := webhookurl.ParseAllowlist(cfg.WebhookAllowedPrivateSuffixes)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid WEBHOOK_ALLOWED_PRIVATE_SUFFIXES: %v\n", err)
+		return exitInvalidConfig
+	}
+	webhookSender := dispatcher.NewHTTPWebhookSender(dispatcher.WithAllowlist(webhookAllowlist))
 
 	var metricsSink *metrics.PrometheusSink
 

@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -489,7 +491,7 @@ func TestMaskedJSON_PreservesConfigAndCORSOmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != original {
+	if !reflect.DeepEqual(cfg, original) {
 		t.Fatal("MaskedJSON changed the runtime configuration")
 	}
 	if strings.Contains(string(data), "password") || strings.Contains(string(data), "cors_origins") {
@@ -539,4 +541,58 @@ func TestValidateRejectsBadMigrateLockTimeout(t *testing.T) {
 		}
 	}
 	t.Fatalf("no MIGRATE_LOCK_TIMEOUT error in %v", errs)
+}
+
+func TestLoadWebhookAllowlist(t *testing.T) {
+	t.Setenv("WEBHOOK_ALLOWED_PRIVATE_SUFFIXES", " .railway.internal , ,webhook-receiver ")
+	cfg := Load()
+	want := []string{".railway.internal", "webhook-receiver"}
+	if len(cfg.WebhookAllowedPrivateSuffixes) != len(want) {
+		t.Fatalf("got %q, want %q", cfg.WebhookAllowedPrivateSuffixes, want)
+	}
+	for i := range want {
+		if cfg.WebhookAllowedPrivateSuffixes[i] != want[i] {
+			t.Fatalf("got %q, want %q", cfg.WebhookAllowedPrivateSuffixes, want)
+		}
+	}
+}
+
+func TestLoadWebhookAllowlistUnsetIsEmpty(t *testing.T) {
+	t.Setenv("WEBHOOK_ALLOWED_PRIVATE_SUFFIXES", "")
+	if got := Load().WebhookAllowedPrivateSuffixes; len(got) != 0 {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+func TestValidateRejectsIPInAllowlist(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:                   "postgres://x",
+		TickIntervalStr:               "30s",
+		WebhookAllowedPrivateSuffixes: []string{"10.0.0.1"},
+	}
+	err := Validate(cfg)
+	var errs ValidationErrors
+	if !errors.As(err, &errs) {
+		t.Fatalf("expected ValidationErrors, got %v", err)
+	}
+	found := false
+	for _, e := range errs {
+		if e.Field == "WEBHOOK_ALLOWED_PRIVATE_SUFFIXES" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no error on WEBHOOK_ALLOWED_PRIVATE_SUFFIXES: %v", err)
+	}
+}
+
+func TestValidateAcceptsAllowlist(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:                   "postgres://x",
+		TickIntervalStr:               "30s",
+		WebhookAllowedPrivateSuffixes: []string{".railway.internal", "webhook-receiver"},
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -349,7 +350,7 @@ func TestOwnershipConcurrentHTTPDispatchIntegration(t *testing.T) {
 	}))
 	defer server.Close()
 	f := newOwnershipFixture(t, time.Minute, server.URL)
-	d := dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender())
+	d := dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender(dispatcher.WithDialContext((&net.Dialer{}).DialContext)))
 	done := make(chan error, 2)
 	go func() { done <- d.Dispatch(context.Background(), f.event) }()
 	<-arrived
@@ -379,7 +380,9 @@ func TestOwnershipLongHTTPRenewalAndShutdownIntegration(t *testing.T) {
 	f := newOwnershipFixture(t, 240*time.Millisecond, server.URL)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender()).Dispatch(ctx, f.event) }()
+	go func() {
+		done <- dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender(dispatcher.WithDialContext((&net.Dialer{}).DialContext))).Dispatch(ctx, f.event)
+	}()
 	<-started
 	var initial time.Time
 	if err := f.db.QueryRow("SELECT lease_until FROM executions WHERE id=$1", f.execution.ID).Scan(&initial); err != nil {
@@ -439,13 +442,13 @@ func TestOwnershipOldHTTPResultCannotCompleteNewClaimIntegration(t *testing.T) {
 			oldDone, newDone := make(chan struct{}), make(chan struct{})
 			oldCompleted := make(chan error, 1)
 			go func() {
-				dispatcher.New(ownershipObservedCompletionStore{f.store, oldCompleted}, dispatcher.NewHTTPWebhookSender()).RunDBPoll(ctx, time.Millisecond, 1)
+				dispatcher.New(ownershipObservedCompletionStore{f.store, oldCompleted}, dispatcher.NewHTTPWebhookSender(dispatcher.WithDialContext((&net.Dialer{}).DialContext))).RunDBPoll(ctx, time.Millisecond, 1)
 				close(oldDone)
 			}()
 			<-oldArrived
 			f.expire(t)
 			go func() {
-				dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender()).RunDBPoll(ctx, time.Millisecond, 1)
+				dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender(dispatcher.WithDialContext((&net.Dialer{}).DialContext))).RunDBPoll(ctx, time.Millisecond, 1)
 				close(newDone)
 			}()
 			<-newArrived
@@ -512,11 +515,11 @@ func TestOwnershipHTTP200PersistenceGapRemainsAtLeastOnceIntegration(t *testing.
 	}))
 	defer server.Close()
 	f := newOwnershipFixture(t, time.Minute, server.URL)
-	if err := dispatcher.New(ownershipLostCompletionStore{f.store}, dispatcher.NewHTTPWebhookSender()).Dispatch(context.Background(), f.event); err == nil {
+	if err := dispatcher.New(ownershipLostCompletionStore{f.store}, dispatcher.NewHTTPWebhookSender(dispatcher.WithDialContext((&net.Dialer{}).DialContext))).Dispatch(context.Background(), f.event); err == nil {
 		t.Fatal("expected injected persistence failure")
 	}
 	f.expire(t)
-	if err := dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender()).Dispatch(context.Background(), f.event); err != nil {
+	if err := dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender(dispatcher.WithDialContext((&net.Dialer{}).DialContext))).Dispatch(context.Background(), f.event); err != nil {
 		t.Fatal(err)
 	}
 	idsMu.Lock()
@@ -550,7 +553,7 @@ func TestOwnershipRenewalStalledInPostgresCancelsHTTPIntegration(t *testing.T) {
 	f := newOwnershipFixture(t, 400*time.Millisecond, server.URL)
 	done := make(chan error, 1)
 	go func() {
-		done <- dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender()).Dispatch(context.Background(), f.event)
+		done <- dispatcher.New(f.store, dispatcher.NewHTTPWebhookSender(dispatcher.WithDialContext((&net.Dialer{}).DialContext))).Dispatch(context.Background(), f.event)
 	}()
 	<-started
 	tx, err := f.db.Begin()
@@ -724,7 +727,7 @@ func TestOwnershipCommittedRenewalWithDelayedResponseCannotReviveIntegration(t *
 	store := &ownershipDelayedRenewStore{Store: f.store, committed: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan error, 1)
 	go func() {
-		done <- dispatcher.New(store, dispatcher.NewHTTPWebhookSender()).Dispatch(context.Background(), f.event)
+		done <- dispatcher.New(store, dispatcher.NewHTTPWebhookSender(dispatcher.WithDialContext((&net.Dialer{}).DialContext))).Dispatch(context.Background(), f.event)
 	}()
 	<-started
 	<-store.committed

@@ -101,6 +101,11 @@ type Config struct {
 	AdminSessionAbsoluteTTL    time.Duration `json:"-"`
 	AdminSessionAbsoluteTTLStr string        `json:"admin_session_absolute_ttl"`
 	AdminCookieSecure          bool          `json:"admin_cookie_secure"`
+
+	// WebhookAllowedPrivateSuffixes lists hostnames (".suffix" or exact) whose
+	// private-range addresses webhook delivery may dial. Loopback, link-local
+	// and other always-blocked ranges are never allowed.
+	WebhookAllowedPrivateSuffixes []string `json:"webhook_allowed_private_suffixes"`
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -225,6 +230,12 @@ func Load() Config {
 	}
 
 	cfg.CORSOrigins = os.Getenv("CORS_ORIGINS")
+
+	for _, entry := range strings.Split(os.Getenv("WEBHOOK_ALLOWED_PRIVATE_SUFFIXES"), ",") {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			cfg.WebhookAllowedPrivateSuffixes = append(cfg.WebhookAllowedPrivateSuffixes, entry)
+		}
+	}
 
 	if maxOpenStr := os.Getenv("DB_MAX_OPEN_CONNS"); maxOpenStr != "" {
 		if n, err := parseInt(maxOpenStr); err == nil && n > 0 {
