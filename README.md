@@ -8,6 +8,11 @@
 [![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/djlord-it/cronlite)
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/<TEMPLATE_CODE>)
+<!-- TODO: replace after template is published -->
+
+Railway's built-in cron has a 5-minute minimum, runs in UTC only, can drift by minutes and skips overlapping runs; CronLite has none of those limits. See [Deploying on Railway](OPERATORS.md#deploying-on-railway).
+
 CronLite is a self-hosted cron-as-a-service with namespace-scoped API keys and MCP support. POST a job with a cron expression and a webhook URL — CronLite fires HTTP callbacks on schedule with HMAC-signed payloads, automatic retries, and Prometheus metrics.
 
 ## Quick Start

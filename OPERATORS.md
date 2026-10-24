@@ -112,6 +112,9 @@ HTTP and channel-dispatch drain budgets total `DISPATCHER_DRAIN_TIMEOUT` + `HTTP
 | `ADMIN_SESSION_TTL` | `30m` | Idle timeout for PostgreSQL-backed admin sessions; activity refreshes it after half the timeout |
 | `ADMIN_SESSION_ABSOLUTE_TTL` | `12h` | Maximum session lifetime; requires sign-in again even if the session remains active |
 | `ADMIN_COOKIE_SECURE` | production-aware | Secure cookie flag; defaults to `true` in production and `false` otherwise |
+| `MIGRATE_ON_START` | `false` | Apply pending schema migrations before `serve` starts (see [Migrations](#migrations)) |
+| `MIGRATE_LOCK_TIMEOUT` | `2m` | How long migrations wait for the migration lock held by another instance |
+| `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` | *(empty)* | Comma-separated hostnames or `.suffix` domains whose private-range (RFC 1918 / unique-local) addresses webhooks may reach; see [Security Hardening](#security-hardening) |
 
 ### Required in Production
 
@@ -160,7 +163,18 @@ Both modes require all migrations to be applied. See [Migrations](#migrations).
 
 ## Migrations
 
-Schema migrations live in `schema/` and are numbered sequentially. Apply them in order:
+Schema migrations live in `schema/` and are numbered sequentially. CronLite ships a runner that applies them in order:
+
+```bash
+cronlite migrate           # apply every pending migration
+cronlite migrate --status  # show applied / pending migrations
+```
+
+Set `MIGRATE_ON_START=true` to run the same logic before `cronlite serve` starts (off by default; `MIGRATE_LOCK_TIMEOUT` bounds the wait for the migration lock, default `2m`). Progress is recorded in the `cronlite_schema_migrations` table. A database that already has the schema is baselined rather than re-migrated.
+
+**Existing installs and 011:** migration 011 is never applied automatically to an existing install, because it requires every old writer to be stopped first. `cronlite migrate` and `MIGRATE_ON_START` exit with a "manual migration required" error naming 011; apply it by hand, then the next run records it and continues. On a fresh empty database 011 is applied automatically. See [schema/README.md](schema/README.md) for the full procedure and runner details, and [Upgrading](README.md#upgrading) for release notes.
+
+Manual application with `psql` still works if you prefer to manage migrations yourself:
 
 ```bash
 set -euo pipefail
@@ -330,7 +344,12 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 
 ## Security Hardening
 
-**SSRF protection:** Webhook URLs targeting private/reserved IP ranges are rejected at job creation time. Blocked ranges: RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), loopback (`127.0.0.0/8`), link-local (`169.254.0.0/16`), and IPv6 equivalents.
+**SSRF protection:** Webhook URLs targeting private/reserved IP ranges are rejected at job creation time, and every webhook connection is checked again at connect time. The guard resolves the hostname itself, checks every resolved address, and dials a checked address directly, so DNS rebinding and redirects to internal hosts are covered.
+- Always blocked (cannot be allowlisted): loopback, link-local (including cloud metadata `169.254.169.254`), unspecified/`0.0.0.0/8`, carrier-grade NAT `100.64.0.0/10`, multicast, IPv6 zones, and the IPv4-mapped/NAT64 forms of these.
+- Blocked unless allowlisted: RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and IPv6 unique-local `fc00::/7`.
+- `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` is a comma-separated list of hostnames. An entry starting with `.` (e.g. `.railway.internal`) matches that domain and its subdomains; any other entry (e.g. `webhook-receiver`) matches that exact hostname. Matching is case-insensitive. IP literals are rejected as entries and a literal IP in a URL is never allowlisted. An allowlisted name only unlocks the private ranges above, never the always-blocked ones.
+- A blocked delivery fails immediately: it is not retried and does not count toward the circuit breaker.
+- **Breaking change:** jobs that call private destinations (Docker/Compose service names, `*.railway.internal`, LAN hosts) now fail until their hostnames are allowlisted. See [Upgrading](README.md#upgrading).
 
 **Credential masking:** `cronlite config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
 
@@ -621,6 +640,50 @@ ADMIN_TEST_DATABASE_URL="postgresql://cronlite:cronlite@127.0.0.1:${published_po
 ```
 
 When their diagnostic collection steps run, integration and smoke failures upload sanitized diagnostics retained for seven days. Failures before a job reaches diagnostic collection may not produce an artifact. Redaction is defense in depth: bootstrap tokens, plaintext API keys, database URLs, and database passwords must never be written intentionally to logs or artifacts. The coverage profile is retained for seven days only when profile generation was reached; early contract, setup, or test failures may leave no coverage file to upload.
+
+## Deploying on Railway
+
+The Railway template deploys CronLite from a pinned `ghcr.io/djlord-it/cronlite` image next to Railway's managed Postgres, with a public domain and `/health` as the healthcheck. Railway's built-in cron is minimal (5-minute minimum, UTC only, timing can drift by minutes, overlapping runs are skipped); CronLite adds per-minute schedules, timezones, retries, signed webhooks and an API/MCP surface.
+
+### Variables
+
+| Variable | Value |
+|----------|-------|
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
+| `MIGRATE_ON_START` | `true` |
+| `DISPATCH_MODE` | `db` |
+| `RECONCILE_ENABLED` | `true` |
+| `ADMIN_ENABLED` | `true` |
+| `ADMIN_COOKIE_SECURE` | `true` |
+| `ADMIN_BOOTSTRAP_TOKEN` | generated secret |
+| `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` | `.railway.internal` |
+
+`PORT` is picked up automatically as the listen port unless `HTTP_ADDR` is set.
+
+**`CRONLITE_ENV` is intentionally unset.** `CRONLITE_ENV=production` enforces `METRICS_ENABLED=true` and a non-empty legacy `API_KEY`, so the container would refuse to start with the template's defaults. The production-relevant settings (`db` dispatch, reconciliation, secure cookies) are set explicitly instead.
+
+**Metrics** are off by default. Set `METRICS_ENABLED=true` to expose `/metrics`; set `API_KEY` too if the endpoint is reachable from the public domain, since it protects `/metrics` when set.
+
+### First run
+
+1. Open `https://<domain>/admin/setup`.
+2. Paste the `ADMIN_BOOTSTRAP_TOKEN` value from the service's Railway Variables tab.
+3. Create the first API key and store it; it is shown once.
+4. Delete `ADMIN_BOOTSTRAP_TOKEN` and redeploy.
+
+### Connecting clients
+
+- **MCP:** `https://<domain>/mcp` with header `Authorization: Bearer <key>`. See [MCP Transport](#mcp-transport).
+- **Sibling services:** webhook to other services in the same Railway project via `http://<service>.railway.internal:<port>/path`. These resolve to private addresses and are permitted by `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES=.railway.internal`; other private hosts must be added to that list.
+
+### Scaling and upgrading
+
+- **Scaling:** increase the service's replica count. `DISPATCH_MODE=db` with leader election handles multiple instances; see [Horizontal Scaling](#horizontal-scaling-multi-instance-ha).
+- **Upgrading:** bump the image tag. `MIGRATE_ON_START=true` applies pending migrations on boot under a lock, so replicas starting together are safe. Migration 011 is not auto-applied to databases created before it; see [Migrations](#migrations) and [Upgrading](README.md#upgrading).
+
+### Marketplace description
+
+> CronLite: self-hosted cron-as-a-service. Schedule HTTP webhooks with cron expressions, timezones and signed payloads, with automatic retries, an admin UI and an MCP endpoint for AI agents. Deploys with Postgres; open `/admin/setup` after the first deploy to create your API key.
 
 ## Deployment
 
