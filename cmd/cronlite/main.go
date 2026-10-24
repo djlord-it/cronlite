@@ -885,6 +885,12 @@ func runMigrate(args []string) int {
 			fmt.Fprintf(os.Stderr, "migration status failed: %v\n", err)
 			return exitRuntimeError
 		}
+		if pre, err := migrate.NeedsBaseline(ctx, db); err != nil {
+			fmt.Fprintf(os.Stderr, "migration status failed: %v\n", err)
+			return exitRuntimeError
+		} else if pre {
+			fmt.Println("note: no migration tracking table yet; the existing schema will be baselined on the first run")
+		}
 		for _, r := range rows {
 			fmt.Printf("%03d  %-40s  %s\n", r.Version, r.Name, r.State)
 		}

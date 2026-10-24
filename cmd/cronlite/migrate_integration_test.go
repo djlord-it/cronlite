@@ -87,3 +87,28 @@ func TestRunMigrateAppliesAndStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestRunMigrateStatusNotesPreRunnerDatabase(t *testing.T) {
+	dsn := newMigrateTestDB(t)
+	t.Setenv("DATABASE_URL", dsn)
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE jobs (id int)`); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	out := captureStdout(t, func() { code = runMigrate([]string{"--status"}) })
+	if code != exitSuccess {
+		t.Fatalf("runMigrate(--status) = %d", code)
+	}
+	const note = "note: no migration tracking table yet; the existing schema will be baselined on the first run"
+	if !strings.HasPrefix(out, note+"\n") {
+		t.Fatalf("status output missing note:\n%s", out)
+	}
+	if strings.Count(out, "pending") != 11 {
+		t.Fatalf("want 11 pending lines:\n%s", out)
+	}
+}

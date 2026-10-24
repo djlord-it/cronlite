@@ -24,10 +24,11 @@ transaction) in a numbered migration.
 Migration 011 is never applied automatically to an existing install (a
 database with baselined rows, i.e. one built before the runner tracked it).
 `cronlite migrate` or `MIGRATE_ON_START` exits with a "manual migration
-required" error naming 011. Drain the old writers and apply 011 by hand,
-following "Execution ownership migration (011)" below. The next run detects 011
-(and any other hand-applied migrations), records it as baselined, and
-continues. On a fresh empty database, 011 is applied automatically like every
+required" error listing every pending migration up to and including 011.
+Drain the old writers, apply the pending migrations named in the error, in
+order, then rerun (011 follows "Execution ownership migration (011)" below).
+The next run detects the hand-applied migrations, records them as baselined,
+and continues. On a fresh empty database, 011 is applied automatically like every
 other migration.
 
 To apply files manually instead, run every numbered SQL file in order. For example:

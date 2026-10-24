@@ -283,6 +283,14 @@ func TestRunRefusesBeforeApplyingAnything(t *testing.T) {
 	if regclassExists(t, db, "admin_bulk_batches") {
 		t.Fatal("admin_bulk_batches exists; 010 was applied before refusing")
 	}
+	for _, want := range []string{"010 (010_job_control_center.sql)", "011 (011_execution_ownership.sql)", "schema/README.md", "Execution ownership migration (011)"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err, want)
+		}
+	}
+	if i, j := strings.Index(err.Error(), "010 ("), strings.Index(err.Error(), "011 ("); i < 0 || j < i {
+		t.Errorf("error %q does not list 010 before 011", err)
+	}
 }
 
 func TestRunRefusesManualOnExisting(t *testing.T) {
@@ -496,5 +504,25 @@ func TestStatusOfEmptyDatabase(t *testing.T) {
 		if s.State != StatePending {
 			t.Errorf("version %d state = %q, want pending", s.Version, s.State)
 		}
+	}
+}
+
+func TestNeedsBaseline(t *testing.T) {
+	db := openDB(t, newTestDB(t))
+	ms := loadAll(t)
+	ctx := context.Background()
+
+	if got, err := NeedsBaseline(ctx, db); err != nil || got {
+		t.Fatalf("empty db: NeedsBaseline = %v, %v; want false, nil", got, err)
+	}
+	handApply(t, db, ms, seq(1, 9)...)
+	if got, err := NeedsBaseline(ctx, db); err != nil || !got {
+		t.Fatalf("pre-runner db: NeedsBaseline = %v, %v; want true, nil", got, err)
+	}
+	if _, err := Run(ctx, db, ms, opts()); !errors.Is(err, ErrManualMigrationRequired) {
+		t.Fatalf("Run err = %v", err)
+	}
+	if got, err := NeedsBaseline(ctx, db); err != nil || got {
+		t.Fatalf("tracked db: NeedsBaseline = %v, %v; want false, nil", got, err)
 	}
 }

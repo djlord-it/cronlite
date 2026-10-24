@@ -172,7 +172,7 @@ cronlite migrate --status  # show applied / pending migrations
 
 Set `MIGRATE_ON_START=true` to run the same logic before `cronlite serve` starts (off by default; `MIGRATE_LOCK_TIMEOUT` bounds the wait for the migration lock, default `2m`). Progress is recorded in the `cronlite_schema_migrations` table. A database that already has the schema is baselined rather than re-migrated.
 
-**Existing installs and 011:** migration 011 is never applied automatically to an existing install, because it requires every old writer to be stopped first. `cronlite migrate` and `MIGRATE_ON_START` exit with a "manual migration required" error naming 011; apply it by hand, then the next run records it and continues. On a fresh empty database 011 is applied automatically. See [schema/README.md](schema/README.md) for the full procedure and runner details, and [Upgrading](README.md#upgrading) for release notes.
+**Existing installs and 011:** migration 011 is never applied automatically to an existing install, because it requires every old writer to be stopped first. `cronlite migrate` and `MIGRATE_ON_START` exit with a "manual migration required" error listing every pending migration up to and including 011; apply the pending migrations named in the error, in order, then rerun, and the next run records them and continues. On a fresh empty database 011 is applied automatically. See [schema/README.md](schema/README.md) for the full procedure and runner details, and [Upgrading](README.md#upgrading) for release notes.
 
 Manual application with `psql` still works if you prefer to manage migrations yourself:
 
@@ -348,6 +348,8 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 - Always blocked (cannot be allowlisted): loopback, link-local (including cloud metadata `169.254.169.254`), unspecified/`0.0.0.0/8`, carrier-grade NAT `100.64.0.0/10`, multicast, IPv6 zones, and the IPv4-mapped/NAT64 forms of these.
 - Blocked unless allowlisted: RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and IPv6 unique-local `fc00::/7`.
 - `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` is a comma-separated list of hostnames. An entry starting with `.` (e.g. `.railway.internal`) matches that domain and its subdomains; any other entry (e.g. `webhook-receiver`) matches that exact hostname. Matching is case-insensitive. IP literals are rejected as entries and a literal IP in a URL is never allowlisted. An allowlisted name only unlocks the private ranges above, never the always-blocked ones.
+- **The allowlist is installation-wide.** Any API key holder in any namespace can deliver to allowlisted private hosts (with the Railway template default `.railway.internal`, that is every sibling service in the Railway project). Keep it as narrow as practical, e.g. exact service names instead of `.railway.internal`.
+- `host.docker.internal` only helps where it resolves to a private range (Linux `host-gateway`, e.g. 172.17.0.1). Docker Desktop resolves it to 0.250.250.254, inside the always-blocked `0.0.0.0/8`, so allowlisting it does not work there: run the receiver as a Compose service (or a relay on the Compose network) and allowlist that service name.
 - A blocked delivery fails immediately: it is not retried and does not count toward the circuit breaker.
 - **Breaking change:** jobs that call private destinations (Docker/Compose service names, `*.railway.internal`, LAN hosts) now fail until their hostnames are allowlisted. See [Upgrading](README.md#upgrading).
 
@@ -658,11 +660,13 @@ The Railway template deploys CronLite from a pinned `ghcr.io/djlord-it/cronlite`
 | `ADMIN_BOOTSTRAP_TOKEN` | generated secret |
 | `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` | `.railway.internal` |
 
+**Allowlist scope:** `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` is installation-wide: any API key holder in any namespace can deliver to allowlisted private hosts. With the template default `.railway.internal` that is every sibling service in the Railway project, so narrow it to exact service names where practical.
+
 `PORT` is picked up automatically as the listen port unless `HTTP_ADDR` is set.
 
 **`CRONLITE_ENV` is intentionally unset.** `CRONLITE_ENV=production` enforces `METRICS_ENABLED=true` and a non-empty legacy `API_KEY`, so the container would refuse to start with the template's defaults. The production-relevant settings (`db` dispatch, reconciliation, secure cookies) are set explicitly instead.
 
-**Metrics** are off by default. Set `METRICS_ENABLED=true` to expose `/metrics`; set `API_KEY` too if the endpoint is reachable from the public domain, since it protects `/metrics` when set.
+**Metrics** are off by default. Set `METRICS_ENABLED=true` to expose `/metrics`; when enabled, `/metrics` requires any valid Bearer API key unless `METRICS_PUBLIC=true`.
 
 ### First run
 

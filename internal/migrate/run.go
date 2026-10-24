@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -157,11 +158,15 @@ func Run(ctx context.Context, db *sql.DB, ms []Migration, opts Options) (Result,
 		}
 		pending = pending[len(handApplied):]
 
-		for _, m := range pending {
+		for i, m := range pending {
 			if m.ManualOnExisting {
+				var list []string
+				for _, p := range pending[:i+1] {
+					list = append(list, fmt.Sprintf("%03d (%s)", p.Version, p.Name))
+				}
 				return res, fmt.Errorf("%w: migration %d (%s) must be applied by hand on an existing database; "+
-					"follow \"Execution ownership migration (011)\" in schema/README.md, then rerun",
-					ErrManualMigrationRequired, m.Version, m.Name)
+					"apply migrations %s by hand, in order, following \"Execution ownership migration (011)\" in schema/README.md, then rerun",
+					ErrManualMigrationRequired, m.Version, m.Name, strings.Join(list, ", "))
 			}
 		}
 	}
@@ -173,6 +178,20 @@ func Run(ctx context.Context, db *sql.DB, ms []Migration, opts Options) (Result,
 		res.Applied = append(res.Applied, m.Version)
 	}
 	return res, nil
+}
+
+// NeedsBaseline reports whether the database predates the runner: the
+// tracking table does not exist yet but the application's jobs table does, so
+// the next run would baseline the existing schema. It is read-only.
+func NeedsBaseline(ctx context.Context, db *sql.DB) (bool, error) {
+	var tracking, jobs bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT to_regclass(format('%I.%I', current_schema(), $1::text)) IS NOT NULL,
+		        to_regclass(format('%I.%I', current_schema(), 'jobs')) IS NOT NULL`,
+		trackingTable).Scan(&tracking, &jobs); err != nil {
+		return false, fmt.Errorf("migrate: probe baseline state: %w", err)
+	}
+	return !tracking && jobs, nil
 }
 
 // StatusOf reports each migration's state without taking the lock or

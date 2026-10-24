@@ -8,10 +8,11 @@
 [![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/djlord-it/cronlite)
 
+<!-- TODO: replace <TEMPLATE_CODE> and restore once the Railway template is published
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/<TEMPLATE_CODE>)
-<!-- TODO: replace after template is published -->
+-->
 
-Railway's built-in cron has a 5-minute minimum, runs in UTC only, can drift by minutes and skips overlapping runs; CronLite has none of those limits. See [Deploying on Railway](OPERATORS.md#deploying-on-railway).
+Railway's built-in cron has a 5-minute minimum, runs in UTC only, can drift by minutes and skips overlapping runs; CronLite adds per-minute schedules, IANA timezones and retries with backoff. See [Deploying on Railway](OPERATORS.md#deploying-on-railway).
 
 CronLite is a self-hosted cron-as-a-service with namespace-scoped API keys and MCP support. POST a job with a cron expression and a webhook URL — CronLite fires HTTP callbacks on schedule with HMAC-signed payloads, automatic retries, and Prometheus metrics.
 
@@ -357,7 +358,7 @@ All tools are namespace-scoped via the API key used for authentication.
 ## Security
 
 - **Namespace isolation**: API keys are scoped to namespaces — each key can only access its own jobs and executions
-- **SSRF protection**: Webhook URLs targeting private/reserved IP ranges (RFC 1918, loopback, link-local) are rejected at creation time
+- **SSRF protection**: Webhook URLs targeting private/reserved IP ranges (RFC 1918, loopback, link-local) are rejected at creation time, and every webhook connection is checked again after DNS resolution and on every redirect; private ranges are opt-in via `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` (see [Security Hardening](OPERATORS.md#security-hardening))
 - **Rate limiting**: Two-layer rate limiting — per-IP (default 10 req/sec, before auth) and per-namespace (default 100 req/sec, after auth) on all endpoints except `/health`
 - **Credential safety**: `DATABASE_URL` and `REDIS_ADDR` credentials are masked in `cronlite config` output; startup warns when `sslmode=disable`
 - **Error sanitization**: Database error details are never exposed in API responses
@@ -379,6 +380,8 @@ All configuration is via environment variables. Run `./cronlite --help` for defa
 > upgrading, e.g. `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES=.railway.internal,webhook-receiver`.
 > Blocked deliveries fail immediately and are not retried. Loopback and
 > link-local addresses cannot be allowlisted.
+
+Note: `host.docker.internal` only helps where it resolves to a private range (Linux `host-gateway`, e.g. 172.17.0.1). Docker Desktop resolves it to 0.250.250.254, inside the always-blocked `0.0.0.0/8`, so allowlisting it does not work there; run the receiver as a Compose service (or a relay on the Compose network) and allowlist that service name.
 
 ## License
 
