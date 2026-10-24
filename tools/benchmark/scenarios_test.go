@@ -84,7 +84,7 @@ func TestProductionRetryCasesRunConcurrently(t *testing.T) {
 			Timeout:           time.Second,
 			PollInterval:      time.Millisecond,
 			WebhookSecret:     "secret",
-			ReceiverPublicURL: "http://host.docker.internal:19090",
+			ReceiverPublicURL: "http://benchmark-receiver:19090",
 		},
 		RunID:    "run-1",
 		API:      api,
@@ -101,11 +101,11 @@ func TestProductionRetryCasesRunConcurrently(t *testing.T) {
 }
 
 func TestConnectionFailureTargetUsesApprovedReceiverHostAndClosedPort(t *testing.T) {
-	target, err := connectionFailureTarget("http://host.docker.internal:19090")
+	target, err := connectionFailureTarget("http://benchmark-receiver:19090")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target != "http://host.docker.internal:1/hook" {
+	if target != "http://benchmark-receiver:1/hook" {
 		t.Fatalf("connection failure target = %q", target)
 	}
 }
@@ -190,7 +190,7 @@ func TestRunSingleManualAllowsFailedConnectionWithoutCallback(t *testing.T) {
 		env,
 		"connection-failure",
 		"job-1",
-		"http://host.docker.internal:1/hook",
+		"http://benchmark-receiver:1/hook",
 		1,
 		false,
 	)

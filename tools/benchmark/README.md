@@ -92,6 +92,14 @@ Managed ports are:
 | PostgreSQL | `127.0.0.1:15432` |
 | Embedded receiver | `0.0.0.0:19090` |
 
+With `--start-compose`, callbacks reach the tool's embedded receiver through the
+`benchmark-receiver` relay container (a `socat` TCP relay on the Compose network,
+no published host port). CronLite targets `http://benchmark-receiver:19090` and
+allowlists that name with `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES`. This adds one local
+TCP hop to callback latency. The relay exists because CronLite's connection guard
+blocks Docker Desktop's `host.docker.internal` (`0.250.250.254`), which cannot be
+allowlisted.
+
 ## Measurement modes
 
 ### Black-box mode

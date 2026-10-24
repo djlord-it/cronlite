@@ -11,6 +11,7 @@ x-cronlite-env: &cronlite-env
   RECONCILE_ENABLED: "true"
   RECONCILE_INTERVAL: 30s
   API_KEY: ha-test-key
+  WEBHOOK_ALLOWED_PRIVATE_SUFFIXES: "webhook-receiver"
 
 services:
   postgres:

@@ -294,6 +294,7 @@ ADMIN_BASE_URL="http://127.0.0.1:${published_address##*:}" \
 |----------|---------|-------------|
 | `MIGRATE_ON_START` | `false` | Apply pending schema migrations before `cronlite serve` starts (set in `docker-compose.yml`) |
 | `MIGRATE_LOCK_TIMEOUT` | `2m` | Max wait for the migration lock when another instance is migrating |
+| `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` | empty | Comma-separated hostnames allowed to resolve to private addresses. A leading dot (`.railway.internal`) matches the domain and its subdomains; other entries match the exact hostname. Loopback and link-local cannot be allowlisted |
 
 ## MCP (Model Context Protocol)
 
@@ -361,6 +362,18 @@ The built-in per-IP limiter keys clients from Go's `RemoteAddr` and deliberately
 ## Configuration
 
 All configuration is via environment variables. Run `./cronlite --help` for defaults. See the [Operator Guide](OPERATORS.md#configuration-reference) for the full reference and production recommendations.
+
+## Upgrading
+
+> **Breaking: webhooks to private addresses are now blocked.** CronLite now
+> checks every webhook connection — after DNS resolution and on every
+> redirect — and refuses loopback, link-local (including cloud metadata),
+> carrier-grade NAT and private-network addresses. If your jobs call internal
+> services (Docker/Compose service names, `*.railway.internal`, LAN hosts,
+> `host.docker.internal`), set `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` before
+> upgrading, e.g. `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES=.railway.internal,webhook-receiver`.
+> Blocked deliveries fail immediately and are not retried. Loopback and
+> link-local addresses cannot be allowlisted.
 
 ## License
 
