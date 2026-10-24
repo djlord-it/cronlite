@@ -114,7 +114,7 @@ Environment Variables:
   DATABASE_URL              PostgreSQL connection string (required)
   REDIS_ADDR                Redis address for analytics (optional)
   HTTP_ADDR                 HTTP server address (default: ":8080")
-  API_KEY                   API key for Bearer authentication (optional, recommended)
+  API_KEY                   DEPRECATED legacy single key; use 'cronlite create-key' instead
   TICK_INTERVAL             Scheduler tick interval (default: "30s")
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
@@ -441,12 +441,7 @@ func runServe() int {
 	rootHandler = api.MultiKeyAuthMiddleware(appCtx, store, cfg.APIKey, rootHandler)    // sets namespace in ctx
 	rootHandler = api.RateLimitMiddleware(cfg.IPRateLimit, rootHandler)                 // per-IP, before auth
 	rootHandler = api.CORSMiddleware(cfg.CORSOrigins, rootHandler)                      // CORS, outermost
-	if cfg.APIKey != "" {
-		log.Println("cronlite: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
-		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'cronlite create-key' and remove API_KEY.")
-	} else {
-		log.Println("WARNING [P0]: API_KEY not set — API endpoints are unauthenticated. Set API_KEY for production.")
-	}
+	logAuthStatus(appCtx, cfg.APIKey, store)
 	log.Printf("cronlite: rate limits: %d req/s per IP, %d req/s per namespace", cfg.IPRateLimit, cfg.NamespaceRateLimit)
 
 	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
@@ -756,6 +751,32 @@ func probeExecutionOwnership(db *sql.DB) error {
 // logConfigWarnings emits startup warnings for dangerous or suboptimal
 // configuration combinations. It runs after config validation passes and
 // before any connections are opened.
+// apiKeyChecker is the subset of the store used to report authentication
+// status at startup.
+type apiKeyChecker interface {
+	HasAnyAPIKeys(ctx context.Context) (bool, error)
+}
+
+// logAuthStatus reports how API requests will authenticate. Namespace-scoped
+// keys are always enforced, so the only actionable cases are the deprecated
+// API_KEY fallback and an installation that has no keys yet.
+func logAuthStatus(ctx context.Context, legacyKey string, keys apiKeyChecker) {
+	if legacyKey != "" {
+		log.Println("cronlite: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
+		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'cronlite create-key' and remove API_KEY.")
+		return
+	}
+
+	hasKeys, err := keys.HasAnyAPIKeys(ctx)
+	if err != nil {
+		log.Printf("cronlite: could not check for API keys: %v", err)
+		return
+	}
+	if !hasKeys {
+		log.Println("INFO: no API keys exist yet — all authenticated endpoints will return 401. Create one with 'cronlite create-key <namespace> <label>' or via /admin/setup.")
+	}
+}
+
 func logConfigWarnings(cfg *config.Config) {
 	if cfg.DispatchMode == "channel" && !cfg.ReconcileEnabled {
 		log.Printf("WARNING [P0]: DISPATCH_MODE=channel with RECONCILE_ENABLED=false — orphaned executions from buffer overflow will be PERMANENTLY LOST. Set RECONCILE_ENABLED=true for production.")
