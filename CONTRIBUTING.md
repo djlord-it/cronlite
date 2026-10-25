@@ -14,7 +14,7 @@ Be respectful, constructive, and inclusive. We want CronLite's community to be w
 ```bash
 git clone https://github.com/<your-username>/cronlite.git
 cd cronlite
-docker compose up -d
+./scripts/dev.sh   # PostgreSQL + migrations + API key + server + admin UI
 ```
 
 3. Create a branch from `main`:

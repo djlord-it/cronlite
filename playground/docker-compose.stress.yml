@@ -1,5 +1,6 @@
 x-easycron-env: &easycron-env
   DATABASE_URL: postgres://easycron:easycron@postgres:5432/easycron?sslmode=disable
+  WEBHOOK_ALLOWED_PRIVATE_SUFFIXES: "webhook-receiver"
   DISPATCH_MODE: db
   DISPATCHER_WORKERS: "16"
   DB_POLL_INTERVAL: 200ms

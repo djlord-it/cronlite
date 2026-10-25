@@ -19,7 +19,9 @@ services:
       - ./schema/009_emitted_claim_index.sql:/docker-entrypoint-initdb.d/009_emitted_claim_index.sql
       - ./schema/010_job_control_center.sql:/docker-entrypoint-initdb.d/010_job_control_center.sql
     ports:
-      - "${POSTGRES_HOST_PORT:-5432}:5432"
+      # Loopback-only on an uncommon port so a local PostgreSQL on 5432
+      # never silently shadows this one.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-54329}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cronlite"]
       interval: 2s
@@ -38,6 +40,11 @@ services:
       DISPATCHER_WORKERS: "4"
       RECONCILE_ENABLED: "true"
       METRICS_ENABLED: "true"
+      MIGRATE_ON_START: "true"
+      ADMIN_ENABLED: "true"
+      ADMIN_COOKIE_SECURE: "false"
+      # Only needed for /admin/setup when no API key exists yet.
+      ADMIN_BOOTSTRAP_TOKEN: "${ADMIN_BOOTSTRAP_TOKEN:-}"
     ports:
       - "8080:8080"
 

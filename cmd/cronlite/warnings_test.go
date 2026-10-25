@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"log"
 	"strings"
 	"testing"
@@ -245,5 +247,68 @@ func TestLogConfigWarnings_AllWarnings(t *testing.T) {
 	// Should NOT have db workers warning (channel mode)
 	if strings.Contains(output, "DISPATCHER_WORKERS=1") {
 		t.Error("did not expect db workers warning in channel mode, got:", output)
+	}
+}
+
+type fakeKeyChecker struct {
+	hasKeys bool
+	err     error
+}
+
+func (f fakeKeyChecker) HasAnyAPIKeys(context.Context) (bool, error) {
+	return f.hasKeys, f.err
+}
+
+func captureAuthStatus(legacyKey string, keys apiKeyChecker) string {
+	var buf bytes.Buffer
+	original := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(original)
+
+	logAuthStatus(context.Background(), legacyKey, keys)
+	return buf.String()
+}
+
+func TestLogAuthStatus(t *testing.T) {
+	tests := []struct {
+		name      string
+		legacyKey string
+		keys      fakeKeyChecker
+		want      string
+		dontWant  string
+	}{
+		{
+			name:     "keys exist",
+			keys:     fakeKeyChecker{hasKeys: true},
+			dontWant: "WARNING",
+		},
+		{
+			name:     "no keys yet",
+			keys:     fakeKeyChecker{},
+			want:     "INFO: no API keys exist yet",
+			dontWant: "unauthenticated",
+		},
+		{
+			name:      "legacy key set",
+			legacyKey: "legacy",
+			keys:      fakeKeyChecker{err: errors.New("must not be called")},
+			want:      "WARNING [P2]: API_KEY env var is set",
+		},
+		{
+			name: "lookup error",
+			keys: fakeKeyChecker{err: errors.New("db down")},
+			want: "could not check for API keys: db down",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := captureAuthStatus(tt.legacyKey, tt.keys)
+			if tt.want != "" && !strings.Contains(output, tt.want) {
+				t.Errorf("expected %q in output, got: %s", tt.want, output)
+			}
+			if tt.dontWant != "" && strings.Contains(output, tt.dontWant) {
+				t.Errorf("did not expect %q in output, got: %s", tt.dontWant, output)
+			}
+		})
 	}
 }

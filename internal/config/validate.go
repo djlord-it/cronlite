@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/djlord-it/cronlite/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/webhookurl"
 )
 
 // ValidationError represents a configuration validation error.
@@ -103,6 +104,9 @@ func Validate(cfg Config) error {
 	if cfg.DBOpTimeoutStr != "" && cfg.DBOpTimeout <= 0 {
 		errs = append(errs, ValidationError{Field: "DB_OP_TIMEOUT", Message: "must be a positive duration"})
 	}
+	if cfg.MigrateLockTimeoutStr != "" && cfg.MigrateLockTimeout <= 0 {
+		errs = append(errs, ValidationError{Field: "MIGRATE_LOCK_TIMEOUT", Message: "must be a positive duration"})
+	}
 	if cfg.DispatcherWorkers > int(^uint(0)>>1)/4 {
 		errs = append(errs, ValidationError{Field: "DISPATCHER_WORKERS", Message: "delivery slot count overflows int"})
 	}
@@ -115,6 +119,10 @@ func Validate(cfg Config) error {
 		if cfg.ReconcileRequeueThreshold < minimum {
 			errs = append(errs, ValidationError{Field: "RECONCILE_REQUEUE_THRESHOLD", Message: fmt.Sprintf("execution lease must be >= %s", minimum)})
 		}
+	}
+
+	if _, err := webhookurl.ParseAllowlist(cfg.WebhookAllowedPrivateSuffixes); err != nil {
+		errs = append(errs, ValidationError{Field: "WEBHOOK_ALLOWED_PRIVATE_SUFFIXES", Message: err.Error()})
 	}
 
 	// Reconciler parameters (when enabled)

@@ -4,7 +4,34 @@ This directory contains the PostgreSQL schema for CronLite.
 
 ## Applying the Schema
 
-Apply every numbered SQL file in order. For example:
+`cronlite migrate` applies every pending migration; `cronlite migrate --status`
+lists each one as `applied`, `baselined`, or `pending`. Setting
+`MIGRATE_ON_START=true` runs the same logic before `cronlite serve` starts
+(`MIGRATE_LOCK_TIMEOUT` bounds the wait for the migration lock, default `2m`).
+
+Progress is recorded in the `cronlite_schema_migrations` tracking table. A database that
+was set up by hand (or by Compose's initdb mounts) is detected and its existing
+migrations are recorded as `baselined` instead of being re-run. Runs are
+serialized with a PostgreSQL advisory lock, so several instances can start at
+once.
+
+Each migration file runs as a single unit. Because the runner supplies the
+transaction, a file may contain `BEGIN;` and `COMMIT;` on their own lines; the
+runner strips exactly those lines and wraps the file itself. Do not use
+`CREATE INDEX CONCURRENTLY` (or anything else that cannot run in a
+transaction) in a numbered migration.
+
+Migration 011 is never applied automatically to an existing install (a
+database with baselined rows, i.e. one built before the runner tracked it).
+`cronlite migrate` or `MIGRATE_ON_START` exits with a "manual migration
+required" error listing every pending migration up to and including 011.
+Drain the old writers, apply the pending migrations named in the error, in
+order, then rerun (011 follows "Execution ownership migration (011)" below).
+The next run detects the hand-applied migrations, records them as baselined,
+and continues. On a fresh empty database, 011 is applied automatically like every
+other migration.
+
+To apply files manually instead, run every numbered SQL file in order. For example:
 
 ```bash
 set -e
@@ -54,8 +81,7 @@ Stores opaque, revocable browser sessions for the optional `/admin` UI. Sessions
 
 ## Notes
 
-- No migration tooling is provided. Apply SQL files directly.
-- Schema changes require manual migration scripts.
+- Migrations are applied by `cronlite migrate` (or `MIGRATE_ON_START=true`); new schema changes are added as the next numbered `.sql` file.
 - UUIDs are used for all primary keys.
 - Timestamps are stored as `TIMESTAMPTZ` (timezone-aware).
 

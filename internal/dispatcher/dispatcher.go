@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/webhookurl"
 )
 
 var defaultBackoff = []time.Duration{
@@ -111,7 +112,9 @@ func (r WebhookResult) IsSuccess() bool {
 
 func (r WebhookResult) IsRetryable() bool {
 	if r.Error != nil {
-		return true
+		// A blocked destination is permanent; every other error (including DNS
+		// lookup failures) is transient.
+		return !errors.Is(r.Error, webhookurl.ErrDestinationBlocked)
 	}
 	if r.StatusCode == 429 {
 		return true
@@ -513,7 +516,9 @@ func (d *Dispatcher) dispatchOwned(ctx context.Context, execution domain.Executi
 	}
 
 	log.Printf("dispatcher: job=%s failed status=%d err=%v", event.JobID, lastResult.StatusCode, lastResult.Error)
-	if d.breaker != nil {
+	// A blocked destination says nothing about the endpoint's health, so it
+	// does not count against the circuit breaker.
+	if d.breaker != nil && !errors.Is(lastResult.Error, webhookurl.ErrDestinationBlocked) {
 		d.breaker.RecordFailure(job.Delivery.WebhookURL)
 	}
 	if d.metrics != nil {

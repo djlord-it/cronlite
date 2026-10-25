@@ -29,12 +29,15 @@ import (
 	"github.com/djlord-it/cronlite/internal/leaderelection"
 	mcpsrv "github.com/djlord-it/cronlite/internal/mcp"
 	"github.com/djlord-it/cronlite/internal/metrics"
+	"github.com/djlord-it/cronlite/internal/migrate"
 	"github.com/djlord-it/cronlite/internal/reconciler"
 	"github.com/djlord-it/cronlite/internal/scheduler"
 	"github.com/djlord-it/cronlite/internal/service"
 	"github.com/djlord-it/cronlite/internal/store/postgres"
 	"github.com/djlord-it/cronlite/internal/transport/channel"
 	"github.com/djlord-it/cronlite/internal/webadmin"
+	"github.com/djlord-it/cronlite/internal/webhookurl"
+	"github.com/djlord-it/cronlite/schema"
 
 	_ "github.com/lib/pq"
 )
@@ -86,6 +89,8 @@ func main() {
 		os.Exit(runVersion())
 	case "create-key":
 		os.Exit(runCreateKey())
+	case "migrate":
+		os.Exit(runMigrate(os.Args[2:]))
 	case "--help", "-h", "help":
 		printUsage()
 		os.Exit(exitSuccess)
@@ -108,14 +113,19 @@ Commands:
   config       Print effective configuration as JSON (secrets masked)
   version      Print version information
   create-key   Create a new API key  (usage: cronlite create-key <namespace> <label>)
+  migrate      Apply pending schema migrations (--status to list)
 
 Environment Variables:
   CRONLITE_ENV              Runtime environment; "production" enables strict validation
   DATABASE_URL              PostgreSQL connection string (required)
   REDIS_ADDR                Redis address for analytics (optional)
   HTTP_ADDR                 HTTP server address (default: ":8080")
-  API_KEY                   API key for Bearer authentication (optional, recommended)
+  API_KEY                   DEPRECATED legacy single key; use 'cronlite create-key' instead
   TICK_INTERVAL             Scheduler tick interval (default: "30s")
+  MIGRATE_ON_START          Apply pending schema migrations on 'serve' start (default: "false")
+  MIGRATE_LOCK_TIMEOUT      Max wait for the migration lock (default: "2m")
+  WEBHOOK_ALLOWED_PRIVATE_SUFFIXES  Comma-separated hostnames (".suffix" or exact) allowed to resolve
+                            to private ranges (RFC 1918 / fc00::/7); loopback and link-local stay blocked
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
   DB_MAX_OPEN_CONNS         Max open database connections (default: "25")
@@ -336,6 +346,15 @@ func runServe() int {
 		return exitRuntimeError
 	}
 
+	if cfg.MigrateOnStart {
+		res, err := applyMigrations(context.Background(), db, cfg.MigrateLockTimeout, log.Printf)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
+			return exitRuntimeError
+		}
+		log.Printf("cronlite: migrations complete (applied=%d, baselined=%d)", len(res.Applied), len(res.Baselined))
+	}
+
 	if err := probeExecutionOwnership(db); err != nil {
 		fmt.Fprintf(os.Stderr, "execution ownership migration probe failed: %v\n", err)
 		return exitInvalidConfig
@@ -343,7 +362,12 @@ func runServe() int {
 
 	store := postgres.New(db, cfg.DBOpTimeout).WithExecutionLease(cfg.ReconcileRequeueThreshold)
 	cronParser := &cronParserAdapter{parser: cron.NewParser()}
-	webhookSender := dispatcher.NewHTTPWebhookSender()
+	webhookAllowlist, err := webhookurl.ParseAllowlist(cfg.WebhookAllowedPrivateSuffixes)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid WEBHOOK_ALLOWED_PRIVATE_SUFFIXES: %v\n", err)
+		return exitInvalidConfig
+	}
+	webhookSender := dispatcher.NewHTTPWebhookSender(dispatcher.WithAllowlist(webhookAllowlist))
 
 	var metricsSink *metrics.PrometheusSink
 
@@ -441,12 +465,7 @@ func runServe() int {
 	rootHandler = api.MultiKeyAuthMiddleware(appCtx, store, cfg.APIKey, rootHandler)    // sets namespace in ctx
 	rootHandler = api.RateLimitMiddleware(cfg.IPRateLimit, rootHandler)                 // per-IP, before auth
 	rootHandler = api.CORSMiddleware(cfg.CORSOrigins, rootHandler)                      // CORS, outermost
-	if cfg.APIKey != "" {
-		log.Println("cronlite: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
-		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'cronlite create-key' and remove API_KEY.")
-	} else {
-		log.Println("WARNING [P0]: API_KEY not set — API endpoints are unauthenticated. Set API_KEY for production.")
-	}
+	logAuthStatus(appCtx, cfg.APIKey, store)
 	log.Printf("cronlite: rate limits: %d req/s per IP, %d req/s per namespace", cfg.IPRateLimit, cfg.NamespaceRateLimit)
 
 	// ── MCP transport (embedded SSE for AI agents) ──────────────────────────
@@ -756,6 +775,32 @@ func probeExecutionOwnership(db *sql.DB) error {
 // logConfigWarnings emits startup warnings for dangerous or suboptimal
 // configuration combinations. It runs after config validation passes and
 // before any connections are opened.
+// apiKeyChecker is the subset of the store used to report authentication
+// status at startup.
+type apiKeyChecker interface {
+	HasAnyAPIKeys(ctx context.Context) (bool, error)
+}
+
+// logAuthStatus reports how API requests will authenticate. Namespace-scoped
+// keys are always enforced, so the only actionable cases are the deprecated
+// API_KEY fallback and an installation that has no keys yet.
+func logAuthStatus(ctx context.Context, legacyKey string, keys apiKeyChecker) {
+	if legacyKey != "" {
+		log.Println("cronlite: API key authentication enabled (multi-key + DEPRECATED legacy fallback)")
+		log.Println("WARNING [P2]: API_KEY env var is set — legacy single-key auth is DEPRECATED. Create namespace-scoped keys via 'cronlite create-key' and remove API_KEY.")
+		return
+	}
+
+	hasKeys, err := keys.HasAnyAPIKeys(ctx)
+	if err != nil {
+		log.Printf("cronlite: could not check for API keys: %v", err)
+		return
+	}
+	if !hasKeys {
+		log.Println("INFO: no API keys exist yet — all authenticated endpoints will return 401. Create one with 'cronlite create-key <namespace> <label>' or via /admin/setup.")
+	}
+}
+
 func logConfigWarnings(cfg *config.Config) {
 	if cfg.DispatchMode == "channel" && !cfg.ReconcileEnabled {
 		log.Printf("WARNING [P0]: DISPATCH_MODE=channel with RECONCILE_ENABLED=false — orphaned executions from buffer overflow will be PERMANENTLY LOST. Set RECONCILE_ENABLED=true for production.")
@@ -793,4 +838,80 @@ func logConfigWarnings(cfg *config.Config) {
 	if strings.Contains(cfg.DatabaseURL, "sslmode=disable") {
 		log.Printf("WARNING [P1]: DATABASE_URL contains sslmode=disable — database connections are NOT encrypted. Use sslmode=require or sslmode=verify-full for production.")
 	}
+}
+
+// runMigrate applies pending schema migrations, or with --status lists the
+// state of every known migration.
+func runMigrate(args []string) int {
+	status := false
+	for _, a := range args {
+		switch a {
+		case "--status":
+			status = true
+		default:
+			fmt.Fprintf(os.Stderr, "usage: cronlite migrate [--status]\n")
+			return exitInvalidConfig
+		}
+	}
+
+	cfg := config.Load()
+	if err := config.Validate(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "configuration error: %v\n", err)
+		return exitInvalidConfig
+	}
+
+	db, err := sql.Open("postgres", cfg.DatabaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
+		return exitRuntimeError
+	}
+	defer db.Close()
+
+	if err := db.Ping(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
+		return exitRuntimeError
+	}
+
+	ctx := context.Background()
+
+	if status {
+		ms, err := migrate.Load(schema.FS)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migration status failed: %v\n", err)
+			return exitRuntimeError
+		}
+		rows, err := migrate.StatusOf(ctx, db, ms)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "migration status failed: %v\n", err)
+			return exitRuntimeError
+		}
+		if pre, err := migrate.NeedsBaseline(ctx, db); err != nil {
+			fmt.Fprintf(os.Stderr, "migration status failed: %v\n", err)
+			return exitRuntimeError
+		} else if pre {
+			fmt.Println("note: no migration tracking table yet; the existing schema will be baselined on the first run")
+		}
+		for _, r := range rows {
+			fmt.Printf("%03d  %-40s  %s\n", r.Version, r.Name, r.State)
+		}
+		return exitSuccess
+	}
+
+	res, err := applyMigrations(ctx, db, cfg.MigrateLockTimeout, log.Printf)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "migration failed: %v\n", err)
+		return exitRuntimeError
+	}
+	fmt.Printf("applied: %v\nbaselined: %v\n", res.Applied, res.Baselined)
+	return exitSuccess
+}
+
+// applyMigrations loads the embedded schema migrations and applies any that
+// are pending. It is shared by `cronlite migrate` and MIGRATE_ON_START.
+func applyMigrations(ctx context.Context, db *sql.DB, lockTimeout time.Duration, logf func(string, ...any)) (migrate.Result, error) {
+	ms, err := migrate.Load(schema.FS)
+	if err != nil {
+		return migrate.Result{}, err
+	}
+	return migrate.Run(ctx, db, ms, migrate.Options{LockTimeout: lockTimeout, Logf: logf})
 }

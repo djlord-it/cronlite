@@ -8,9 +8,32 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
+
+	"github.com/djlord-it/cronlite/internal/webhookurl"
 )
+
+type senderOptions struct {
+	allowlist webhookurl.Allowlist
+	dial      webhookurl.DialFunc
+}
+
+// SenderOption configures NewHTTPWebhookSender.
+type SenderOption func(*senderOptions)
+
+// WithAllowlist permits private-range addresses for allowlisted hostnames.
+func WithAllowlist(a webhookurl.Allowlist) SenderOption {
+	return func(o *senderOptions) { o.allowlist = a }
+}
+
+// WithDialContext replaces the SSRF guard's dialer entirely, so no destination
+// check is made. It is for tests that target loopback servers only; never use
+// it in production wiring.
+func WithDialContext(fn webhookurl.DialFunc) SenderOption {
+	return func(o *senderOptions) { o.dial = fn }
+}
 
 type HTTPWebhookSender struct {
 	client *http.Client
@@ -22,8 +45,22 @@ type HTTPWebhookSender struct {
 // - Idle connection timeout (90s)
 // - TLS handshake timeout (10s)
 // - Response header timeout (30s) - prevents slow loris attacks
-func NewHTTPWebhookSender() *HTTPWebhookSender {
+//
+// Every connection, including redirect hops, goes through the SSRF guard
+// (webhookurl.GuardedDialContext). Transport.Proxy is deliberately left nil:
+// a proxy would resolve and dial on our behalf and bypass the guard.
+func NewHTTPWebhookSender(opts ...SenderOption) *HTTPWebhookSender {
+	var o senderOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	dial := o.dial
+	if dial == nil {
+		dial = webhookurl.GuardedDialContext(o.allowlist, net.DefaultResolver,
+			&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second})
+	}
 	transport := &http.Transport{
+		DialContext:           dial,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   10,
 		IdleConnTimeout:       90 * time.Second,

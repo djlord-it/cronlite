@@ -28,18 +28,28 @@ services:
       timeout: 3s
       retries: 30
 
+  # TCP relay to the benchmark tool's in-process receiver on the host. CronLite's
+  # connection guard blocks Docker Desktop's host.docker.internal (0.250.250.254),
+  # so CronLite targets this service name instead. No host port is published.
+  benchmark-receiver:
+    image: alpine/socat:latest@sha256:603174b77eebaba25ba8f8ebb15e1234d6600409554e95d6fb203fd106150287
+    command: ["tcp-listen:19090,fork,reuseaddr", "tcp-connect:host.docker.internal:19090"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   cronlite_1: &cronlite
     build:
       context: ../..
     depends_on:
       postgres:
         condition: service_healthy
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      benchmark-receiver:
+        condition: service_started
     environment: &cronlite_environment
       CRONLITE_ENV: benchmark
       DATABASE_URL: postgres://cronlite:cronlite@postgres:5432/cronlite?sslmode=disable
       API_KEY: benchmark-local-key
+      WEBHOOK_ALLOWED_PRIVATE_SUFFIXES: "benchmark-receiver"
       HTTP_ADDR: ":8080"
       # Keep the benchmark client from measuring middleware throttling instead
       # of scheduler and dispatcher capacity.

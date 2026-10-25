@@ -20,7 +20,7 @@ func TestGenerateExampleOutput(t *testing.T) {
 	cfg.Diagnostic = true
 	cfg.BaseURL = "http://127.0.0.1:18080"
 	cfg.ReceiverAddr = "0.0.0.0:19090"
-	cfg.ReceiverPublicURL = "http://host.docker.internal:19090"
+	cfg.ReceiverPublicURL = "http://benchmark-receiver:19090"
 	cfg.MetricsURL = "http://127.0.0.1:18080/metrics"
 	cfg.DatabaseURL = "postgres://cronlite:cronlite@127.0.0.1:15432/cronlite?sslmode=disable"
 	cfg.DispatchMode = "db"

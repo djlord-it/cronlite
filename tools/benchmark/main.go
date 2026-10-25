@@ -345,7 +345,7 @@ func parseConfig(args []string, stderr io.Writer) (Config, string, error) {
 			cfg.ReceiverAddr = "0.0.0.0:19090"
 		}
 		if cfg.ReceiverPublicURL == defaults.ReceiverPublicURL {
-			cfg.ReceiverPublicURL = "http://host.docker.internal:19090"
+			cfg.ReceiverPublicURL = "http://benchmark-receiver:19090"
 		}
 		if cfg.MetricsURL == defaults.MetricsURL {
 			cfg.MetricsURL = "http://127.0.0.1:18080/metrics"

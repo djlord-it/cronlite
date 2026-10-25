@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -489,7 +491,7 @@ func TestMaskedJSON_PreservesConfigAndCORSOmission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != original {
+	if !reflect.DeepEqual(cfg, original) {
 		t.Fatal("MaskedJSON changed the runtime configuration")
 	}
 	if strings.Contains(string(data), "password") || strings.Contains(string(data), "cors_origins") {
@@ -498,5 +500,99 @@ func TestMaskedJSON_PreservesConfigAndCORSOmission(t *testing.T) {
 	if !strings.Contains(string(data), `"database_url": "postgres://***"`) ||
 		!strings.Contains(string(data), `"redis_addr": "redis://***"`) {
 		t.Fatal("MaskedJSON did not preserve masked URI schemes")
+	}
+}
+
+func TestLoadMigrateDefaults(t *testing.T) {
+	t.Setenv("MIGRATE_ON_START", "")
+	t.Setenv("MIGRATE_LOCK_TIMEOUT", "")
+	cfg := Load()
+	if cfg.MigrateOnStart {
+		t.Error("MigrateOnStart should default to false")
+	}
+	if cfg.MigrateLockTimeout != 2*time.Minute {
+		t.Errorf("MigrateLockTimeout = %v, want 2m", cfg.MigrateLockTimeout)
+	}
+}
+
+func TestLoadMigrateFromEnv(t *testing.T) {
+	t.Setenv("MIGRATE_ON_START", "true")
+	t.Setenv("MIGRATE_LOCK_TIMEOUT", "30s")
+	cfg := Load()
+	if !cfg.MigrateOnStart {
+		t.Error("MigrateOnStart should be true")
+	}
+	if cfg.MigrateLockTimeout != 30*time.Second {
+		t.Errorf("MigrateLockTimeout = %v, want 30s", cfg.MigrateLockTimeout)
+	}
+}
+
+func TestValidateRejectsBadMigrateLockTimeout(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/db")
+	t.Setenv("MIGRATE_LOCK_TIMEOUT", "abc")
+	err := Validate(Load())
+	errs, ok := err.(ValidationErrors)
+	if !ok {
+		t.Fatalf("expected ValidationErrors, got %T (%v)", err, err)
+	}
+	for _, e := range errs {
+		if e.Field == "MIGRATE_LOCK_TIMEOUT" {
+			return
+		}
+	}
+	t.Fatalf("no MIGRATE_LOCK_TIMEOUT error in %v", errs)
+}
+
+func TestLoadWebhookAllowlist(t *testing.T) {
+	t.Setenv("WEBHOOK_ALLOWED_PRIVATE_SUFFIXES", " .railway.internal , ,webhook-receiver ")
+	cfg := Load()
+	want := []string{".railway.internal", "webhook-receiver"}
+	if len(cfg.WebhookAllowedPrivateSuffixes) != len(want) {
+		t.Fatalf("got %q, want %q", cfg.WebhookAllowedPrivateSuffixes, want)
+	}
+	for i := range want {
+		if cfg.WebhookAllowedPrivateSuffixes[i] != want[i] {
+			t.Fatalf("got %q, want %q", cfg.WebhookAllowedPrivateSuffixes, want)
+		}
+	}
+}
+
+func TestLoadWebhookAllowlistUnsetIsEmpty(t *testing.T) {
+	t.Setenv("WEBHOOK_ALLOWED_PRIVATE_SUFFIXES", "")
+	if got := Load().WebhookAllowedPrivateSuffixes; len(got) != 0 {
+		t.Fatalf("got %q, want empty", got)
+	}
+}
+
+func TestValidateRejectsIPInAllowlist(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:                   "postgres://x",
+		TickIntervalStr:               "30s",
+		WebhookAllowedPrivateSuffixes: []string{"10.0.0.1"},
+	}
+	err := Validate(cfg)
+	var errs ValidationErrors
+	if !errors.As(err, &errs) {
+		t.Fatalf("expected ValidationErrors, got %v", err)
+	}
+	found := false
+	for _, e := range errs {
+		if e.Field == "WEBHOOK_ALLOWED_PRIVATE_SUFFIXES" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no error on WEBHOOK_ALLOWED_PRIVATE_SUFFIXES: %v", err)
+	}
+}
+
+func TestValidateAcceptsAllowlist(t *testing.T) {
+	cfg := Config{
+		DatabaseURL:                   "postgres://x",
+		TickIntervalStr:               "30s",
+		WebhookAllowedPrivateSuffixes: []string{".railway.internal", "webhook-receiver"},
+	}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

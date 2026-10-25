@@ -347,8 +347,8 @@ func validateWorkflowRoot(v *contractViolations, workflow adminWorkflow) {
 	if !workflow.Concurrency.CancelInProgress {
 		v.addf("concurrency must cancel superseded runs")
 	}
-	if workflow.Env["GO_VERSION"] != "1.26.9" {
-		v.addf("GO_VERSION must be 1.26.9")
+	if workflow.Env["GO_VERSION"] != "1.26.10" {
+		v.addf("GO_VERSION must be 1.26.10")
 	}
 	if workflow.Defaults.Run.Shell != "bash" {
 		v.addf("default run shell must be bash")
@@ -524,11 +524,11 @@ func validateAssetsJob(v *contractViolations, job workflowJob) {
 	syntax := findStep(job, "Check launcher and smoke shell syntax")
 	requireRunContains(v, "asset shell syntax", syntax,
 		"bash -n",
-		"scripts/admin-local.sh",
+		"scripts/dev.sh",
 		"scripts/admin_smoke_test.sh",
 	)
 	requireRunContains(v, "launcher contract", findStep(job, "Run launcher contract"),
-		"./scripts/admin_local_test.sh --all")
+		"./scripts/dev_test.sh --all")
 	requireRunContains(v, "smoke contract", findStep(job, "Run smoke contract"),
 		"./scripts/admin_smoke_test_test.sh")
 	requireRunContains(v, "actionlint", findStep(job, "Lint GitHub Actions workflow"),

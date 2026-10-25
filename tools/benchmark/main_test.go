@@ -147,3 +147,14 @@ func (f *flakyHealthAPI) health(context.Context, bool) (Observation, error) {
 	}
 	return Observation{StatusCode: 200}, nil
 }
+
+func TestParseConfigStartComposeDefaultsReceiverToRelay(t *testing.T) {
+	var stderr bytes.Buffer
+	cfg, _, err := parseConfig([]string{"--start-compose"}, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ReceiverPublicURL != "http://benchmark-receiver:19090" {
+		t.Fatalf("ReceiverPublicURL=%q", cfg.ReceiverPublicURL)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,7 +20,7 @@ func TestHTTPWebhookSender_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sender := NewHTTPWebhookSender()
+	sender := NewHTTPWebhookSender(WithDialContext((&net.Dialer{}).DialContext))
 	result := sender.Send(context.Background(), WebhookRequest{
 		URL:       server.URL,
 		Secret:    "test-secret",
@@ -55,7 +56,7 @@ func TestHTTPWebhookSender_RequestHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sender := NewHTTPWebhookSender()
+	sender := NewHTTPWebhookSender(WithDialContext((&net.Dialer{}).DialContext))
 	sender.Send(context.Background(), WebhookRequest{
 		URL:       server.URL,
 		Secret:    "my-secret",
@@ -104,7 +105,7 @@ func TestHTTPWebhookSender_PayloadBody(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sender := NewHTTPWebhookSender()
+	sender := NewHTTPWebhookSender(WithDialContext((&net.Dialer{}).DialContext))
 	sender.Send(context.Background(), WebhookRequest{
 		URL:     server.URL,
 		Secret:  "secret",
@@ -146,7 +147,7 @@ func TestHTTPWebhookSender_SignatureCorrect(t *testing.T) {
 
 	secret := "my-webhook-secret"
 
-	sender := NewHTTPWebhookSender()
+	sender := NewHTTPWebhookSender(WithDialContext((&net.Dialer{}).DialContext))
 	sender.Send(context.Background(), WebhookRequest{
 		URL:     server.URL,
 		Secret:  secret,
@@ -178,7 +179,7 @@ func TestHTTPWebhookSender_DefaultTimeout(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sender := NewHTTPWebhookSender()
+	sender := NewHTTPWebhookSender(WithDialContext((&net.Dialer{}).DialContext))
 	result := sender.Send(context.Background(), WebhookRequest{
 		URL:     server.URL,
 		Secret:  "secret",
@@ -203,7 +204,7 @@ func TestHTTPWebhookSender_ServerError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sender := NewHTTPWebhookSender()
+	sender := NewHTTPWebhookSender(WithDialContext((&net.Dialer{}).DialContext))
 	result := sender.Send(context.Background(), WebhookRequest{
 		URL:     server.URL,
 		Secret:  "secret",
@@ -220,7 +221,7 @@ func TestHTTPWebhookSender_ServerError(t *testing.T) {
 }
 
 func TestHTTPWebhookSender_ConnectionError(t *testing.T) {
-	sender := NewHTTPWebhookSender()
+	sender := NewHTTPWebhookSender(WithDialContext((&net.Dialer{}).DialContext))
 	result := sender.Send(context.Background(), WebhookRequest{
 		URL:     "http://localhost:1", // unlikely to be listening
 		Secret:  "secret",

@@ -8,63 +8,69 @@
 [![License](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/djlord-it/cronlite)
 
+<!-- TODO: replace <TEMPLATE_CODE> and restore once the Railway template is published
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/<TEMPLATE_CODE>)
+-->
+
+Railway's built-in cron has a 5-minute minimum, runs in UTC only, can drift by minutes and skips overlapping runs; CronLite adds per-minute schedules, IANA timezones and retries with backoff. See [Deploying on Railway](OPERATORS.md#deploying-on-railway).
+
 CronLite is a self-hosted cron-as-a-service with namespace-scoped API keys and MCP support. POST a job with a cron expression and a webhook URL — CronLite fires HTTP callbacks on schedule with HMAC-signed payloads, automatic retries, and Prometheus metrics.
 
 ## Quick Start
 
+Requires Docker and Go 1.25+.
+
 ```bash
 git clone https://github.com/djlord-it/cronlite.git
 cd cronlite
-docker compose up -d
+./scripts/dev.sh
 ```
 
-Bootstrap an API key:
+`dev.sh` starts PostgreSQL, applies migrations, creates an API key (saved to `.cronlite.local.env`, gitignored), and runs CronLite with the admin UI. Re-run it any time; it reuses the saved key. `./scripts/dev.sh --reset` wipes the local database.
+
+- **Admin UI:** http://localhost:8080/admin. Sign in with the printed key.
+- **API:** http://localhost:8080
+
+In a second terminal, create a job and watch it fire:
 
 ```bash
-docker compose exec cronlite cronlite create-key default local-dev
-```
+source .cronlite.local.env
 
-Copy the printed token and export it:
-
-```bash
-export CRONLITE_API_KEY="ec_..."
-```
-
-Create a job:
-
-```bash
-curl -X POST http://localhost:8080/jobs \
-  -H "Authorization: Bearer ${CRONLITE_API_KEY}" \
+job_id=$(curl -s -X POST http://localhost:8080/jobs \
+  -H "Authorization: Bearer $CRONLITE_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "test-job",
-    "cron_expression": "* * * * *",
-    "timezone": "UTC",
-    "webhook_url": "https://httpbin.org/post",
-    "webhook_secret": "my-secret"
-  }'
-```
+  -d '{"name":"test-job","cron_expression":"* * * * *","timezone":"UTC",
+       "webhook_url":"https://httpbin.org/post","webhook_secret":"my-secret"}' |
+  jq -r .id)
 
-Check executions:
-
-```bash
-curl -H "Authorization: Bearer ${CRONLITE_API_KEY}" \
-  http://localhost:8080/jobs/{job_id}/executions
+curl -s -H "Authorization: Bearer $CRONLITE_API_KEY" \
+  "http://localhost:8080/jobs/$job_id/executions" | jq
 ```
 
 <details>
-<summary>Manual setup (without Docker)</summary>
+<summary>Docker only (no Go toolchain)</summary>
 
 ```bash
-set -euo pipefail
+docker compose up -d
+docker compose exec cronlite cronlite create-key default local-dev   # schema is applied automatically (MIGRATE_ON_START=true)
+export CRONLITE_API_KEY="ec_..."   # the printed token
+```
+
+The API and admin UI are on the same URLs as above. PostgreSQL is published on `127.0.0.1:54329`; set `POSTGRES_HOST_PORT` to change it. Stop the app container (`docker compose stop cronlite`) before switching to `./scripts/dev.sh`.
+</details>
+
+<details>
+<summary>Manual setup (your own PostgreSQL)</summary>
+
+```bash
 go build -o cronlite ./cmd/cronlite
 createdb cronlite
 for f in schema/0*.sql; do
-  psql -v ON_ERROR_STOP=1 cronlite < "$f"
+  psql -v ON_ERROR_STOP=1 cronlite < "$f" || break
 done
 export DATABASE_URL="postgres://localhost/cronlite?sslmode=disable"
 ./cronlite create-key default local-dev
-./cronlite serve
+ADMIN_ENABLED=true ./cronlite serve
 ```
 </details>
 
@@ -160,13 +166,7 @@ Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE
 
 CronLite includes an optional server-rendered admin UI at `/admin`. It uses Go templates with embedded CSS, system fonts, a local icon, and a small optional script for live job search. The UI uses a consistent light theme and works without JavaScript, a frontend framework, a Node runtime, or a CDN.
 
-For local development, Docker and Go are the only prerequisites:
-
-```bash
-./scripts/admin-local.sh
-```
-
-The launcher starts PostgreSQL, applies missing admin session migrations and migrations 010/011, generates a temporary bootstrap token, and prints the admin URL. It does not modify `.cronlite.local.env`; PostgreSQL remains running after CronLite exits. Apply migration 009 separately to existing databases for the DB dispatch index improvement.
+For local development, `./scripts/dev.sh` (see [Quick Start](#quick-start)) enables the UI, applies any missing idempotent migrations (007–011) to an existing local database, and signs you in with the key it saves to `.cronlite.local.env`. PostgreSQL remains running after CronLite exits.
 
 For a manual launch, apply every numbered migration in order through 011, set an installation token, and enable the UI:
 
@@ -294,6 +294,13 @@ ADMIN_BASE_URL="http://127.0.0.1:${published_address##*:}" \
 | `cronlite config` | Print effective config (secrets masked) |
 | `cronlite version` | Print version |
 | `cronlite create-key <namespace> <label>` | Create namespace API key and print plaintext token once |
+| `cronlite migrate [--status]` | Apply pending schema migrations, or list their state |
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MIGRATE_ON_START` | `false` | Apply pending schema migrations before `cronlite serve` starts (set in `docker-compose.yml`) |
+| `MIGRATE_LOCK_TIMEOUT` | `2m` | Max wait for the migration lock when another instance is migrating |
+| `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` | empty | Comma-separated hostnames allowed to resolve to private addresses. A leading dot (`.railway.internal`) matches the domain and its subdomains; other entries match the exact hostname. Loopback and link-local cannot be allowlisted |
 
 ## MCP (Model Context Protocol)
 
@@ -351,7 +358,7 @@ All tools are namespace-scoped via the API key used for authentication.
 ## Security
 
 - **Namespace isolation**: API keys are scoped to namespaces — each key can only access its own jobs and executions
-- **SSRF protection**: Webhook URLs targeting private/reserved IP ranges (RFC 1918, loopback, link-local) are rejected at creation time
+- **SSRF protection**: Webhook URLs targeting private/reserved IP ranges (RFC 1918, loopback, link-local) are rejected at creation time, and every webhook connection is checked again after DNS resolution and on every redirect; private ranges are opt-in via `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` (see [Security Hardening](OPERATORS.md#security-hardening))
 - **Rate limiting**: Two-layer rate limiting — per-IP (default 10 req/sec, before auth) and per-namespace (default 100 req/sec, after auth) on all endpoints except `/health`
 - **Credential safety**: `DATABASE_URL` and `REDIS_ADDR` credentials are masked in `cronlite config` output; startup warns when `sslmode=disable`
 - **Error sanitization**: Database error details are never exposed in API responses
@@ -361,6 +368,20 @@ The built-in per-IP limiter keys clients from Go's `RemoteAddr` and deliberately
 ## Configuration
 
 All configuration is via environment variables. Run `./cronlite --help` for defaults. See the [Operator Guide](OPERATORS.md#configuration-reference) for the full reference and production recommendations.
+
+## Upgrading
+
+> **Breaking: webhooks to private addresses are now blocked.** CronLite now
+> checks every webhook connection — after DNS resolution and on every
+> redirect — and refuses loopback, link-local (including cloud metadata),
+> carrier-grade NAT and private-network addresses. If your jobs call internal
+> services (Docker/Compose service names, `*.railway.internal`, LAN hosts,
+> `host.docker.internal`), set `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` before
+> upgrading, e.g. `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES=.railway.internal,webhook-receiver`.
+> Blocked deliveries fail immediately and are not retried. Loopback and
+> link-local addresses cannot be allowlisted.
+
+Note: `host.docker.internal` only helps where it resolves to a private range (Linux `host-gateway`, e.g. 172.17.0.1). Docker Desktop resolves it to 0.250.250.254, inside the always-blocked `0.0.0.0/8`, so allowlisting it does not work there; run the receiver as a Compose service (or a relay on the Compose network) and allowlist that service name.
 
 ## License
 

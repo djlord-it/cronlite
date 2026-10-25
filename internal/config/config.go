@@ -24,6 +24,10 @@ type Config struct {
 	DBOpTimeout    time.Duration `json:"-"`
 	DBOpTimeoutStr string        `json:"db_op_timeout"`
 
+	MigrateOnStart        bool          `json:"migrate_on_start"`
+	MigrateLockTimeout    time.Duration `json:"-"`
+	MigrateLockTimeoutStr string        `json:"migrate_lock_timeout"`
+
 	DBMaxOpenConns       int           `json:"db_max_open_conns"`
 	DBMaxIdleConns       int           `json:"db_max_idle_conns"`
 	DBConnMaxLifetime    time.Duration `json:"-"`
@@ -97,6 +101,11 @@ type Config struct {
 	AdminSessionAbsoluteTTL    time.Duration `json:"-"`
 	AdminSessionAbsoluteTTLStr string        `json:"admin_session_absolute_ttl"`
 	AdminCookieSecure          bool          `json:"admin_cookie_secure"`
+
+	// WebhookAllowedPrivateSuffixes lists hostnames (".suffix" or exact) whose
+	// private-range addresses webhook delivery may dial. Loopback, link-local
+	// and other always-blocked ranges are never allowed.
+	WebhookAllowedPrivateSuffixes []string `json:"webhook_allowed_private_suffixes"`
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -130,6 +139,8 @@ func Load() Config {
 		ReconcileThresholdStr:        os.Getenv("RECONCILE_THRESHOLD"),
 		ReconcileRequeueThresholdStr: os.Getenv("RECONCILE_REQUEUE_THRESHOLD"),
 		AdminEnabled:                 os.Getenv("ADMIN_ENABLED") == "true",
+		MigrateOnStart:               os.Getenv("MIGRATE_ON_START") == "true",
+		MigrateLockTimeoutStr:        os.Getenv("MIGRATE_LOCK_TIMEOUT"),
 		AdminBootstrapToken:          os.Getenv("ADMIN_BOOTSTRAP_TOKEN"),
 		AdminSessionTTLStr:           os.Getenv("ADMIN_SESSION_TTL"),
 		AdminSessionAbsoluteTTLStr:   os.Getenv("ADMIN_SESSION_ABSOLUTE_TTL"),
@@ -220,6 +231,12 @@ func Load() Config {
 
 	cfg.CORSOrigins = os.Getenv("CORS_ORIGINS")
 
+	for _, entry := range strings.Split(os.Getenv("WEBHOOK_ALLOWED_PRIVATE_SUFFIXES"), ",") {
+		if entry = strings.TrimSpace(entry); entry != "" {
+			cfg.WebhookAllowedPrivateSuffixes = append(cfg.WebhookAllowedPrivateSuffixes, entry)
+		}
+	}
+
 	if maxOpenStr := os.Getenv("DB_MAX_OPEN_CONNS"); maxOpenStr != "" {
 		if n, err := parseInt(maxOpenStr); err == nil && n > 0 {
 			cfg.DBMaxOpenConns = n
@@ -242,6 +259,9 @@ func Load() Config {
 	}
 	if cfg.TickIntervalStr == "" {
 		cfg.TickIntervalStr = "30s"
+	}
+	if cfg.MigrateLockTimeoutStr == "" {
+		cfg.MigrateLockTimeoutStr = "2m"
 	}
 	if cfg.DBOpTimeoutStr == "" {
 		cfg.DBOpTimeoutStr = "5s"
@@ -292,6 +312,7 @@ func Load() Config {
 	// ParseDuration returns zero on error; Validate reports invalid values separately.
 	cfg.TickInterval, _ = time.ParseDuration(cfg.TickIntervalStr)
 	cfg.DBOpTimeout, _ = time.ParseDuration(cfg.DBOpTimeoutStr)
+	cfg.MigrateLockTimeout, _ = time.ParseDuration(cfg.MigrateLockTimeoutStr)
 	cfg.DBConnMaxLifetime, _ = time.ParseDuration(cfg.DBConnMaxLifetimeStr)
 	cfg.DBConnMaxIdleTime, _ = time.ParseDuration(cfg.DBConnMaxIdleTimeStr)
 	cfg.HTTPShutdownTimeout, _ = time.ParseDuration(cfg.HTTPShutdownTimeoutStr)
