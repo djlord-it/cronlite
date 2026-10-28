@@ -204,8 +204,12 @@ func (s *JobService) UpdateJob(ctx context.Context, id uuid.UUID, input UpdateJo
 		if err := webhookurl.Validate(*input.WebhookURL); err != nil {
 			return domain.Job{}, domain.Schedule{}, domain.ErrInvalidWebhookURL
 		}
-		if err := s.checkTailnetHost(ns, *input.WebhookURL); err != nil {
-			return domain.Job{}, domain.Schedule{}, err
+		// An unchanged URL is not re-checked: delivery still enforces the
+		// policy, and users must be able to edit or pause such a job.
+		if *input.WebhookURL != job.Delivery.WebhookURL {
+			if err := s.checkTailnetHost(ns, *input.WebhookURL); err != nil {
+				return domain.Job{}, domain.Schedule{}, err
+			}
 		}
 		job.Delivery.WebhookURL = *input.WebhookURL
 	}
