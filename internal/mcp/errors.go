@@ -24,6 +24,8 @@ func toolError(err error) (*mcpgo.CallToolResult, error) {
 		return mcpgo.NewToolResultError("Invalid timezone. Use an IANA timezone name like \"UTC\", \"America/New_York\", or \"Europe/London\"."), nil
 	case errors.Is(err, domain.ErrInvalidWebhookURL):
 		return mcpgo.NewToolResultError("Invalid webhook URL. Provide a fully qualified HTTP or HTTPS URL."), nil
+	case errors.Is(err, domain.ErrWebhookHostNotAllowed):
+		return mcpgo.NewToolResultError("This namespace may not call that tailnet host. Ask an operator to add it to WEBHOOK_TAILNET_HOSTS, or use a different webhook URL."), nil
 	case errors.Is(err, domain.ErrJobDisabled):
 		return mcpgo.NewToolResultError("Job is disabled. Use resume-job to re-enable it, then retry the operation."), nil
 	case errors.Is(err, domain.ErrScheduleParseFailure):
