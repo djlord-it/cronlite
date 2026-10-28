@@ -49,7 +49,8 @@ func writeChaosSection(report *strings.Builder, chaos *ChaosResult) {
 		report.WriteString("No invariant was broken.\n\n")
 		return
 	}
-	for _, breach := range chaos.Breaches {
+	for i := range chaos.Breaches {
+		breach := &chaos.Breaches[i]
 		fmt.Fprintf(report, "- **%s** `%s` (%s, fault `%s`, at `%s`): %s",
 			strings.ToUpper(string(breach.Severity)), breach.Code, breach.Invariant,
 			markdownCell(breach.Fault), formatTime(breach.At), markdownCell(breach.Message))

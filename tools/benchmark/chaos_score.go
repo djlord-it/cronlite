@@ -65,8 +65,9 @@ func newChaosResult(
 		Duplicates: duplicates,
 	}
 	explained := explainedByFault(in)
-	for index, window := range in.Windows {
-		key := faultKey(index, window)
+	for index := range in.Windows {
+		window := &in.Windows[index]
+		key := faultKey(index, *window)
 		score := FaultScore{Fault: key, Invariants: make(map[InvariantID]string)}
 		score.Duplicates.Explained = explained[key]
 		for _, stat := range lateness {
@@ -77,7 +78,7 @@ func newChaosResult(
 		if duration, ok := recovery[key]; ok {
 			score.Recovery = &duration
 		}
-		hasSamples := samplesBetween(in.Timeline, window.AppliedAt, windowEnd(window, in.RecoveryTimeout))
+		hasSamples := samplesBetween(in.Timeline, window.AppliedAt, windowEnd(*window, in.RecoveryTimeout))
 		for _, invariant := range scoredInvariants {
 			result := faultInvariantResult(invariant, key, breaches, score)
 			if result == invariantPass && (invariant == InvariantLeader && !hasSamples ||
@@ -155,7 +156,8 @@ func verdictFor(score FaultScore, applyFailed bool) string {
 }
 
 func hasBreach(breaches []Breach, invariant InvariantID, fault string) bool {
-	for _, breach := range breaches {
+	for i := range breaches {
+		breach := &breaches[i]
 		if breach.Invariant == invariant && breach.Fault == fault {
 			return true
 		}
@@ -165,7 +167,8 @@ func hasBreach(breaches []Breach, invariant InvariantID, fault string) bool {
 
 func knobsFor(fault string, breaches []Breach) []string {
 	var knobs []string
-	for _, breach := range breaches {
+	for i := range breaches {
+		breach := &breaches[i]
 		if breach.Fault != fault || breach.Bound == nil {
 			continue
 		}
@@ -185,7 +188,8 @@ func explainedByFault(in ChaosInputs) map[string]int {
 	seenSuccess := make(map[string]bool)
 	callbacks := slices.Clone(in.Callbacks)
 	slices.SortStableFunc(callbacks, func(a, b CallbackObservation) int { return a.ReceivedAt.Compare(b.ReceivedAt) })
-	for _, callback := range callbacks {
+	for i := range callbacks {
+		callback := &callbacks[i]
 		if !seenSuccess[callback.ExecutionID] {
 			seenSuccess[callback.ExecutionID] = isSuccess(callback.StatusCode)
 			continue

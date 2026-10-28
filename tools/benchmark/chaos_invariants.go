@@ -101,12 +101,13 @@ func windowEnd(window FaultWindow, recoveryTimeout time.Duration) time.Time {
 
 // attribute returns the key of the fault whose window contains at.
 func attribute(at time.Time, windows []FaultWindow, recoveryTimeout time.Duration) string {
-	for index, window := range windows {
+	for index := range windows {
+		window := &windows[index]
 		if window.AppliedAt.IsZero() {
 			continue
 		}
-		if !at.Before(window.AppliedAt) && !at.After(windowEnd(window, recoveryTimeout)) {
-			return faultKey(index, window)
+		if !at.Before(window.AppliedAt) && !at.After(windowEnd(*window, recoveryTimeout)) {
+			return faultKey(index, *window)
 		}
 	}
 	return unattributedFault
@@ -120,9 +121,10 @@ func isSuccess(status int) bool { return status >= 200 && status < 300 }
 
 func firstCallbacks(callbacks []CallbackObservation) map[string]CallbackObservation {
 	first := make(map[string]CallbackObservation)
-	for _, callback := range callbacks {
+	for i := range callbacks {
+		callback := &callbacks[i]
 		if existing, ok := first[callback.ExecutionID]; !ok || callback.ReceivedAt.Before(existing.ReceivedAt) {
-			first[callback.ExecutionID] = callback
+			first[callback.ExecutionID] = *callback
 		}
 	}
 	return first
@@ -139,7 +141,8 @@ func checkNoLost(in ChaosInputs, grace time.Duration) []Breach {
 		rows[fmt.Sprintf("%s@%d", row.JobID, row.ScheduledAt.UTC().Unix())] = row
 	}
 	delivered := make(map[string]bool)
-	for _, callback := range in.Callbacks {
+	for i := range in.Callbacks {
+		callback := &in.Callbacks[i]
 		if isSuccess(callback.StatusCode) {
 			delivered[callback.ExecutionID] = true
 		}
@@ -179,8 +182,9 @@ func checkNoLost(in ChaosInputs, grace time.Duration) []Breach {
 // explained when a fault window overlaps them.
 func classifyDuplicates(in ChaosInputs) (explained, unexplained, concurrent int, breaches []Breach) {
 	byExecution := make(map[string][]CallbackObservation)
-	for _, callback := range in.Callbacks {
-		byExecution[callback.ExecutionID] = append(byExecution[callback.ExecutionID], callback)
+	for i := range in.Callbacks {
+		callback := &in.Callbacks[i]
+		byExecution[callback.ExecutionID] = append(byExecution[callback.ExecutionID], *callback)
 		if callback.ConcurrentForExecution > 1 {
 			concurrent++
 		}
@@ -189,7 +193,8 @@ func classifyDuplicates(in ChaosInputs) (explained, unexplained, concurrent int,
 		callbacks := byExecution[executionID]
 		sort.SliceStable(callbacks, func(i, j int) bool { return callbacks[i].ReceivedAt.Before(callbacks[j].ReceivedAt) })
 		firstSuccess := -1
-		for index, callback := range callbacks {
+		for index := range callbacks {
+			callback := &callbacks[index]
 			if firstSuccess < 0 {
 				if isSuccess(callback.StatusCode) {
 					firstSuccess = index
@@ -218,12 +223,13 @@ func (in ChaosInputs) overlapsFault(from, to time.Time) bool {
 // overlappingFault returns the key of the first fault window that overlaps
 // [from, to].
 func (in ChaosInputs) overlappingFault(from, to time.Time) string {
-	for index, window := range in.Windows {
+	for index := range in.Windows {
+		window := &in.Windows[index]
 		if window.AppliedAt.IsZero() {
 			continue
 		}
-		if !window.AppliedAt.After(to) && !windowEnd(window, in.RecoveryTimeout).Before(from) {
-			return faultKey(index, window)
+		if !window.AppliedAt.After(to) && !windowEnd(*window, in.RecoveryTimeout).Before(from) {
+			return faultKey(index, *window)
 		}
 	}
 	return unattributedFault
@@ -302,8 +308,9 @@ func baselineP99(in ChaosInputs, kind string) (time.Duration, bool) {
 func checkLateness(in ChaosInputs) ([]LatenessStat, []Breach) {
 	windows := []string{windowBaseline}
 	bounds := make(map[string]Bound)
-	for index, window := range in.Windows {
-		key := faultKey(index, window)
+	for index := range in.Windows {
+		window := &in.Windows[index]
+		key := faultKey(index, *window)
 		windows = append(windows, key)
 		bounds[key] = in.Settings.faultLatenessBound(window.Spec)
 	}
@@ -464,11 +471,12 @@ func recoveryTimes(in ChaosInputs, steady Bound, recoveryTimeout time.Duration) 
 
 	times := make(map[string]time.Duration)
 	var breaches []Breach
-	for index, window := range in.Windows {
+	for index := range in.Windows {
+		window := &in.Windows[index]
 		if window.ClearedAt.IsZero() {
 			continue
 		}
-		key := faultKey(index, window)
+		key := faultKey(index, *window)
 		deadline := window.ClearedAt.Add(recoveryTimeout)
 		recovered := false
 		streak := 0
@@ -557,7 +565,8 @@ func checkStuck(in ChaosInputs) []Breach {
 // checkSignatures is I10.
 func checkSignatures(in ChaosInputs) []Breach {
 	var breaches []Breach
-	for _, callback := range in.Callbacks {
+	for i := range in.Callbacks {
+		callback := &in.Callbacks[i]
 		if callback.SignatureValid {
 			continue
 		}

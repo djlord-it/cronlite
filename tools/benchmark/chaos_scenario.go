@@ -139,7 +139,8 @@ func runChaos(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 
 	result := finalizeScenario(name, started, nil, cleanupObservations, errs)
 	result.Chaos = scoreChaos(in, grace)
-	for _, breach := range result.Chaos.Breaches {
+	for i := range result.Chaos.Breaches {
+		breach := &result.Chaos.Breaches[i]
 		finding := Finding{Severity: breach.Severity, Code: breach.Code, Message: breach.Message, Scenario: name}
 		if len(breach.ExecutionIDs) > 0 {
 			finding.ExecutionID = breach.ExecutionIDs[0]
@@ -214,7 +215,8 @@ func chaosGrace(in ChaosInputs, receiver *callbackStore, workload *chaosWorkload
 	live.Manual = workload.manualSamples()
 	live.Callbacks = receiver.snapshot()
 	grace := steadyBound(live).Value
-	for _, window := range in.Windows {
+	for i := range in.Windows {
+		window := &in.Windows[i]
 		grace = max(grace, in.Settings.faultLatenessBound(window.Spec).Value)
 	}
 	return grace
@@ -249,9 +251,10 @@ func chaosCallbacks(callbacks []CallbackObservation, executions []ChaosExecution
 		ids[sample.ExecutionID] = true
 	}
 	var kept []CallbackObservation
-	for _, callback := range callbacks {
+	for i := range callbacks {
+		callback := &callbacks[i]
 		if ids[callback.ExecutionID] {
-			kept = append(kept, callback)
+			kept = append(kept, *callback)
 		}
 	}
 	return kept
