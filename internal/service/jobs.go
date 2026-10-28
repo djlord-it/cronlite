@@ -56,10 +56,11 @@ func (s *JobService) checkTailnetHost(ns domain.Namespace, rawURL string) error 
 		return domain.ErrInvalidWebhookURL
 	}
 	host := u.Hostname()
-	if err := s.tailnetPolicy.Check(string(ns), host, s.tailnetSuffix); err != nil {
+	err = s.tailnetPolicy.Check(string(ns), host, s.tailnetSuffix)
+	if errors.Is(err, webhookurl.ErrDestinationBlocked) {
 		return fmt.Errorf("%w: %q in namespace %q", domain.ErrWebhookHostNotAllowed, host, ns)
 	}
-	return nil
+	return err
 }
 
 // CreateJob creates a new job with its schedule.
