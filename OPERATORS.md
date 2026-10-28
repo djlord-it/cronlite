@@ -115,6 +115,10 @@ HTTP and channel-dispatch drain budgets total `DISPATCHER_DRAIN_TIMEOUT` + `HTTP
 | `MIGRATE_ON_START` | `false` | Apply pending schema migrations before `serve` starts (see [Migrations](#migrations)) |
 | `MIGRATE_LOCK_TIMEOUT` | `2m` | How long migrations wait for the migration lock held by another instance |
 | `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` | *(empty)* | Comma-separated hostnames or `.suffix` domains whose private-range (RFC 1918 / unique-local) addresses webhooks may reach; see [Security Hardening](#security-hardening) |
+| `WEBHOOK_ALLOW_TAILNET` | `false` | Deliver webhooks to hosts on this node's tailnet over an embedded Tailscale node; needs a `-tags tailscale` build. See [Tailnet delivery](#tailnet-delivery) |
+| `TS_AUTHKEY` | *(empty)* | Tailscale auth key for the embedded node. Never logged or printed by `cronlite config`. Optional once `TS_STATE_DIR` holds a logged-in node |
+| `TS_HOSTNAME` | `cronlite` | Node name on the tailnet (a single DNS label) |
+| `TS_STATE_DIR` | *(empty)* | Directory for the node's identity and keys; required with `WEBHOOK_ALLOW_TAILNET`. Use a persistent volume |
 
 ### Required in Production
 
@@ -352,6 +356,18 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 - `host.docker.internal` only helps where it resolves to a private range (Linux `host-gateway`, e.g. 172.17.0.1). Docker Desktop resolves it to 0.250.250.254, inside the always-blocked `0.0.0.0/8`, so allowlisting it does not work there: run the receiver as a Compose service (or a relay on the Compose network) and allowlist that service name.
 - A blocked delivery fails immediately: it is not retried and does not count toward the circuit breaker.
 - **Breaking change:** jobs that call private destinations (Docker/Compose service names, `*.railway.internal`, LAN hosts) now fail until their hostnames are allowlisted. See [Upgrading](README.md#upgrading).
+
+### Tailnet delivery
+
+With `WEBHOOK_ALLOW_TAILNET=true`, CronLite runs an embedded Tailscale node (`tsnet`, no Tailscale app or sidecar) and can deliver webhooks to services on your tailnet that have no public address, e.g. `https://my-service.<tailnet>.ts.net/hook`.
+
+- **Build:** the Tailscale code is only compiled into binaries built with `-tags tailscale` (`docker build --build-arg TAGS=tailscale .`). It adds about 19 MB to the binary. A default build refuses `WEBHOOK_ALLOW_TAILNET=true` at startup and in `cronlite validate`.
+- **Startup:** `serve` waits up to 60s for the node to connect and exits if it does not. The tailnet must have MagicDNS enabled. The node shuts down after the dispatcher has drained.
+- **Which URLs use the tailnet:** only hostnames that are subdomains of this node's own tailnet domain (the MagicDNS suffix, e.g. `example-tailnet.ts.net`). Matching works on whole labels, so `evil-ts.net`, `ts.net.evil.com` and other tailnets' `*.ts.net` hosts (for example Funnel URLs) take the normal public path as before.
+- **Checks on the tailnet path:** the name is resolved through MagicDNS. Every answer must be a Tailscale node address (`100.64.0.0/10` or `fd7a:115c:a1e0::/48`), excluding `100.100.100.100`, the 4via6 subnet-router range and this node's own addresses. A checked address is then dialled directly. Anything else is blocked and not retried.
+- **Unchanged everywhere else:** IP literals, including `100.x` tailnet addresses, are never routed to the tailnet and stay blocked. Every redirect hop is routed and checked again on its own, in both directions.
+- **Scope:** like the private allowlist, this setting is installation-wide. Any API key holder in any namespace can deliver to any tailnet host this node can reach. Use Tailscale ACLs to limit it: tag the node (e.g. `tag:cronlite`) and grant it only the destinations and ports it should call.
+- **Logs:** `TS_AUTHKEY` is never logged. tsnet's verbose backend logs are discarded; its user-facing messages (such as a login URL when no auth key is set) appear with a `tailnet:` prefix. tsnet uploads diagnostic logs to Tailscale by default; set `TS_NO_LOGS_NO_SUPPORT=true` to turn that off.
 
 **Credential masking:** `cronlite config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
 
