@@ -18,6 +18,7 @@ import (
 type senderOptions struct {
 	allowlist webhookurl.Allowlist
 	dial      webhookurl.DialFunc
+	tailnet   webhookurl.Tailnet
 }
 
 // SenderOption configures NewHTTPWebhookSender.
@@ -28,9 +29,16 @@ func WithAllowlist(a webhookurl.Allowlist) SenderOption {
 	return func(o *senderOptions) { o.allowlist = a }
 }
 
-// WithDialContext replaces the SSRF guard's dialer entirely, so no destination
-// check is made. It is for tests that target loopback servers only; never use
-// it in production wiring.
+// WithTailnet routes hostnames under tn's MagicDNS suffix over the tailnet
+// (see webhookurl.RoutedDialContext). Every other destination still goes
+// through the SSRF guard. A nil tn disables tailnet delivery.
+func WithTailnet(tn webhookurl.Tailnet) SenderOption {
+	return func(o *senderOptions) { o.tailnet = tn }
+}
+
+// WithDialContext replaces the SSRF guard's dialer for non-tailnet
+// destinations, so no destination check is made for them. It is for tests
+// that target loopback servers only; never use it in production wiring.
 func WithDialContext(fn webhookurl.DialFunc) SenderOption {
 	return func(o *senderOptions) { o.dial = fn }
 }
@@ -47,8 +55,11 @@ type HTTPWebhookSender struct {
 // - Response header timeout (30s) - prevents slow loris attacks
 //
 // Every connection, including redirect hops, goes through the SSRF guard
-// (webhookurl.GuardedDialContext). Transport.Proxy is deliberately left nil:
-// a proxy would resolve and dial on our behalf and bypass the guard.
+// (webhookurl.GuardedDialContext), or, with WithTailnet, through the tailnet
+// guard for hostnames under the tailnet's suffix. The choice is made per dial,
+// so each redirect hop is routed and checked on its own. Transport.Proxy is
+// deliberately left nil: a proxy would resolve and dial on our behalf and
+// bypass the guard.
 func NewHTTPWebhookSender(opts ...SenderOption) *HTTPWebhookSender {
 	var o senderOptions
 	for _, opt := range opts {
@@ -59,6 +70,7 @@ func NewHTTPWebhookSender(opts ...SenderOption) *HTTPWebhookSender {
 		dial = webhookurl.GuardedDialContext(o.allowlist, net.DefaultResolver,
 			&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second})
 	}
+	dial = webhookurl.RoutedDialContext(dial, o.tailnet)
 	transport := &http.Transport{
 		DialContext:           dial,
 		MaxIdleConns:          100,
