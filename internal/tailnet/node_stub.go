@@ -26,4 +26,5 @@ func (*Node) Running(context.Context) bool                               { retur
 func (*Node) CertDomain() string                                         { return "" }
 func (*Node) ListenTLS() (net.Listener, error)                           { return nil, ErrUnsupported }
 func (*Node) ListenHTTP() (net.Listener, error)                          { return nil, ErrUnsupported }
+func (*Node) WarmCert(context.Context) error                             { return ErrUnsupported }
 func (*Node) Close() error                                               { return nil }

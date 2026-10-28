@@ -121,6 +121,18 @@ func (n *Node) ListenTLS() (net.Listener, error) {
 	return n.srv.ListenTLS("tcp", ":443")
 }
 
+// WarmCert fetches the node's HTTPS certificate into the state directory so
+// the first TLS handshake does not wait for issuance, which can take tens of
+// seconds. It needs public DNS and outbound HTTPS to Let's Encrypt.
+func (n *Node) WarmCert(ctx context.Context) error {
+	domain := n.CertDomain()
+	if domain == "" {
+		return errors.New("tailnet: HTTPS certificates are disabled on this tailnet")
+	}
+	_, _, err := n.lc.CertPair(ctx, domain)
+	return err
+}
+
 // ListenHTTP listens on :80 on the tailnet only, without TLS.
 func (n *Node) ListenHTTP() (net.Listener, error) {
 	return n.srv.Listen("tcp", ":80")

@@ -73,6 +73,8 @@ const (
 	// tailnetUpTimeout bounds how long serve waits for the embedded Tailscale
 	// node to connect before giving up.
 	tailnetUpTimeout = 60 * time.Second
+	// tailnetCertTimeout bounds the background HTTPS certificate fetch.
+	tailnetCertTimeout = 2 * time.Minute
 )
 
 func main() {
@@ -590,6 +592,18 @@ func runServe() int {
 		}
 		domain := tailnetNode.CertDomain()
 		listeners = append(listeners, namedListener{name: "https://" + domain, ln: tlsListener})
+		// Fetch the certificate now rather than on the first handshake, which
+		// would otherwise wait for issuance and usually time out.
+		go func(node *tailnet.Node) {
+			ctx, cancel := context.WithTimeout(appCtx, tailnetCertTimeout)
+			defer cancel()
+			start := time.Now()
+			if err := node.WarmCert(ctx); err != nil {
+				log.Printf("tailnet: https certificate not ready: %v (the next https request retries)", err)
+				return
+			}
+			log.Printf("tailnet: https certificate ready for %s (%s)", domain, time.Since(start).Round(time.Millisecond))
+		}(tailnetNode)
 		redirectListener, err = tailnetNode.ListenHTTP()
 		if err != nil {
 			closeListeners()
