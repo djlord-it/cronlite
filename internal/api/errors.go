@@ -31,6 +31,8 @@ func mapDomainError(err error) httpError {
 		return httpError{Status: http.StatusUnprocessableEntity, Code: "invalid_timezone", Message: err.Error()}
 	case errors.Is(err, domain.ErrInvalidWebhookURL):
 		return httpError{Status: http.StatusUnprocessableEntity, Code: "invalid_webhook_url", Message: err.Error()}
+	case errors.Is(err, domain.ErrWebhookHostNotAllowed):
+		return httpError{Status: http.StatusUnprocessableEntity, Code: "webhook_host_not_allowed", Message: err.Error()}
 	case errors.Is(err, domain.ErrScheduleParseFailure):
 		return httpError{Status: http.StatusUnprocessableEntity, Code: "schedule_parse_failure", Message: err.Error()}
 	case errors.Is(err, domain.ErrJobDisabled):

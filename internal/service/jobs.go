@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -47,6 +48,20 @@ type ResolveResult struct {
 	NextRuns       []time.Time
 }
 
+// checkTailnetHost rejects webhook URLs whose tailnet host the namespace may
+// not call. It runs after webhookurl.Validate.
+func (s *JobService) checkTailnetHost(ns domain.Namespace, rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return domain.ErrInvalidWebhookURL
+	}
+	host := u.Hostname()
+	if err := s.tailnetPolicy.Check(string(ns), host, s.tailnetSuffix); err != nil {
+		return fmt.Errorf("%w: %q in namespace %q", domain.ErrWebhookHostNotAllowed, host, ns)
+	}
+	return nil
+}
+
 // CreateJob creates a new job with its schedule.
 func (s *JobService) CreateJob(ctx context.Context, input CreateJobInput) (domain.Job, domain.Schedule, error) {
 	ns := domain.NamespaceFromContext(ctx)
@@ -62,6 +77,9 @@ func (s *JobService) CreateJob(ctx context.Context, input CreateJobInput) (domai
 
 	if err := webhookurl.Validate(input.WebhookURL); err != nil {
 		return domain.Job{}, domain.Schedule{}, domain.ErrInvalidWebhookURL
+	}
+	if err := s.checkTailnetHost(ns, input.WebhookURL); err != nil {
+		return domain.Job{}, domain.Schedule{}, err
 	}
 
 	// Default timeout.
@@ -185,6 +203,9 @@ func (s *JobService) UpdateJob(ctx context.Context, id uuid.UUID, input UpdateJo
 	if input.WebhookURL != nil {
 		if err := webhookurl.Validate(*input.WebhookURL); err != nil {
 			return domain.Job{}, domain.Schedule{}, domain.ErrInvalidWebhookURL
+		}
+		if err := s.checkTailnetHost(ns, *input.WebhookURL); err != nil {
+			return domain.Job{}, domain.Schedule{}, err
 		}
 		job.Delivery.WebhookURL = *input.WebhookURL
 	}

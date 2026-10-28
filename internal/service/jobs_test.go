@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/djlord-it/cronlite/internal/cron"
 	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/webhookurl"
 	"github.com/google/uuid"
 )
 
@@ -1593,5 +1595,81 @@ func TestJobMutations_InvalidTimezonePreservesParserError(t *testing.T) {
 		if !errors.Is(err, domain.ErrInvalidCronExpression) {
 			t.Fatalf("update with %q: got %v, want parser error", expression, err)
 		}
+	}
+}
+
+func TestCreateJobTailnetPolicy(t *testing.T) {
+	const suffix = "example-tailnet.ts.net"
+	const tailnetURL = "https://invoices.example-tailnet.ts.net/hook"
+	policy, err := webhookurl.ParseTailnetPolicy("billing=invoices")
+	if err != nil {
+		t.Fatalf("ParseTailnetPolicy: %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		policy  *webhookurl.TailnetPolicy
+		suffix  string
+		ns      string
+		url     string
+		blocked bool
+	}{
+		{"allowed namespace", policy, suffix, "billing", tailnetURL, false},
+		{"other namespace", policy, suffix, "ops", tailnetURL, true},
+		{"non-tailnet host", policy, suffix, "ops", "https://api.example.com/hook", false},
+		{"nil policy", nil, suffix, "billing", tailnetURL, true},
+		{"no suffix", nil, "", "billing", tailnetURL, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newTestService(nil).WithTailnetPolicy(tt.policy, tt.suffix)
+			_, _, err := svc.CreateJob(ctxWithNS(tt.ns), CreateJobInput{
+				Name: "j", CronExpression: "*/5 * * * *", Timezone: "UTC", WebhookURL: tt.url,
+			})
+			if !tt.blocked {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, domain.ErrWebhookHostNotAllowed) {
+				t.Fatalf("expected ErrWebhookHostNotAllowed, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "invoices.example-tailnet.ts.net") || !strings.Contains(err.Error(), tt.ns) {
+				t.Errorf("error should name host and namespace, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestUpdateJobTailnetPolicy(t *testing.T) {
+	jobID := uuid.New()
+	schedID := uuid.New()
+	updated := false
+	jobRepo := &mockJobRepo{
+		getJobWithScheduleFn: func(_ context.Context, id uuid.UUID) (domain.Job, domain.Schedule, error) {
+			return domain.Job{
+				ID: jobID, Namespace: "ops", Name: "my-job", ScheduleID: schedID, Enabled: true,
+				Delivery: domain.DeliveryConfig{WebhookURL: "https://example.com", Timeout: 30 * time.Second},
+			}, domain.Schedule{ID: schedID, CronExpression: "*/5 * * * *", Timezone: "UTC"}, nil
+		},
+		updateJobAggregateFn: func(context.Context, domain.Job, domain.Schedule, *[]domain.Tag) error {
+			updated = true
+			return nil
+		},
+	}
+	policy, err := webhookurl.ParseTailnetPolicy("billing=invoices")
+	if err != nil {
+		t.Fatalf("ParseTailnetPolicy: %v", err)
+	}
+	svc := newTestService(jobRepo).WithTailnetPolicy(policy, "example-tailnet.ts.net")
+
+	u := "https://invoices.example-tailnet.ts.net/hook"
+	_, _, err = svc.UpdateJob(ctxWithNS("ops"), jobID, UpdateJobInput{WebhookURL: &u})
+	if !errors.Is(err, domain.ErrWebhookHostNotAllowed) {
+		t.Fatalf("expected ErrWebhookHostNotAllowed, got %v", err)
+	}
+	if updated {
+		t.Error("UpdateJobAggregate must not be called")
 	}
 }
