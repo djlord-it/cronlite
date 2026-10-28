@@ -82,6 +82,7 @@ docker run -d --name cronlite \
   -e MIGRATE_ON_START=true \
   -e ADMIN_ENABLED=true \
   -e WEBHOOK_ALLOW_TAILNET=true \
+  -e WEBHOOK_TAILNET_HOSTS='billing=invoices;ops=*' \
   -e TS_LISTEN=true \
   -e TS_STATE_DIR=/home/cronlite/tailscale \
   -v cronlite-ts:/home/cronlite \
@@ -90,6 +91,9 @@ docker run -d --name cronlite \
 ```
 
 - **Mount the volume on `/home/cronlite`**, as shown. The image runs as the `cronlite` user (uid 1000), and Docker creates a volume on a path that doesn't exist in the image (e.g. `/data`) owned by root, so the node could not write its state. A bind mount works too, if the host directory is owned by uid 1000.
+- `WEBHOOK_TAILNET_HOSTS` is required with `WEBHOOK_ALLOW_TAILNET=true`. It lists which tailnet hosts each namespace may call, as `namespace=host,host;namespace=host`. Hosts are single names without the tailnet suffix: `invoices`, not `invoices.tail1234.ts.net`. `*` as a host allows every tailnet host. `*` as a namespace applies to every namespace. A namespace not listed can reach no tailnet host. Examples:
+  - `billing=invoices;ops=*`: `billing` may call only `invoices`; `ops` may call any tailnet host.
+  - `*=*`: every namespace may call every tailnet host. This is the old, installation-wide behaviour.
 - `TS_HOSTNAME` (default `cronlite`) sets the node's name, and so the URL.
 - tsnet sends diagnostic logs to Tailscale by default. Add `-e TS_NO_LOGS_NO_SUPPORT=true` to turn that off.
 
@@ -99,7 +103,7 @@ docker run -d --name cronlite \
 
    ```
    tailnet: node up on tail1234.ts.net (addresses [100.x.y.z fd7a:…])
-   tailnet: webhook delivery enabled for *.tail1234.ts.net
+   tailnet: webhook delivery enabled for *.tail1234.ts.net (namespaces: billing, ops)
    cronlite: http server listening on https://cronlite.tail1234.ts.net
    ```
 
@@ -149,6 +153,7 @@ Once tailnet access works, add `-e TS_DISABLE_PUBLIC_LISTENER=true` and drop `-p
 | Webhook fails with `destination blocked: … carrier-grade NAT address` | The URL uses a `100.x` IP. Tailnet delivery only works with MagicDNS names under your tailnet, e.g. `billing.tail1234.ts.net`. |
 | Webhook fails with `not a tailnet address` | The name resolved to something other than a Tailscale node. Check the hostname. |
 | Webhook fails with `this node's own tailnet address` | The URL points at CronLite itself. This is blocked on purpose. |
+| Creating a job gives 422 `webhook_host_not_allowed`, or a delivery fails with `tailnet host not allowed for namespace` | The job's namespace is not allowed to call that host. Add the host to that namespace in `WEBHOOK_TAILNET_HOSTS` and restart. The admin UI says "This namespace may not call that tailnet host. Ask an operator to add it to WEBHOOK_TAILNET_HOSTS." and MCP names `WEBHOOK_TAILNET_HOSTS` in its error. If a host is removed later, existing jobs can still be edited when their URL is unchanged, but their deliveries are blocked and not retried. |
 | Webhook times out or is refused | No grant from `tag:cronlite` to that service and port, or the service isn't listening on it. |
 | The node shows up as `cronlite-1` | Another machine is already named `cronlite`, or the state directory was lost and the node registered again. Delete the stale machine and keep the state volume. |
 | The admin UI is unreachable from your laptop | The laptop isn't signed in to this tailnet, is tagged (and so outside `autogroup:member`), or no grant allows it to reach `tag:cronlite:443`. |
@@ -157,6 +162,6 @@ Once tailnet access works, add `-e TS_DISABLE_PUBLIC_LISTENER=true` and drop `-p
 
 - **Off by default.** Without `WEBHOOK_ALLOW_TAILNET` and `TS_LISTEN`, nothing Tailscale-related runs. Without the build tag, the code isn't even in the binary.
 - **The SSRF guard is unchanged for everything else.** Only subdomains of your own tailnet take the tailnet path. IP literals, other tailnets' hosts and look-alike domains go through the normal guard, which still blocks `100.64.0.0/10`. Every redirect hop is checked again.
-- **Tailnet delivery applies to the whole installation.** Any API key holder in any namespace can call any tailnet host the node can reach. Tailscale grants are the control: keep them to the services and ports CronLite needs.
+- **Each namespace reaches only the hosts listed for it in `WEBHOOK_TAILNET_HOSTS`;** keep Tailscale grants to the services and ports CronLite needs.
 - **The tailnet grants no extra trust.** Requests over the tailnet go through the same API key, admin session and rate-limit checks as public ones.
 - **The auth key is never logged** and never printed by `cronlite config`.
