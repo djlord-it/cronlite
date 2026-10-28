@@ -117,7 +117,15 @@ func (h *Handler) onboardingPage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	h.render(w, "onboarding", h.authPage(auth, "Welcome to your workspace"))
+	data := h.authPage(auth, "Welcome to your workspace")
+	// Only the job count is needed to mark the "create a job" step done; a
+	// failed lookup leaves the step open rather than failing the page.
+	if fleet, err := h.service.Fleet(r.Context(), domain.JobFilter{
+		Namespace: auth.Key.Namespace, ListParams: domain.ListParams{Limit: 1},
+	}); err == nil {
+		data.Fleet = fleet
+	}
+	h.render(w, "onboarding", data)
 }
 func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request) {
 	auth, ok := h.requireAuth(w, r)
@@ -129,6 +137,7 @@ func (h *Handler) settingsPage(w http.ResponseWriter, r *http.Request) {
 	data.SessionTTL = h.sessions.idleTTL
 	data.SessionAbsoluteTTL = h.sessions.absoluteTTL
 	data.CookieSecure = h.cookieSecure
+	data.Notice = noticeText(r.URL.Query().Get("notice"))
 	h.render(w, "settings", data)
 }
 func (h *Handler) schedulePage(w http.ResponseWriter, r *http.Request) {

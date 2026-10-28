@@ -71,6 +71,9 @@ func TestTemplatesContainNoExecutableOrExternalAssets(t *testing.T) {
 		"executionURL":  executionURL,
 		"returnQuery":   returnQuery,
 		"jobCardData":   func(domain.JobWithSchedule, pageData) any { return nil },
+		"cssVersion":    func() string { return "" },
+		"icon":          icon,
+		"nextRun":       nextRun(time.Now),
 		"tailnetTarget": TailnetConfig{}.target,
 		"tailnetHint":   TailnetConfig{}.hint,
 	}).ParseFS(embeddedFiles, "templates/*.html")

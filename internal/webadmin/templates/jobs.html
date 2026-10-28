@@ -1,41 +1,91 @@
 {{define "jobs"}}
 {{template "head" .}}{{template "nav" .}}
-<main id="main" class="container">
-  <div class="page-heading"><div><p class="eyebrow">Recurring jobs · {{.Namespace}}</p><h1>Job Control Center</h1></div><a class="button" href="/admin/jobs/new">Create job</a></div>
+<main id="main"><div class="page">
+  <div class="page-head"><div><h1>Jobs</h1><p>Recurring webhooks in namespace <code>{{.Namespace}}</code>.</p></div>
+    <div class="actions"><a class="btn btn-primary" href="/admin/jobs/new">{{icon "plus"}}Create job</a></div></div>
   {{template "messages" .}}
-  <section id="fleet-counts" class="fleet-counts" aria-label="Fleet counts"><div><strong>{{.Fleet.Total}}</strong><span>Total jobs</span></div><div><strong>{{.Fleet.Active}}</strong><span>Active</span></div><div><strong>{{.Fleet.Paused}}</strong><span>Paused</span></div><div><strong>{{.Fleet.Matched}}</strong><span>Matching filters</span></div></section>
-  <form id="fleet-filters" class="filters" method="get" action="/admin/jobs">
-    <input type="hidden" name="view" value="{{.View}}">
-    <div><label for="name">Search jobs</label><input id="name" name="name" type="search" maxlength="200" value="{{.Form.Name}}" placeholder="Job name"></div>
-    <div><label for="enabled">Fleet state</label><select id="enabled" name="enabled"><option value=""{{if eq .EnabledFilter ""}} selected{{end}}>All jobs</option><option value="true"{{if eq .EnabledFilter "true"}} selected{{end}}>Active</option><option value="false"{{if eq .EnabledFilter "false"}} selected{{end}}>Paused</option></select></div>
-    <div><label for="tag">Tag</label><input id="tag" name="tag" maxlength="200" value="{{.TagFilter}}" placeholder="team=payments"></div>
-    <button type="submit">Filter</button><a href="/admin/jobs?view={{.View}}">Clear</a>
-  </form>
-  <p id="search-feedback" class="search-feedback muted" role="status" aria-live="polite"></p>
-  <div id="fleet-results">
-  <div class="view-toolbar"><nav class="view-switch" aria-label="Job views"><a href="{{.TableURL}}"{{if eq .View "table"}} aria-current="page"{{end}}>Table</a><a href="{{.BoardURL}}"{{if eq .View "board"}} aria-current="page"{{end}}>Board</a><a href="{{.TimelineURL}}"{{if eq .View "timeline"}} aria-current="page"{{end}}>Timeline</a></nav><a href="/admin/bulk">Bulk action history</a></div>
-  <details class="saved-views"><summary>Saved views · {{len .SavedViews}}</summary><p class="muted">Private to this API key and namespace. Anyone using the same key shares these views.</p>
-    <div class="saved-list">{{range .SavedViews}}<div><a href="/admin/jobs?{{.Query}}">{{.Name}}</a><form method="post" action="/admin/views/{{.ID}}/delete"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="return" value="{{$.ReturnURL}}"><button class="link-button" type="submit" aria-label="Remove saved view {{.Name}}">Remove</button></form></div>{{else}}<p class="muted">No saved views yet.</p>{{end}}</div>
-    <form class="save-form" method="post" action="/admin/views"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="query" value="{{.StateQuery}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><div><label for="view_name">Save current filters</label><input id="view_name" name="view_name" maxlength="80" required placeholder="View name"></div><button class="secondary" type="submit">Save view</button></form>
-  </details>
+  <section id="fleet-counts" class="stats" aria-label="Fleet counts">
+    <a class="stat" href="/admin/jobs?view={{.View}}"{{if eq .EnabledFilter ""}} aria-current="true"{{end}}><span>Total jobs</span><strong>{{.Fleet.Total}}</strong></a>
+    <a class="stat" href="/admin/jobs?view={{.View}}&amp;enabled=true"{{if eq .EnabledFilter "true"}} aria-current="true"{{end}}><span>Active</span><strong>{{.Fleet.Active}}</strong></a>
+    <a class="stat" href="/admin/jobs?view={{.View}}&amp;enabled=false"{{if eq .EnabledFilter "false"}} aria-current="true"{{end}}><span>Paused</span><strong>{{.Fleet.Paused}}</strong></a>
+    <div class="stat"><span>Matching filters</span><strong>{{.Fleet.Matched}}</strong></div>
+  </section>
+  <section class="card">
+    <form id="fleet-filters" class="toolbar" method="get" action="/admin/jobs" role="search">
+      <input type="hidden" name="view" value="{{.View}}">
+      <div class="grow"><label for="name">Search jobs</label><div class="search">{{icon "search"}}<input id="name" name="name" type="search" maxlength="200" value="{{.Form.Name}}" placeholder="Job name"></div></div>
+      <div><label for="enabled">Fleet state</label><select id="enabled" name="enabled"><option value=""{{if eq .EnabledFilter ""}} selected{{end}}>All jobs</option><option value="true"{{if eq .EnabledFilter "true"}} selected{{end}}>Active</option><option value="false"{{if eq .EnabledFilter "false"}} selected{{end}}>Paused</option></select></div>
+      <div><label for="tag">Tag</label><input id="tag" name="tag" type="text" maxlength="200" value="{{.TagFilter}}" placeholder="team=payments"></div>
+      <button class="btn btn-secondary" type="submit">Filter</button>
+      <a class="btn btn-secondary" href="/admin/jobs?view={{.View}}">Clear</a>
+    </form>
+    <p id="search-feedback" class="search-feedback" role="status" aria-live="polite"></p>
+    <div id="fleet-results">
+      <div class="view-bar">
+        <nav class="tabs" aria-label="Job views"><a href="{{.TableURL}}"{{if eq .View "table"}} aria-current="page"{{end}}>Table</a><a href="{{.BoardURL}}"{{if eq .View "board"}} aria-current="page"{{end}}>Board</a><a href="{{.TimelineURL}}"{{if eq .View "timeline"}} aria-current="page"{{end}}>Timeline</a></nav>
+        <details class="menu saved-views"><summary class="btn btn-secondary btn-sm">{{icon "bookmark"}}Saved views · {{len .SavedViews}}</summary>
+          <div class="menu-pop">
+            <div class="saved-list">{{range .SavedViews}}<div><a href="/admin/jobs?{{.Query}}">{{.Name}}</a><form method="post" action="/admin/views/{{.ID}}/delete"><input type="hidden" name="csrf_token" value="{{$.CSRFToken}}"><input type="hidden" name="return" value="{{$.ReturnURL}}"><button class="link-button" type="submit" aria-label="Remove saved view {{.Name}}">Remove</button></form></div>{{else}}<p class="help pad-x">No saved views yet.</p>{{end}}</div>
+            <hr>
+            <form class="save-form" method="post" action="/admin/views"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="query" value="{{.StateQuery}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><label for="view_name">Save current filters</label><input id="view_name" name="view_name" type="text" maxlength="80" required placeholder="View name"><button class="btn btn-secondary btn-sm" type="submit">Save view</button>
+              <p class="help">Private to this API key and namespace. Anyone using the same key shares these views.</p></form>
+          </div>
+        </details>
+        <span class="spacer"></span>
+        <a class="small" href="/admin/bulk">Bulk action history</a>
+      </div>
   {{if eq .View "timeline"}}
-    <section class="timeline"><h2>Next scheduled runs</h2><p class="muted">Next occurrence per active job, through {{formatTime .TimelineUntil}}. These are schedule estimates, not executions.</p>
-    {{if .TimelineLimited}}<p class="notice">Showing up to 50 next runs from at most 500 matching jobs. Narrow the filters to see the rest.</p>{{end}}
-    {{if .TimelineInvalid}}<p class="error">{{.TimelineInvalid}} active jobs have an invalid schedule or no calculable next occurrence.</p>{{end}}
-    <div class="table-wrap"><table><thead><tr><th>Next run (UTC)</th><th>Job</th><th>Schedule</th><th>Timezone</th></tr></thead><tbody>{{range .Timeline}}<tr><td>{{formatTime .Next}}</td><td><a href="{{jobURL .Job.ID $.ReturnURL}}">{{.Job.Name}}</a></td><td><span class="schedule-text" title="Cron: {{.Schedule.CronExpression}}">{{scheduleText .Schedule.CronExpression}}</span></td><td>{{.Schedule.Timezone}}</td></tr>{{else}}<tr><td class="empty" colspan="4">No next runs in the next 24 hours for these filters.</td></tr>{{end}}</tbody></table></div></section>
+      <div class="card-head"><div><h2>Next scheduled runs</h2><p>Next occurrence per active job, through {{formatTime .TimelineUntil}}. These are schedule estimates, not executions.</p></div></div>
+      {{if .TimelineLimited}}<div class="callout info inset">{{icon "info"}}<p>Showing up to 50 next runs from at most 500 matching jobs. Narrow the filters to see the rest.</p></div>{{end}}
+      {{if .TimelineInvalid}}<div class="callout warn inset">{{icon "alert"}}<p>{{.TimelineInvalid}} active jobs have an invalid schedule or no calculable next occurrence.</p></div>{{end}}
+      <div class="table-wrap"><table><thead><tr><th>Next run (UTC)</th><th>Job</th><th>Schedule</th><th>Timezone</th></tr></thead><tbody>{{range .Timeline}}<tr><td class="mono">{{formatTime .Next}}</td><td><a class="row-link" href="{{jobURL .Job.ID $.ReturnURL}}">{{.Job.Name}}</a></td><td><span title="Cron: {{.Schedule.CronExpression}}">{{scheduleText .Schedule.CronExpression}}</span></td><td>{{.Schedule.Timezone}}</td></tr>{{else}}<tr><td class="empty" colspan="4">No next runs in the next 24 hours for these filters.</td></tr>{{end}}</tbody></table></div>
   {{else}}
-    <form id="bulk" class="bulk-toolbar" method="post" action="/admin/bulk/preview"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><p>Select jobs on this page, then preview an action.</p><button class="secondary" name="action" value="pause" type="submit">Preview pause</button><button class="secondary" name="action" value="resume" type="submit">Preview resume</button></form>
+      <form id="bulk" class="bulkbar" method="post" action="/admin/bulk/preview"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.ReturnURL}}"><span>Select jobs on this page, then preview an action.{{if eq .View "table"}} Click a row for details.{{end}}</span><button class="btn btn-secondary btn-sm" name="action" value="pause" type="submit">{{icon "pause"}}Preview pause</button><button class="btn btn-secondary btn-sm" name="action" value="resume" type="submit">{{icon "play"}}Preview resume</button></form>
     {{if eq .View "board"}}
-    <div class="job-board">
-      <section class="board-column"><h2>Active <span class="muted">· {{.Fleet.Active}} fleet-wide</span></h2>{{range .Jobs}}{{if .Job.Enabled}}{{template "job_card" (jobCardData . $)}}{{end}}{{end}}</section>
-      <section class="board-column"><h2>Paused <span class="muted">· {{.Fleet.Paused}} fleet-wide</span></h2>{{range .Jobs}}{{if not .Job.Enabled}}{{template "job_card" (jobCardData . $)}}{{end}}{{end}}</section>
-    </div><p class="muted">Board cards show the current filtered page.</p>{{if not .Jobs}}<p class="empty">No jobs found.</p>{{end}}
+      <div class="board inset-pad">
+        <section class="column"><h2><span class="badge ok">Active</span><span class="muted small">{{.Fleet.Active}} fleet-wide</span></h2>{{range .Jobs}}{{if .Job.Enabled}}{{template "job_card" (jobCardData . $)}}{{end}}{{end}}</section>
+        <section class="column"><h2><span class="badge">Paused</span><span class="muted small">{{.Fleet.Paused}} fleet-wide</span></h2>{{range .Jobs}}{{if not .Job.Enabled}}{{template "job_card" (jobCardData . $)}}{{end}}{{end}}</section>
+      </div>
+      {{if not .Jobs}}<div class="empty"><strong>No jobs found.</strong>Change the filters or create a job.</div>{{end}}
+      <p class="help pad-x">Board cards show the current filtered page.</p>
     {{else}}
-    <div class="table-wrap"><table class="jobs-table"><thead><tr><th>Select</th><th>Name</th><th>Status</th><th>Schedule</th><th>Timezone</th><th>Webhook</th><th>Updated</th></tr></thead><tbody>
-    {{range .Jobs}}<tr><td><input class="job-select" type="checkbox" name="job_id" value="{{.Job.ID}}" form="bulk" aria-label="Select {{.Job.Name}}"></td><td><a href="{{jobURL .Job.ID $.ReturnURL}}">{{.Job.Name}}</a></td><td>{{if .Job.Enabled}}<span class="badge success status-active">Active</span>{{else}}<span class="badge status-paused">Paused</span>{{end}}</td><td><span class="schedule-text" title="Cron: {{.Schedule.CronExpression}}">{{scheduleText .Schedule.CronExpression}}</span></td><td>{{.Schedule.Timezone}}</td><td class="truncate">{{with tailnetTarget $.Namespace .Job.Delivery.WebhookURL}}{{if .Tailnet}}{{template "tailnet_badge" .}} {{end}}{{end}}{{.Job.Delivery.WebhookURL}}</td><td>{{formatTime .Job.UpdatedAt}}</td></tr>{{else}}<tr><td colspan="7" class="empty">No jobs found.</td></tr>{{end}}
-    </tbody></table></div>{{end}}
-    <nav class="pagination" aria-label="Jobs pages">{{if .PreviousURL}}<a href="{{.PreviousURL}}">Previous</a>{{end}}<span>Page {{.Page}} of {{.TotalPages}} · {{len .Jobs}} shown · {{.Fleet.Matched}} matching</span>{{range .PageLinks}}{{if .Current}}<span aria-current="page">{{.Number}}</span>{{else}}<a href="{{.URL}}" aria-label="Page {{.Number}}">{{.Number}}</a>{{end}}{{end}}{{if .NextURL}}<a href="{{.NextURL}}">Next</a>{{end}}</nav>
+      <div class="dgrid jobs-grid" role="table" aria-label="Jobs">
+        <div class="dhead" role="row"><span role="columnheader">Name</span><span role="columnheader">Status</span><span class="hide-sm" role="columnheader">Schedule</span><span class="hide-sm" role="columnheader">Next run</span><span><span class="sr">Details</span></span></div>
+        {{range .Jobs}}{{template "job_row" (jobCardData . $)}}{{else}}<div class="empty"><strong>No jobs found.</strong>Change the filters or create a job.</div>{{end}}
+      </div>
+    {{end}}
+      <nav class="pagination" aria-label="Jobs pages"><span>Page {{.Page}} of {{.TotalPages}} · {{len .Jobs}} shown · {{.Fleet.Matched}} matching</span>
+        <span class="pages">{{if .PreviousURL}}<a class="btn btn-secondary btn-sm" href="{{.PreviousURL}}">Previous</a>{{end}}{{range .PageLinks}}{{if .Current}}<span aria-current="page">{{.Number}}</span>{{else}}<a href="{{.URL}}" aria-label="Page {{.Number}}">{{.Number}}</a>{{end}}{{end}}{{if .NextURL}}<a class="btn btn-secondary btn-sm" href="{{.NextURL}}">Next</a>{{end}}</span></nav>
   {{end}}
-</div>
-</main><script src="/admin/assets/jobs.js" integrity="{{.LiveSearchIntegrity}}" defer></script>{{template "foot" .}}{{end}}
-{{define "job_card"}}<article class="job-card"><label class="checkbox"><input type="checkbox" form="bulk" name="job_id" value="{{.Row.Job.ID}}">Select {{.Row.Job.Name}}</label><h3><a href="{{jobURL .Row.Job.ID .State}}">{{.Row.Job.Name}}</a></h3><p><span class="schedule-text" title="Cron: {{.Row.Schedule.CronExpression}}">{{scheduleText .Row.Schedule.CronExpression}}</span> · {{.Row.Schedule.Timezone}}</p><p class="break muted">{{with tailnetTarget .Namespace .Row.Job.Delivery.WebhookURL}}{{if .Tailnet}}{{template "tailnet_badge" .}} {{end}}{{end}}{{.Row.Job.Delivery.WebhookURL}}</p><small class="muted">Updated {{formatTime .Row.Job.UpdatedAt}}</small></article>{{end}}
+    </div>
+  </section>
+</div></main><script src="/admin/assets/jobs.js" integrity="{{.LiveSearchIntegrity}}" defer></script>{{template "foot" .}}{{end}}
+
+{{define "job_row"}}{{$next := nextRun .Row}}<div class="drow" role="row">
+<div class="cell-check"><input class="job-select" type="checkbox" name="job_id" value="{{.Row.Job.ID}}" form="bulk" aria-label="Select {{.Row.Job.Name}}"></div>
+<details name="job-row"><summary class="dsum">
+  <span class="c" role="cell"><a class="row-link" href="{{jobURL .Row.Job.ID .State}}">{{.Row.Job.Name}}</a></span>
+  <span class="c" role="cell">{{if .Row.Job.Enabled}}<span class="badge ok status-active">Active</span>{{else}}<span class="badge status-paused">Paused</span>{{end}}</span>
+  <span class="c hide-sm" role="cell" title="Cron: {{.Row.Schedule.CronExpression}}">{{scheduleText .Row.Schedule.CronExpression}}</span>
+  <span class="c hide-sm" role="cell"{{if $next.Exact}} title="{{$next.Exact}}"{{end}}>{{$next.Text}}</span>
+  <span class="chev" aria-hidden="true">{{icon "chevron"}}</span>
+</summary>
+<div class="extra"><dl>
+  <div class="item only-sm"><dt>Schedule</dt><dd>{{scheduleText .Row.Schedule.CronExpression}}</dd></div>
+  <div class="item only-sm"><dt>Next run</dt><dd>{{$next.Text}}</dd></div>
+  <div class="item wide at-1-2"><dt>Webhook</dt><dd><code>{{.Row.Job.Delivery.WebhookURL}}</code>{{with tailnetTarget .Namespace .Row.Job.Delivery.WebhookURL}}{{if .Tailnet}} {{template "tailnet_badge" .}}{{end}}{{end}}</dd></div>
+  <div class="item at-3"><dt>Cron · timezone</dt><dd><code>{{.Row.Schedule.CronExpression}}</code> · {{.Row.Schedule.Timezone}}</dd></div>
+  <div class="item at-4"><dt>Updated</dt><dd>{{formatTime .Row.Job.UpdatedAt}}</dd></div>
+</dl>
+<div class="row-actions">
+  <a class="btn btn-secondary btn-sm" href="{{jobURL .Row.Job.ID .State}}">Open job{{icon "arrow"}}</a>
+  <a class="btn btn-secondary btn-sm" href="/admin/jobs/{{.Row.Job.ID}}/edit?{{returnQuery .State}}">{{icon "edit"}}Edit</a>
+  {{if .Row.Job.Enabled}}
+  <form method="post" action="/admin/jobs/{{.Row.Job.ID}}/trigger"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.State}}"><button class="btn btn-secondary btn-sm" type="submit">{{icon "zap"}}Run now</button></form>
+  <form method="post" action="/admin/jobs/{{.Row.Job.ID}}/pause"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.State}}"><button class="btn btn-secondary btn-sm" type="submit">{{icon "pause"}}Pause</button></form>
+  {{else}}
+  <form method="post" action="/admin/jobs/{{.Row.Job.ID}}/resume"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.State}}"><button class="btn btn-secondary btn-sm" type="submit">{{icon "play"}}Resume</button></form>
+  {{end}}
+</div></div></details></div>{{end}}
+
+{{define "job_card"}}<article class="job-card"><div class="row"><h3><a class="row-link" href="{{jobURL .Row.Job.ID .State}}">{{.Row.Job.Name}}</a></h3><label class="check small"><input type="checkbox" form="bulk" name="job_id" value="{{.Row.Job.ID}}"><span class="sr">Select {{.Row.Job.Name}}</span></label></div><p><span title="Cron: {{.Row.Schedule.CronExpression}}">{{scheduleText .Row.Schedule.CronExpression}}</span> · {{.Row.Schedule.Timezone}}</p><p class="mono small break">{{with tailnetTarget .Namespace .Row.Job.Delivery.WebhookURL}}{{if .Tailnet}}{{template "tailnet_badge" .}} {{end}}{{end}}{{.Row.Job.Delivery.WebhookURL}}</p><p class="small">Updated {{formatTime .Row.Job.UpdatedAt}}</p></article>{{end}}

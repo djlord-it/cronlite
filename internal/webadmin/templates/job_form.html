@@ -1,51 +1,54 @@
 {{define "job_form"}}
 {{template "head" .}}
 {{template "nav" .}}
-<main id="main" class="container narrow">
-  <a class="back" href="{{if .Edit}}{{jobURL .Job.ID .ReturnURL}}{{else}}/admin/jobs{{end}}">← Back</a>
-  <h1>{{if .Edit}}Edit job{{else}}Create job{{end}}</h1>
+<main id="main"><div class="page narrow">
+  <div class="crumbs"><a href="/admin/jobs">Jobs</a><span aria-hidden="true">/</span>{{if .Edit}}<a href="{{jobURL .Job.ID .ReturnURL}}">{{.Job.Name}}</a><span aria-hidden="true">/</span><span>Edit</span>{{else}}<span>Create job</span>{{end}}</div>
+  <div class="page-head"><div><h1>{{if .Edit}}Edit job{{else}}Create job{{end}}</h1><p>CronLite sends a signed POST to the webhook on every run and retries failures with backoff.</p></div></div>
   {{template "messages" .}}
-  <form method="post" action="{{if .Edit}}/admin/jobs/{{.Job.ID}}/edit{{else}}/admin/jobs/new{{end}}">
+  <form class="card" method="post" action="{{if .Edit}}/admin/jobs/{{.Job.ID}}/edit{{else}}/admin/jobs/new{{end}}">
     <input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><input type="hidden" name="return" value="{{.ReturnURL}}">
-    <div class="form-grid">
-      <div class="full">
+    <div class="card-body form-grid">
+      <div class="field full">
         <label for="name">Name</label>
-        <input id="name" name="name" value="{{.Form.Name}}" maxlength="200" required autofocus>
+        <input id="name" name="name" type="text" value="{{.Form.Name}}" maxlength="200" required autofocus>
       </div>
-      <div>
+      <div class="field">
         <label for="cron_expression">Cron expression</label>
-        <input id="cron_expression" name="cron_expression" value="{{.Form.CronExpression}}" placeholder="0 9 * * *" aria-describedby="cron_help" required><p class="field-help" id="cron_help">Minute · Hour · Day · Month · Weekday<br><a href="/admin/schedule">Schedule builder →</a></p>
+        <input id="cron_expression" name="cron_expression" type="text" class="mono" value="{{.Form.CronExpression}}" placeholder="0 9 * * *" aria-describedby="cron_help" required>
+        <p class="help" id="cron_help">Minute · Hour · Day · Month · Weekday. <a href="/admin/schedule">Schedule builder</a></p>
       </div>
-      <div>
+      <div class="field">
         <label for="timezone">IANA timezone</label>
-        <input id="timezone" name="timezone" value="{{.Form.Timezone}}" placeholder="UTC" required>
+        <input id="timezone" name="timezone" type="text" value="{{.Form.Timezone}}" placeholder="UTC" required>
       </div>
-      <div class="full">
+      <div class="field full">
         <label for="webhook_url">Webhook URL</label>
         <input id="webhook_url" name="webhook_url" type="url" value="{{.Form.WebhookURL}}" placeholder="https://example.com/hook"{{with tailnetHint .Namespace}}{{if .Suffix}} aria-describedby="webhook_help"{{end}}{{end}} required>
-        {{with tailnetHint .Namespace}}{{if .Suffix}}<p class="field-help" id="webhook_help">{{if not .Delivery}}Tailnet delivery is off: hosts under <code>{{.Suffix}}</code> cannot be called.{{else if .AllHosts}}This namespace may call any tailnet host under <code>{{.Suffix}}</code>.{{else if .Hosts}}{{$suffix := .Suffix}}Tailnet hosts this namespace may call: {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<code>{{$h}}.{{$suffix}}</code>{{end}}.{{else}}This namespace may not call any tailnet host under <code>{{.Suffix}}</code>.{{end}}</p>{{end}}{{end}}
+        {{with tailnetHint .Namespace}}{{if .Suffix}}<p class="help" id="webhook_help">{{if not .Delivery}}Tailnet delivery is off: hosts under <code>{{.Suffix}}</code> cannot be called.{{else if .AllHosts}}This namespace may call any tailnet host under <code>{{.Suffix}}</code>.{{else if .Hosts}}{{$suffix := .Suffix}}Tailnet hosts this namespace may call: {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<code>{{$h}}.{{$suffix}}</code>{{end}}.{{else}}This namespace may not call any tailnet host under <code>{{.Suffix}}</code>.{{end}}</p>{{end}}{{end}}
       </div>
-      <div>
+      <div class="field">
         <label for="webhook_secret">Webhook secret {{if .Edit}}<span class="muted">(leave blank to keep)</span>{{end}}</label>
-        <input id="webhook_secret" name="webhook_secret" type="password" autocomplete="new-password">
+        <input id="webhook_secret" name="webhook_secret" type="password" autocomplete="new-password" aria-describedby="secret_help">
+        <p class="help" id="secret_help">Signs each payload with HMAC-SHA256.</p>
       </div>
-      <div>
+      <div class="field">
         <label for="timeout_seconds">Timeout in seconds</label>
         <input id="timeout_seconds" name="timeout_seconds" type="number" min="1" max="60" value="{{.Form.TimeoutSeconds}}" required>
       </div>
       {{if .Edit}}
-      <label class="checkbox full"><input name="clear_webhook_secret" type="checkbox" value="true"> Clear the stored webhook secret</label>
+      <label class="check full"><input name="clear_webhook_secret" type="checkbox" value="true"> Clear the stored webhook secret</label>
       {{end}}
-      <div class="full">
-        <label for="tags">Tags <span class="muted">(one key=value per line)</span></label>
-        <textarea id="tags" name="tags" rows="5">{{.Form.Tags}}</textarea>
+      <div class="field full">
+        <label for="tags">Tags</label>
+        <textarea id="tags" name="tags" rows="4" aria-describedby="tags_help">{{.Form.Tags}}</textarea>
+        <p class="help" id="tags_help">One key=value per line.</p>
       </div>
     </div>
-    <div class="actions">
-      <button type="submit">{{if .Edit}}Save changes{{else}}Create job{{end}}</button>
-      <a href="{{if .Edit}}{{jobURL .Job.ID .ReturnURL}}{{else}}/admin/jobs{{end}}">Cancel</a>
+    <div class="form-foot">
+      <a class="btn btn-secondary" href="{{if .Edit}}{{jobURL .Job.ID .ReturnURL}}{{else}}/admin/jobs{{end}}">Cancel</a>
+      <button class="btn btn-primary" type="submit">{{if .Edit}}Save changes{{else}}Create job{{end}}</button>
     </div>
   </form>
-</main>
+</div></main>
 {{template "foot" .}}
 {{end}}

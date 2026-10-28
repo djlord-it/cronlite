@@ -1,12 +1,11 @@
 {{define "error"}}
 {{template "head" .}}
-<main id="main" class="auth-shell">
-  <section class="card auth-card">
-    <p class="eyebrow">CronLite Admin</p>
+<main id="main" class="auth"><div>
+  <section class="card"><div class="card-body stack">
+    <span class="brand"><img src="/admin/assets/favicon.svg" alt="">CronLite</span>
     <h1>{{.Title}}</h1>
-    <p>{{.Error}}</p>
-    <a class="button" href="/admin/jobs">Return to jobs</a>
-  </section>
-</main>
-{{template "foot" .}}
+    <p class="muted">{{.Error}}</p>
+    <a class="btn btn-primary full-width" href="/admin/jobs">Return to jobs</a>
+  </div></section>
+{{template "public_foot" .}}
 {{end}}

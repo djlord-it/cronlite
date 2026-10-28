@@ -1,31 +1,30 @@
 {{define "execution"}}
 {{template "head" .}}
 {{template "nav" .}}
-<main id="main" class="container">
-  <a class="back" href="{{.ReturnURL}}">← Return to view</a> <a class="back" href="{{jobURL .Execution.JobID .ReturnURL}}">Job configuration →</a>
-  <div class="page-heading"><div><p class="eyebrow">{{.Execution.TriggerType}}</p><h1>Execution</h1></div><span class="badge">{{.Execution.Status}}</span></div>
-  <section class="card">
-    <dl>
+<main id="main"><div class="page">
+  <div class="crumbs"><a href="{{.ReturnURL}}">Return to view</a><span aria-hidden="true">/</span><span>Execution</span></div>
+  <div class="page-head">
+    <div><h1>Execution</h1><p>{{template "exec_status" .Execution.Status}} {{.Execution.TriggerType}} run</p></div>
+    <div class="actions">
+      {{if and (not .Execution.AcknowledgedAt) (or (eq .Execution.Status "delivered") (eq .Execution.Status "failed"))}}<form method="post" action="/admin/executions/{{.Execution.ID}}/ack"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="btn btn-primary" type="submit">{{icon "check"}}Acknowledge execution</button></form>{{end}}
+      <a class="btn btn-secondary" href="{{jobURL .Execution.JobID .ReturnURL}}">Job configuration</a>
+    </div>
+  </div>
+  <div class="split">
+    <section class="card"><div class="card-head"><div><h2>Delivery attempts</h2><p>Each attempt with its HTTP status and timing.</p></div></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th class="num">Attempt</th><th>HTTP status</th><th>Error</th><th>Started</th><th>Finished</th></tr></thead>
+        <tbody>{{range .Attempts}}<tr><td class="num">{{.Attempt}}</td><td>{{if .StatusCode}}{{if lt .StatusCode 300}}<span class="badge ok">{{.StatusCode}}</span>{{else}}<span class="badge bad">{{.StatusCode}}</span>{{end}}{{else}}<span class="badge bad">No response</span>{{end}}</td><td class="break">{{if .Error}}{{.Error}}{{else}}—{{end}}</td><td class="mono small">{{formatTime .StartedAt}}</td><td class="mono small">{{formatTime .FinishedAt}}</td></tr>
+        {{else}}<tr><td colspan="5" class="empty">No delivery attempts recorded.</td></tr>{{end}}</tbody>
+      </table></div></section>
+    <section class="card"><div class="card-head"><h2>Details</h2></div><div class="card-body"><dl class="kv stacked">
       <dt>ID</dt><dd><code>{{.Execution.ID}}</code></dd>
       <dt>Scheduled</dt><dd>{{formatTime .Execution.ScheduledAt}}</dd>
       <dt>Fired</dt><dd>{{formatTime .Execution.FiredAt}}</dd>
-      <dt>Acknowledged</dt><dd>{{if .Execution.AcknowledgedAt}}{{formatTime .Execution.AcknowledgedAt}}{{else}}Not yet acknowledged{{end}}</dd><dt>Created</dt><dd>{{formatTime .Execution.CreatedAt}}</dd>
-    </dl>
-  </section>
-  {{if and (not .Execution.AcknowledgedAt) (or (eq .Execution.Status "delivered") (eq .Execution.Status "failed"))}}<form method="post" action="/admin/executions/{{.Execution.ID}}/ack"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><div class="actions"><button class="secondary" type="submit">Acknowledge execution</button><a href="/admin/executions">All executions →</a></div></form>{{end}}
-  <section class="welcome-note">
-    <h2>Delivery attempts</h2>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Attempt</th><th>HTTP status</th><th>Error</th><th>Started</th><th>Finished</th></tr></thead>
-        <tbody>
-        {{range .Attempts}}
-          <tr><td>{{.Attempt}}</td><td>{{.StatusCode}}</td><td class="break">{{if .Error}}{{.Error}}{{else}}—{{end}}</td><td>{{formatTime .StartedAt}}</td><td>{{formatTime .FinishedAt}}</td></tr>
-        {{else}}<tr><td colspan="5" class="empty">No delivery attempts recorded.</td></tr>{{end}}
-        </tbody>
-      </table>
-    </div>
-  </section>
-</main>
+      <dt>Acknowledged</dt><dd>{{if .Execution.AcknowledgedAt}}{{formatTime .Execution.AcknowledgedAt}}{{else}}Not yet acknowledged{{end}}</dd>
+      <dt>Created</dt><dd>{{formatTime .Execution.CreatedAt}}</dd>
+    </dl><p class="small"><a href="/admin/executions">All executions</a></p></div></section>
+  </div>
+</div></main>
 {{template "foot" .}}
 {{end}}

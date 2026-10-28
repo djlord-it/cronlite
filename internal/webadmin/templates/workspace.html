@@ -1,13 +1,52 @@
-{{define "onboarding"}}{{template "head" .}}{{template "nav" .}}
-<main id="main" class="container"><div class="page-heading"><div><h1>Getting started</h1></div><a class="button secondary" href="/admin/jobs">Skip onboarding →</a></div>
-<section class="onboarding-grid">
- <article class="card"><span class="step">01 / ACCESS</span><h2>API keys</h2><p class="muted">Create a key for each integration.</p><a class="button secondary" href="/admin/keys">Manage API keys →</a></article>
- <article class="card"><span class="step">02 / SCHEDULE</span><h2>Schedules</h2><p class="muted">Preview upcoming runs in your timezone.</p><a class="button secondary" href="/admin/schedule">Build a schedule →</a></article>
- <article class="card"><span class="step">03 / DELIVER</span><h2>Jobs</h2><p class="muted">Set a schedule and webhook.</p><a class="button" href="/admin/jobs/new">Create job →</a></article>
-</section>
-</main>{{template "foot" .}}{{end}}
-{{define "settings"}}{{template "head" .}}{{template "nav" .}}<main id="main" class="container"><div class="page-heading"><div><h1>Settings</h1></div></div>
-<div class="detail-grid"><section class="card"><h2>Workspace access</h2><dl><dt>Namespace</dt><dd class="break">{{.Namespace}}</dd><dt>Authentication</dt><dd>Namespace-scoped API keys</dd><dt>Idle session limit</dt><dd>{{.SessionTTL}}</dd><dt>Session lifetime</dt><dd>{{.SessionAbsoluteTTL}}</dd><dt>Secure cookies</dt><dd>{{if .CookieSecure}}Enabled{{else}}Disabled (local HTTP){{end}}</dd><dt>Appearance</dt><dd>Light / System font</dd></dl><p><a href="/admin/keys">Manage workspace access →</a></p></section><section class="card"><h2>Tailscale</h2><p class="muted">Tailnet node, webhook delivery to tailnet hosts, and tailnet access.</p><a class="button secondary" href="/admin/tailscale">View Tailscale →</a></section><section class="card"><h2>Job configuration</h2><p class="muted">Edit schedules and delivery settings from each job.</p><a class="button secondary" href="/admin/jobs">Manage jobs →</a></section></div>
-<section class="card welcome-note"><h2>Server runtime</h2><p class="muted">Change these settings in the server environment, then restart.</p><dl>{{range .RuntimeSettings}}<dt>{{.Name}}</dt><dd class="break">{{.Value}}</dd>{{else}}<dt>Configuration</dt><dd>No additional runtime settings supplied.</dd>{{end}}</dl></section></main>{{template "foot" .}}{{end}}
-{{define "schedule"}}{{template "head" .}}{{template "nav" .}}<main id="main" class="container narrow"><h1>Schedule builder</h1><p class="muted">Preview the next five runs.</p>{{template "messages" .}}<section class="card"><form method="post" action="/admin/schedule"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><label for="description">Schedule</label><input id="description" name="description" value="{{.Description}}" placeholder="every 15 minutes" maxlength="200" aria-describedby="schedule-help" required><p id="schedule-help" class="field-help">Try daily at 9am, every weekday at 5pm, or 0 9 * * *.</p><label for="timezone">IANA timezone</label><input id="timezone" name="timezone" value="{{.Form.Timezone}}" placeholder="America/Toronto" required><div class="actions"><button type="submit">Preview schedule →</button></div></form></section>
-{{if .Resolved.CronExpression}}<section class="card welcome-note"><p class="eyebrow">Schedule resolved</p><h2><code>{{.Resolved.CronExpression}}</code></h2><p class="muted">{{.Resolved.Description}} · {{.Resolved.Timezone}}</p><ol class="run-list">{{range .Resolved.NextRuns}}<li>{{formatTime .}}</li>{{end}}</ol><a class="button" href="/admin/jobs/new?cron_expression={{.Resolved.CronExpression}}&amp;timezone={{.Resolved.Timezone}}">Use this schedule →</a></section>{{end}}</main>{{template "foot" .}}{{end}}
+{{define "onboarding"}}{{template "head" .}}{{template "nav" .}}<main id="main"><div class="page narrow">
+<div class="page-head"><div><h1>Getting started</h1><p>From a fresh install to your first delivered webhook.</p></div><a class="btn btn-secondary" href="/admin/jobs">Skip onboarding</a></div>
+<section class="card"><ol class="steps">
+  <li class="step done"><span class="mark">{{icon "check"}}<span class="sr">Done:</span></span><div><h3>Create an API key</h3><p>You are signed in to namespace <code>{{.Namespace}}</code>. Create a key for each integration.</p></div><a class="btn btn-secondary btn-sm" href="/admin/keys">Manage API keys</a></li>
+  {{if .Fleet.Total}}
+  <li class="step done"><span class="mark">{{icon "check"}}<span class="sr">Done:</span></span><div><h3>Create a job</h3><p>This namespace has {{.Fleet.Total}} jobs. Set a schedule and a webhook for each.</p></div><a class="btn btn-secondary btn-sm" href="/admin/jobs">View jobs</a></li>
+  {{else}}
+  <li class="step current"><span class="mark">2</span><div><h3>Create a job</h3><p>Set a schedule and the webhook CronLite should call. Payloads are signed with your secret.</p></div><a class="btn btn-primary btn-sm" href="/admin/jobs/new">{{icon "plus"}}Create job</a></li>
+  {{end}}
+  <li class="step"><span class="mark">3</span><div><h3>Trigger it once</h3><p>Use Run now on the job to send a test delivery without waiting for the schedule.</p></div><a class="btn btn-secondary btn-sm" href="/admin/jobs">Open jobs</a></li>
+  <li class="step"><span class="mark">4</span><div><h3>Check the delivery</h3><p>Open the run to see each attempt, its HTTP status and timing, then acknowledge it.</p></div><a class="btn btn-secondary btn-sm" href="/admin/runs">Open runs</a></li>
+</ol></section>
+<section class="card mt"><div class="card-head"><div><h2>Plan schedules first</h2><p>Preview upcoming runs in your timezone before creating jobs.</p></div><a class="btn btn-secondary btn-sm" href="/admin/schedule">Build a schedule</a></div></section>
+<section class="card mt"><div class="card-head"><div><h2>Private services over Tailscale</h2><p>Call hosts on your tailnet and serve this admin privately. Needs a build with Tailscale support.</p></div><a class="btn btn-secondary btn-sm" href="/admin/tailscale">View Tailscale</a></div></section>
+</div></main>{{template "foot" .}}{{end}}
+
+{{define "settings"}}{{template "head" .}}{{template "nav" .}}<main id="main"><div class="page narrow">
+<div class="page-head"><div><h1>Settings</h1><p>Your session and appearance. Server settings are read-only here.</p></div></div>
+{{template "messages" .}}
+<div class="stack">
+<form class="card" method="post" action="/admin/settings/appearance"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <div class="card-head"><div><h2>Appearance</h2><p>Remembered for this browser. Auto follows your operating system.</p></div></div>
+  <div class="card-body"><div class="choice-grid" role="group" aria-label="Theme">
+    <button class="choice" type="submit" name="theme" value="auto" aria-pressed="{{if eq .Theme ""}}true{{else}}false{{end}}"><strong>{{icon "monitor"}}Auto</strong><span>Match the operating system.</span></button>
+    <button class="choice" type="submit" name="theme" value="light" aria-pressed="{{if eq .Theme "light"}}true{{else}}false{{end}}"><strong>{{icon "sun"}}Light</strong><span>Always light.</span></button>
+    <button class="choice" type="submit" name="theme" value="dark" aria-pressed="{{if eq .Theme "dark"}}true{{else}}false{{end}}"><strong>{{icon "moon"}}Dark</strong><span>Always dark.</span></button>
+  </div></div>
+</form>
+<section class="card"><div class="card-head"><h2>Workspace access</h2><a class="small" href="/admin/keys">Manage workspace access</a></div><div class="card-body"><dl class="kv">
+  <dt>Namespace</dt><dd><code>{{.Namespace}}</code></dd><dt>Authentication</dt><dd>Namespace-scoped API keys</dd>
+  <dt>Idle session limit</dt><dd>{{.SessionTTL}}</dd><dt>Session lifetime</dt><dd>{{.SessionAbsoluteTTL}}</dd>
+  <dt>Secure cookies</dt><dd>{{if .CookieSecure}}Enabled{{else}}Disabled (local HTTP){{end}}</dd></dl></div></section>
+<section class="card"><div class="card-head"><div><h2>Tailscale</h2><p>Tailnet node, webhook delivery to tailnet hosts, and tailnet access.</p></div><a class="btn btn-secondary btn-sm" href="/admin/tailscale">View Tailscale</a></div></section>
+<section class="card"><div class="card-head"><div><h2>Server runtime</h2><p>Change these settings in the server environment, then restart.</p></div>{{icon "lock"}}</div><div class="card-body"><dl class="kv">
+  {{range .RuntimeSettings}}<dt>{{.Name}}</dt><dd class="break">{{.Value}}</dd>{{else}}<dt>Configuration</dt><dd>No additional runtime settings supplied.</dd>{{end}}</dl></div></section>
+</div>
+</div></main>{{template "foot" .}}{{end}}
+
+{{define "schedule"}}{{template "head" .}}{{template "nav" .}}<main id="main"><div class="page narrow">
+<div class="page-head"><div><h1>Schedule builder</h1><p>Describe a schedule in words or cron and preview the next five runs.</p></div></div>
+{{template "messages" .}}
+<form class="card" method="post" action="/admin/schedule"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <div class="card-body form-grid">
+    <div class="field full"><label for="description">Schedule</label><input id="description" name="description" type="text" value="{{.Description}}" placeholder="every 15 minutes" maxlength="200" aria-describedby="schedule-help" required><p id="schedule-help" class="help">Try daily at 9am, every weekday at 5pm, or 0 9 * * *.</p></div>
+    <div class="field"><label for="timezone">IANA timezone</label><input id="timezone" name="timezone" type="text" value="{{.Form.Timezone}}" placeholder="America/Toronto" required></div>
+  </div>
+  <div class="form-foot"><button class="btn btn-primary" type="submit">Preview schedule</button></div>
+</form>
+{{if .Resolved.CronExpression}}<section class="card mt"><div class="card-head"><div><h2><code>{{.Resolved.CronExpression}}</code></h2><p>{{.Resolved.Description}} · {{.Resolved.Timezone}}</p></div>
+  <a class="btn btn-primary" href="/admin/jobs/new?cron_expression={{.Resolved.CronExpression}}&amp;timezone={{.Resolved.Timezone}}">Use this schedule{{icon "arrow"}}</a></div>
+  <div class="card-body"><ol class="list">{{range .Resolved.NextRuns}}<li><span class="mono">{{formatTime .}}</span></li>{{end}}</ol></div></section>{{end}}
+</div></main>{{template "foot" .}}{{end}}

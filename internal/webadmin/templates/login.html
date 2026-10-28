@@ -1,19 +1,18 @@
 {{define "login"}}
 {{template "head" .}}
-<main id="main" class="auth-shell">
-  <section class="card auth-card">
-    <p class="eyebrow">CronLite</p>
+<main id="main" class="auth"><div>
+  <section class="card"><div class="card-body">
+    <span class="brand"><img src="/admin/assets/favicon.svg" alt="">CronLite</span>
     <h1>Sign in</h1>
-    <p class="muted">Sign in with your existing API key.</p>
+    <p class="lede">Sign in with your existing API key.</p>
     {{template "messages" .}}
     <form method="post" action="/admin/login">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-      <label for="api_key">API key <span class="field-info" aria-hidden="true">(i)</span></label>
+      <div class="field"><label for="api_key">API key</label>
       <input id="api_key" name="api_key" type="password" autocomplete="off" aria-describedby="api_key_help" required autofocus>
-      <p class="field-help" id="api_key_help">Use any enabled key in your workspace. It starts with <code>ec_</code>.</p>
-      <button type="submit">Sign in →</button>
+      <p class="help" id="api_key_help">Use any enabled key in your workspace. It starts with <code>ec_</code>.</p></div>
+      <button class="btn btn-primary full-width" type="submit">Sign in</button>
     </form>
-  </section>
-</main>
-{{template "foot" .}}
+  </div></section>
+{{template "public_foot" .}}
 {{end}}

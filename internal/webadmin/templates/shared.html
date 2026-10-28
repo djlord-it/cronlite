@@ -1,57 +1,74 @@
 {{define "head"}}
 <!doctype html>
-<html lang="en">
+<html lang="en"{{if .Theme}} data-theme="{{.Theme}}"{{end}}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · CronLite</title>
-  <meta name="color-scheme" content="light">
   <link rel="icon" type="image/svg+xml" href="/admin/assets/favicon.svg">
-  <link rel="stylesheet" href="/admin/assets/admin.css">
+  <link rel="stylesheet" href="/admin/assets/admin.css?v={{cssVersion}}">
 </head>
 <body>
-<a class="skip-link" href="#main">Skip to content</a>
+<a class="skip" href="#main">Skip to content</a>
+{{end}}
+
+{{define "nav_links"}}
+<div class="nav-group"><div class="nav-label">Operate</div>
+  <a href="/admin/jobs"{{if eq .Navigation "jobs"}} aria-current="page"{{end}}>{{icon "clock"}}Jobs</a>
+  <a href="/admin/runs"{{if eq .Navigation "runs"}} aria-current="page"{{end}}>{{icon "activity"}}Runs</a>
+  <a href="/admin/executions"{{if eq .Navigation "executions"}} aria-current="page"{{end}}>{{icon "list"}}Executions</a>
+</div>
+<div class="nav-group"><div class="nav-label">Workspace</div>
+  <a href="/admin/keys"{{if eq .Navigation "keys"}} aria-current="page"{{end}}>{{icon "key"}}API keys</a>
+  <a href="/admin/schedule"{{if eq .Navigation "schedule"}} aria-current="page"{{end}}>{{icon "calendar"}}Schedule builder</a>
+  <a href="/admin/tailscale"{{if eq .Navigation "tailscale"}} aria-current="page"{{end}}>{{icon "network"}}Tailscale</a>
+  <a href="/admin/settings"{{if eq .Navigation "settings"}} aria-current="page"{{end}}>{{icon "sliders"}}Settings</a>
+  <a href="/admin/onboarding"{{if eq .Navigation "onboarding"}} aria-current="page"{{end}}>{{icon "flag"}}Getting started</a>
+</div>
 {{end}}
 
 {{define "nav"}}
-<header class="topbar">
-  <a class="brand" href="/admin/jobs">CronLite</a>
-  <nav aria-label="Primary navigation">
-    <a href="/admin/jobs"{{if eq .Navigation "jobs"}} aria-current="page"{{end}}>Jobs</a>
-    <a href="/admin/runs"{{if eq .Navigation "runs"}} aria-current="page"{{end}}>Runs</a>
-    <details class="nav-more{{if or (eq .Navigation "executions") (eq .Navigation "keys") (eq .Navigation "schedule") (eq .Navigation "settings") (eq .Navigation "tailscale") (eq .Navigation "onboarding")}} is-current{{end}}">
-      <summary>Workspace</summary>
-      <div class="nav-menu">
-        <a href="/admin/executions"{{if eq .Navigation "executions"}} aria-current="page"{{end}}>Executions</a>
-        <a href="/admin/keys"{{if eq .Navigation "keys"}} aria-current="page"{{end}}>API keys</a>
-        <a href="/admin/schedule"{{if eq .Navigation "schedule"}} aria-current="page"{{end}}>Schedule builder</a>
-        <a href="/admin/settings"{{if eq .Navigation "settings"}} aria-current="page"{{end}}>Settings</a>
-        <a href="/admin/tailscale"{{if eq .Navigation "tailscale"}} aria-current="page"{{end}}>Tailscale</a>
-        <a href="/admin/onboarding"{{if eq .Navigation "onboarding"}} aria-current="page"{{end}}>Getting started</a>
-      </div>
-    </details>
-    <span class="namespace">{{.Namespace}}</span>
-    <form method="post" action="/admin/logout">
-      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-      <button class="link-button" type="submit">Log out</button>
-    </form>
-  </nav>
-</header>
+<div class="mobile-bar">
+  <a class="brand" href="/admin/jobs"><img src="/admin/assets/favicon.svg" alt="">CronLite</a>
+  <details class="menu"><summary class="btn btn-secondary btn-sm">{{icon "menu"}}Menu</summary>
+    <nav class="menu-pop nav" aria-label="Primary navigation">{{template "nav_links" .}}<hr>
+      <div class="who"><div><span>Namespace</span><strong>{{.Namespace}}</strong></div>
+        <form method="post" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="btn btn-secondary btn-sm" type="submit">{{icon "logout"}}Log out</button></form></div>
+    </nav>
+  </details>
+</div>
+<div class="shell">
+<aside class="sidebar">
+  <a class="brand" href="/admin/jobs"><img src="/admin/assets/favicon.svg" alt="">CronLite</a>
+  <nav class="nav" aria-label="Primary navigation">{{template "nav_links" .}}</nav>
+  <div class="sidebar-foot">
+    <div class="who"><div><span>Namespace</span><strong class="namespace">{{.Namespace}}</strong></div>
+      <form method="post" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{.CSRFToken}}"><button class="icon-btn" type="submit" title="Log out">{{icon "logout"}}<span class="sr">Log out</span></button></form></div>
+    <nav class="site-foot" aria-label="Footer navigation">
+      <a href="https://github.com/djlord-it/cronlite" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
+      <a href="https://deepwiki.com/djlord-it/cronlite" target="_blank" rel="noopener noreferrer" aria-label="FAQ on DeepWiki (opens in a new tab)">FAQ (DeepWiki)</a>
+    </nav>
+  </div>
+</aside>
 {{end}}
 
 {{define "messages"}}
-{{if .Notice}}<div class="notice" role="status">{{.Notice}}</div>{{end}}
-{{if .Error}}<div class="error" role="alert">{{.Error}}</div>{{end}}
+{{if .Notice}}<div class="notice" role="status">{{icon "check"}}<p>{{.Notice}}</p></div>{{end}}
+{{if .Error}}<div class="error" role="alert">{{icon "alert"}}<p>{{.Error}}</p></div>{{end}}
 {{end}}
 
 {{define "foot"}}
-<footer class="site-footer">
-  <span>© 2026 CronLite</span>
-  <nav aria-label="Footer navigation">
-    <a href="https://github.com/djlord-it/cronlite" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
-    <a href="https://deepwiki.com/djlord-it/cronlite" target="_blank" rel="noopener noreferrer" aria-label="FAQ on DeepWiki (opens in a new tab)">FAQ (DeepWiki)</a>
-  </nav>
-</footer>
+</div>
+</body>
+</html>
+{{end}}
+
+{{define "public_foot"}}
+<p class="site-foot centered">
+  <a href="https://github.com/djlord-it/cronlite" target="_blank" rel="noopener noreferrer" aria-label="GitHub (opens in a new tab)">GitHub</a>
+  <a href="https://deepwiki.com/djlord-it/cronlite" target="_blank" rel="noopener noreferrer" aria-label="FAQ on DeepWiki (opens in a new tab)">FAQ (DeepWiki)</a>
+</p>
+</div></main>
 </body>
 </html>
 {{end}}
