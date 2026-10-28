@@ -29,6 +29,7 @@ type mockStore struct {
 	statusUpdates    []statusUpdate
 	dequeueResults   []*domain.Execution // for DB poll mode
 	dequeueCalls     int
+	claimNamespace   domain.Namespace // when set, ClaimExecution returns executions in it
 }
 
 type statusUpdate struct {
@@ -117,6 +118,9 @@ func (s *mockStore) ClaimExecution(ctx context.Context, id uuid.UUID, ns domain.
 	defer s.mu.Unlock()
 	if status := s.executionStatus[id]; status == domain.ExecutionStatusDelivered || status == domain.ExecutionStatusFailed || status == domain.ExecutionStatusInProgress {
 		return nil, nil
+	}
+	if s.claimNamespace != "" {
+		ns = s.claimNamespace
 	}
 	execution := domain.Execution{ID: id, Namespace: ns, CreatedAt: time.Now(), ScheduledAt: time.Now(), FiredAt: time.Now()}
 	for jobID := range s.jobs {
@@ -215,14 +219,17 @@ func (s *mockSender) callCount() int {
 }
 
 // TestDispatcher_WebhookRequestNamespace verifies the sender is told which
-// namespace the execution belongs to, so it can apply the tailnet policy.
+// namespace the execution belongs to, so it can apply the tailnet policy. The
+// job, event and claimed execution carry different namespaces so that only
+// the execution's can satisfy the check.
 func TestDispatcher_WebhookRequestNamespace(t *testing.T) {
 	store := newMockStore()
+	store.claimNamespace = domain.Namespace("billing")
 	sender := &mockSender{}
 	jobID := uuid.New()
 	store.addJob(domain.Job{
 		ID:        jobID,
-		Namespace: domain.Namespace("billing"),
+		Namespace: domain.Namespace("job-ns"),
 		Name:      "ns-job",
 		Enabled:   true,
 		Delivery: domain.DeliveryConfig{
@@ -234,7 +241,7 @@ func TestDispatcher_WebhookRequestNamespace(t *testing.T) {
 	event := domain.TriggerEvent{
 		ExecutionID: uuid.New(),
 		JobID:       jobID,
-		Namespace:   domain.Namespace("billing"),
+		Namespace:   domain.Namespace("event-ns"),
 		ScheduledAt: time.Now().UTC(),
 		FiredAt:     time.Now().UTC(),
 	}
