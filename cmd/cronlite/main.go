@@ -248,6 +248,24 @@ func newWebAdminConfig(
 	}
 }
 
+// newWebAdminTailnet describes the Tailscale integration to the admin UI. node
+// and policy may be nil.
+func newWebAdminTailnet(cfg config.Config, node *tailnet.Node, policy *webhookurl.TailnetPolicy) webadmin.TailnetConfig {
+	tc := webadmin.TailnetConfig{
+		Built:                 tailnet.Supported,
+		Delivery:              cfg.WebhookAllowTailnet,
+		Listen:                cfg.TSListen,
+		DisablePublicListener: cfg.TSDisablePublicListener,
+		Hostname:              cfg.TSHostname,
+		PublicAddr:            cfg.HTTPAddr,
+		Policy:                policy,
+	}
+	if node != nil { // keep a nil *Node out of the interface
+		tc.Node = node
+	}
+	return tc
+}
+
 func logAdminStartup(cfg config.Config) {
 	log.Printf(
 		"cronlite: admin UI mounted at /admin (idle_session_ttl=%s, absolute_session_ttl=%s, secure_cookie=%t)",
@@ -551,7 +569,9 @@ func runServe() int {
 		httpMux.Handle(cfg.MetricsPath, newMetricsHandler(appCtx, store, cfg.APIKey, cfg.MetricsPublic))
 	}
 	if cfg.AdminEnabled {
-		adminHandler, err := webadmin.NewHandler(newWebAdminConfig(cfg, jobService, store))
+		adminCfg := newWebAdminConfig(cfg, jobService, store)
+		adminCfg.Tailnet = newWebAdminTailnet(cfg, tailnetNode, tailnetPolicy)
+		adminHandler, err := webadmin.NewHandler(adminCfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to initialize admin UI: %v\n", err)
 			return exitRuntimeError
