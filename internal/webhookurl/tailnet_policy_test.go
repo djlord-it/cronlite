@@ -115,7 +115,7 @@ func TestTailnetPolicyNamespaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Join(p.Namespaces(), ",")
-	if want := "*,billing,ops"; got != want {
+	if want := "*,Ops,billing"; got != want {
 		t.Errorf("Namespaces() = %q, want %q", got, want)
 	}
 	var nilPolicy *TailnetPolicy
@@ -200,5 +200,34 @@ func TestTailnetPolicyAllowsNormalizesHost(t *testing.T) {
 		if !p.Allows("billing", h) {
 			t.Errorf("Allows(billing, %q) = false, want true", h)
 		}
+	}
+}
+
+// CronLite namespaces are case-sensitive, so the policy matches them exactly.
+func TestTailnetPolicyNamespaceCaseSensitive(t *testing.T) {
+	p, err := ParseTailnetPolicy("billing=invoices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Allows("Billing", "invoices") {
+		t.Error(`Allows("Billing", "invoices") = true, want false`)
+	}
+	if !p.Allows("billing", "invoices") {
+		t.Error(`Allows("billing", "invoices") = false, want true`)
+	}
+	if err := p.Check("Billing", "invoices.example-tailnet.ts.net", "example-tailnet.ts.net"); !errors.Is(err, ErrDestinationBlocked) {
+		t.Errorf("Check(Billing) = %v, want ErrDestinationBlocked", err)
+	}
+
+	// Namespaces differing only in case are distinct entries.
+	both, err := ParseTailnetPolicy("billing=invoices;Billing=ledger")
+	if err != nil {
+		t.Fatalf("ParseTailnetPolicy: %v, want nil", err)
+	}
+	if both.Allows("billing", "ledger") || both.Allows("Billing", "invoices") {
+		t.Error("case-differing namespaces share hosts")
+	}
+	if !both.Allows("Billing", "ledger") {
+		t.Error(`Allows("Billing", "ledger") = false, want true`)
 	}
 }

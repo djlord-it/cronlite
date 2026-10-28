@@ -23,12 +23,13 @@ type hostSet struct {
 // deny: the zero value, a nil *TailnetPolicy and an empty namespace allow
 // nothing.
 type TailnetPolicy struct {
-	byNamespace map[string]hostSet // keyed by lowercased namespace; "*" applies to all
+	byNamespace map[string]hostSet // keyed by exact namespace; "*" applies to all
 }
 
 // ParseTailnetPolicy parses "ns=host,host;ns=*;*=host". Entries are separated
 // by ";" (a trailing one is fine) and hosts by ",". Whitespace around every
-// token is ignored and names are lowercased.
+// token is ignored. Namespaces are matched exactly (CronLite namespaces are
+// case-sensitive); hosts are lowercased.
 //
 // A host is a single label relative to the tailnet suffix, so "invoices", not
 // "invoices.example-tailnet.ts.net". "*" as a host allows every tailnet host;
@@ -45,7 +46,7 @@ func ParseTailnetPolicy(raw string) (*TailnetPolicy, error) {
 			continue
 		}
 		ns, hosts, found := strings.Cut(entry, "=")
-		ns = strings.ToLower(strings.TrimSpace(ns))
+		ns = strings.TrimSpace(ns)
 		if !found || ns == "" {
 			return nil, fmt.Errorf("invalid tailnet policy entry %q: want namespace=host[,host]", entry)
 		}
@@ -86,15 +87,15 @@ func checkPolicyHost(h string) error {
 }
 
 // Allows reports whether namespace may reach relHost, a single label relative
-// to the tailnet suffix. relHost is matched case-insensitively and may carry
-// one trailing dot. The namespace's own entry and the "*" entry are unioned. A
+// to the tailnet suffix. namespace is matched exactly; relHost is matched
+// case-insensitively and may carry one trailing dot. The namespace's own entry and the "*" entry are unioned. A
 // nil policy and an empty namespace allow nothing.
 func (p *TailnetPolicy) Allows(namespace, relHost string) bool {
 	if p == nil || namespace == "" {
 		return false
 	}
 	relHost = strings.TrimSuffix(strings.ToLower(relHost), ".")
-	for _, key := range []string{strings.ToLower(namespace), "*"} {
+	for _, key := range []string{namespace, "*"} {
 		set := p.byNamespace[key]
 		if _, ok := set.names[relHost]; ok || set.all {
 			return true
@@ -154,7 +155,7 @@ func isASCII(s string) bool {
 	return true
 }
 
-// Namespaces returns the namespaces the policy lists, lowercased and sorted.
+// Namespaces returns the namespaces the policy lists, as written, sorted.
 // A "*" entry is included as "*". A nil policy lists none.
 func (p *TailnetPolicy) Namespaces() []string {
 	if p == nil {
