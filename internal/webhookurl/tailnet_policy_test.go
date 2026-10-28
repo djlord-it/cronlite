@@ -231,3 +231,62 @@ func TestTailnetPolicyNamespaceCaseSensitive(t *testing.T) {
 		t.Error(`Allows("Billing", "ledger") = false, want true`)
 	}
 }
+
+func TestTailnetPolicyHosts(t *testing.T) {
+	p, err := ParseTailnetPolicy("billing=invoices,ledger;ops=*;*=status,ledger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		ns    string
+		all   bool
+		hosts []string
+	}{
+		{"billing", false, []string{"invoices", "ledger", "status"}},
+		{"ops", true, nil},
+		{"other", false, []string{"ledger", "status"}},
+		{"", false, nil},
+	}
+	for _, tt := range tests {
+		all, hosts := p.Hosts(tt.ns)
+		if all != tt.all || strings.Join(hosts, ",") != strings.Join(tt.hosts, ",") {
+			t.Errorf("Hosts(%q) = %v %v, want %v %v", tt.ns, all, hosts, tt.all, tt.hosts)
+		}
+	}
+	if all, hosts := (*TailnetPolicy)(nil).Hosts("billing"); all || hosts != nil {
+		t.Errorf("nil policy Hosts = %v %v, want nothing", all, hosts)
+	}
+	wild, err := ParseTailnetPolicy("*=*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := wild.Hosts("anyone"); !all {
+		t.Error(`"*=*" must allow every host`)
+	}
+}
+
+func TestTailnetRelativeHost(t *testing.T) {
+	const suffix = "Example-Tailnet.ts.net."
+	tests := []struct {
+		host, rel string
+		ok        bool
+	}{
+		{"invoices.example-tailnet.ts.net", "invoices", true},
+		{"INVOICES.example-tailnet.ts.net.", "invoices", true},
+		{"a.b.example-tailnet.ts.net", "a.b", true},
+		{"invoices.example-tailnet.ｔｓ.net", "invoices", true},
+		{"example-tailnet.ts.net", "", false},
+		{"evil-example-tailnet.ts.net", "", false},
+		{"api.example.com", "", false},
+		{"100.64.0.1", "", false},
+	}
+	for _, tt := range tests {
+		rel, ok := TailnetRelativeHost(tt.host, suffix)
+		if rel != tt.rel || ok != tt.ok {
+			t.Errorf("TailnetRelativeHost(%q) = %q %v, want %q %v", tt.host, rel, ok, tt.rel, tt.ok)
+		}
+	}
+	if _, ok := TailnetRelativeHost("invoices.example-tailnet.ts.net", ""); ok {
+		t.Error("empty suffix must match nothing")
+	}
+}
