@@ -3,6 +3,8 @@ package tailnet
 import (
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -78,5 +80,23 @@ func TestParseAnswers(t *testing.T) {
 	}
 	if _, err := parseAnswers("svc", []byte{1, 2}); err == nil {
 		t.Error("truncated message: want error")
+	}
+}
+
+func TestRedirectHandler(t *testing.T) {
+	h := RedirectHandler("cronlite.example-tailnet.ts.net")
+	for target, want := range map[string]string{
+		"http://cronlite.example-tailnet.ts.net/admin?x=1": "https://cronlite.example-tailnet.ts.net/admin?x=1",
+		"http://evil.example/admin":                        "https://cronlite.example-tailnet.ts.net/admin", // Host header ignored
+		"http://100.64.0.1/":                               "https://cronlite.example-tailnet.ts.net/",
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, target, nil))
+		if rec.Code != http.StatusPermanentRedirect {
+			t.Errorf("%s: status = %d, want 308", target, rec.Code)
+		}
+		if got := rec.Header().Get("Location"); got != want {
+			t.Errorf("%s: Location = %q, want %q", target, got, want)
+		}
 	}
 }

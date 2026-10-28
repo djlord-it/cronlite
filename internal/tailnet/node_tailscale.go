@@ -10,6 +10,7 @@ import (
 	"net/netip"
 
 	"tailscale.com/client/local"
+	"tailscale.com/ipn"
 	"tailscale.com/tsnet"
 )
 
@@ -96,6 +97,33 @@ func (n *Node) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, err
 // Dial connects to addr, a literal IP:port, over the tailnet.
 func (n *Node) Dial(ctx context.Context, network, addr string) (net.Conn, error) {
 	return n.srv.Dial(ctx, network, addr)
+}
+
+// Running reports whether the node is connected to the tailnet.
+func (n *Node) Running(ctx context.Context) bool {
+	st, err := n.lc.StatusWithoutPeers(ctx)
+	return err == nil && st.BackendState == ipn.Running.String()
+}
+
+// CertDomain returns the node's HTTPS name, e.g.
+// "cronlite.example-tailnet.ts.net", or "" when the tailnet has HTTPS
+// certificates disabled.
+func (n *Node) CertDomain() string {
+	if d := n.srv.CertDomains(); len(d) > 0 {
+		return d[0]
+	}
+	return ""
+}
+
+// ListenTLS listens on :443 on the tailnet only, serving the node's Tailscale
+// HTTPS certificate. The tailnet must have HTTPS certificates enabled.
+func (n *Node) ListenTLS() (net.Listener, error) {
+	return n.srv.ListenTLS("tcp", ":443")
+}
+
+// ListenHTTP listens on :80 on the tailnet only, without TLS.
+func (n *Node) ListenHTTP() (net.Listener, error) {
+	return n.srv.Listen("tcp", ":80")
 }
 
 // Close shuts the node down. It is safe to call more than once.

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 
 	"golang.org/x/net/dns/dnsmessage"
 
@@ -37,6 +38,15 @@ type Config struct {
 // ErrUnsupported is returned by Start in binaries built without the
 // tailscale build tag.
 var ErrUnsupported = errors.New("this binary was built without Tailscale support (rebuild with -tags tailscale)")
+
+// RedirectHandler sends every request to the same path on
+// https://<domain>. The target host is fixed, never taken from the request,
+// so the handler cannot be used as an open redirect.
+func RedirectHandler(domain string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://"+domain+r.URL.RequestURI(), http.StatusPermanentRedirect)
+	})
+}
 
 // parseAnswers extracts the A and AAAA records from a raw DNS response.
 // NXDOMAIN and an empty answer are reported as *net.DNSError with IsNotFound,
