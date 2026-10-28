@@ -135,7 +135,10 @@ Environment Variables:
                             embedded Tailscale node (default: "false"; needs a -tags tailscale build)
   TS_AUTHKEY                Tailscale auth key for the embedded node (optional once TS_STATE_DIR is logged in)
   TS_HOSTNAME               Node name on the tailnet (default: "cronlite")
-  TS_STATE_DIR              Directory for the node's state (required with WEBHOOK_ALLOW_TAILNET)
+  TS_STATE_DIR              Directory for the node's state (required with WEBHOOK_ALLOW_TAILNET or TS_LISTEN)
+  TS_LISTEN                 Also serve the API, admin UI and MCP at https://<TS_HOSTNAME>.<tailnet>.ts.net
+                            (default: "false"; needs a -tags tailscale build and tailnet HTTPS certificates)
+  TS_DISABLE_PUBLIC_LISTENER Skip the HTTP_ADDR listener and serve on the tailnet only (default: "false")
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
   DB_MAX_OPEN_CONNS         Max open database connections (default: "25")
@@ -379,7 +382,7 @@ func runServe() int {
 	}
 	senderOpts := []dispatcher.SenderOption{dispatcher.WithAllowlist(webhookAllowlist)}
 	var tailnetNode *tailnet.Node
-	if cfg.WebhookAllowTailnet {
+	if cfg.TailnetEnabled() {
 		log.Printf("tailnet: starting node %q (state=%s)", cfg.TSHostname, cfg.TSStateDir)
 		upCtx, cancelUp := context.WithTimeout(context.Background(), tailnetUpTimeout)
 		tailnetNode, err = tailnet.Start(upCtx, tailnet.Config{
@@ -400,8 +403,11 @@ func runServe() int {
 				closeTailnet(tailnetNode)
 			}
 		}()
-		senderOpts = append(senderOpts, dispatcher.WithTailnet(tailnetNode))
-		log.Printf("tailnet: webhook delivery enabled for *.%s (node addresses %v)", tailnetNode.Suffix(), tailnetNode.SelfAddrs())
+		log.Printf("tailnet: node up on %s (addresses %v)", tailnetNode.Suffix(), tailnetNode.SelfAddrs())
+		if cfg.WebhookAllowTailnet {
+			senderOpts = append(senderOpts, dispatcher.WithTailnet(tailnetNode))
+			log.Printf("tailnet: webhook delivery enabled for *.%s", tailnetNode.Suffix())
+		}
 	}
 	webhookSender := dispatcher.NewHTTPWebhookSender(senderOpts...)
 
@@ -409,6 +415,14 @@ func runServe() int {
 
 	if cfg.MetricsEnabled {
 		metricsSink = metrics.NewPrometheusSink(prometheus.DefaultRegisterer)
+		if tailnetNode != nil {
+			node := tailnetNode
+			metricsSink.RegisterTailnetUp(prometheus.DefaultRegisterer, func() bool {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				return node.Running(ctx)
+			})
+		}
 		log.Printf("cronlite: metrics enabled (path=%s)", cfg.MetricsPath)
 	} else {
 		log.Println("cronlite: METRICS_ENABLED not set; metrics disabled")
@@ -485,6 +499,9 @@ func runServe() int {
 
 	// ── REST transport (oapi-codegen strict handler) ──────────────────────────
 	serverImpl := api.NewServerImpl(jobService).WithHealthChecker(db)
+	if tailnetNode != nil {
+		serverImpl = serverImpl.WithTailnetChecker(tailnetNode)
+	}
 	strictHandler := api.NewStrictHandler(serverImpl, nil)
 	apiRouter := api.Handler(strictHandler)
 
@@ -538,19 +555,68 @@ func runServe() int {
 	httpCtx, cancelHTTP := context.WithCancel(context.Background())
 	defer cancelHTTP()
 	httpServer.BaseContext = func(net.Listener) context.Context { return httpCtx }
-	listener, err := net.Listen("tcp", cfg.HTTPAddr)
-	if err != nil {
-		log.Printf("cronlite: http listen error: %v", err)
-		return exitRuntimeError
+	// The public HTTP_ADDR listener (unless TS_DISABLE_PUBLIC_LISTENER) and,
+	// with TS_LISTEN, the tailnet HTTPS listener both serve httpMux through
+	// httpServer, so one Shutdown drains them together. Plain HTTP on the
+	// tailnet only redirects to HTTPS.
+	type namedListener struct {
+		name string
+		ln   net.Listener
 	}
-	httpErrors := make(chan error, 1)
-
-	go func() {
-		log.Printf("cronlite: http server listening on %s", cfg.HTTPAddr)
-		if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			httpErrors <- err
+	var listeners []namedListener
+	closeListeners := func() {
+		for _, l := range listeners {
+			_ = l.ln.Close()
 		}
-	}()
+	}
+	if cfg.TSDisablePublicListener {
+		log.Println("cronlite: TS_DISABLE_PUBLIC_LISTENER=true; HTTP_ADDR listener disabled, serving on the tailnet only")
+	} else {
+		listener, err := net.Listen("tcp", cfg.HTTPAddr)
+		if err != nil {
+			log.Printf("cronlite: http listen error: %v", err)
+			return exitRuntimeError
+		}
+		listeners = append(listeners, namedListener{name: cfg.HTTPAddr, ln: listener})
+	}
+	var redirectServer *http.Server
+	var redirectListener net.Listener
+	if cfg.TSListen {
+		tlsListener, err := tailnetNode.ListenTLS()
+		if err != nil {
+			closeListeners()
+			log.Printf("tailnet: https listen error: %v", err)
+			return exitRuntimeError
+		}
+		domain := tailnetNode.CertDomain()
+		listeners = append(listeners, namedListener{name: "https://" + domain, ln: tlsListener})
+		redirectListener, err = tailnetNode.ListenHTTP()
+		if err != nil {
+			closeListeners()
+			log.Printf("tailnet: http listen error: %v", err)
+			return exitRuntimeError
+		}
+		redirectServer = newHTTPServer(":80", tailnet.RedirectHandler(domain))
+	}
+	httpErrors := make(chan error, len(listeners)+1)
+
+	listenerNames := make([]string, 0, len(listeners))
+	for _, l := range listeners {
+		listenerNames = append(listenerNames, l.name)
+		go func() {
+			log.Printf("cronlite: http server listening on %s", l.name)
+			if err := httpServer.Serve(l.ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				httpErrors <- fmt.Errorf("%s: %w", l.name, err)
+			}
+		}()
+	}
+	if redirectServer != nil {
+		go func() {
+			if err := redirectServer.Serve(redirectListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				httpErrors <- fmt.Errorf("tailnet http redirect: %w", err)
+			}
+		}()
+	}
 
 	// Dispatcher runs on all instances regardless of dispatch mode.
 	dispatcherCtx, cancelDispatcher := context.WithCancel(context.Background())
@@ -665,7 +731,7 @@ func runServe() int {
 		}
 	}
 
-	log.Printf("cronlite: started (tick=%s, http=%s, dispatch_mode=%s)", cfg.TickInterval, cfg.HTTPAddr, cfg.DispatchMode)
+	log.Printf("cronlite: started (tick=%s, http=%s, dispatch_mode=%s)", cfg.TickInterval, strings.Join(listenerNames, ","), cfg.DispatchMode)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -686,6 +752,11 @@ func runServe() int {
 	httpShutdownCtx, httpShutdownCancel := context.WithTimeout(context.Background(), cfg.HTTPShutdownTimeout)
 	if err := mcpShutdown(httpShutdownCtx); err != nil {
 		log.Printf("mcp: shutdown error: %v", err)
+	}
+	if redirectServer != nil {
+		if err := redirectServer.Shutdown(httpShutdownCtx); err != nil {
+			_ = redirectServer.Close()
+		}
 	}
 	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
 		log.Printf("cronlite: http server shutdown error: %v", err)
