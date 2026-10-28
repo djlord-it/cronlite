@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/djlord-it/cronlite/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/tailnet"
 	"github.com/djlord-it/cronlite/internal/webhookurl"
 )
 
@@ -125,6 +126,10 @@ func Validate(cfg Config) error {
 		errs = append(errs, ValidationError{Field: "WEBHOOK_ALLOWED_PRIVATE_SUFFIXES", Message: err.Error()})
 	}
 
+	if cfg.WebhookAllowTailnet {
+		errs = append(errs, validateTailnet(cfg, tailnet.Supported)...)
+	}
+
 	// Reconciler parameters (when enabled)
 	if cfg.ReconcileEnabled {
 		if cfg.ReconcileInterval <= 0 && cfg.ReconcileIntervalStr != "" {
@@ -188,6 +193,43 @@ func Validate(cfg Config) error {
 		return errs
 	}
 	return nil
+}
+
+// validateTailnet checks the settings used when WEBHOOK_ALLOW_TAILNET=true.
+// supported reports whether the binary was built with Tailscale support.
+func validateTailnet(cfg Config, supported bool) ValidationErrors {
+	var errs ValidationErrors
+	if !supported {
+		errs = append(errs, ValidationError{
+			Field:   "WEBHOOK_ALLOW_TAILNET",
+			Message: "this binary was built without Tailscale support; use a build made with -tags tailscale",
+		})
+	}
+	if cfg.TSStateDir == "" {
+		errs = append(errs, ValidationError{
+			Field:   "TS_STATE_DIR",
+			Message: "required when WEBHOOK_ALLOW_TAILNET=true (holds the node's identity across restarts)",
+		})
+	}
+	if !validNodeName(cfg.TSHostname) {
+		errs = append(errs, ValidationError{
+			Field:   "TS_HOSTNAME",
+			Message: fmt.Sprintf("must be a single DNS label (a-z, 0-9, '-', at most 63 characters), got %q", cfg.TSHostname),
+		})
+	}
+	return errs
+}
+
+func validNodeName(s string) bool {
+	if s == "" || len(s) > 63 || s[0] == '-' || s[len(s)-1] == '-' {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func validateProduction(cfg Config) ValidationErrors {

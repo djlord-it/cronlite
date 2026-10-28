@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/djlord-it/cronlite/internal/tailnet"
 )
 
 func TestLoad_TimeoutDefaults(t *testing.T) {
@@ -594,5 +596,97 @@ func TestValidateAcceptsAllowlist(t *testing.T) {
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadTailnetDefaults(t *testing.T) {
+	for _, k := range []string{"WEBHOOK_ALLOW_TAILNET", "TS_AUTHKEY", "TS_HOSTNAME", "TS_STATE_DIR"} {
+		t.Setenv(k, "")
+	}
+	cfg := Load()
+	if cfg.WebhookAllowTailnet {
+		t.Error("WebhookAllowTailnet must default to false")
+	}
+	if cfg.TSHostname != "cronlite" {
+		t.Errorf("TSHostname = %q, want cronlite", cfg.TSHostname)
+	}
+}
+
+func TestLoadTailnet(t *testing.T) {
+	t.Setenv("WEBHOOK_ALLOW_TAILNET", "true")
+	t.Setenv("TS_AUTHKEY", "tskey-auth-secret")
+	t.Setenv("TS_HOSTNAME", "cron-prod")
+	t.Setenv("TS_STATE_DIR", "/var/lib/cronlite/ts")
+	cfg := Load()
+	if !cfg.WebhookAllowTailnet || cfg.TSAuthKey != "tskey-auth-secret" ||
+		cfg.TSHostname != "cron-prod" || cfg.TSStateDir != "/var/lib/cronlite/ts" {
+		t.Fatalf("unexpected tailnet config: %+v", cfg)
+	}
+}
+
+func TestMaskedJSONNeverIncludesTSAuthKey(t *testing.T) {
+	cfg := Config{TSAuthKey: "tskey-auth-secret", TSHostname: "cronlite", WebhookAllowTailnet: true}
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "tskey") {
+		t.Fatalf("auth key leaked into config output: %s", data)
+	}
+	if !strings.Contains(string(data), `"webhook_allow_tailnet": true`) {
+		t.Errorf("webhook_allow_tailnet missing from config output: %s", data)
+	}
+}
+
+func TestValidateTailnet(t *testing.T) {
+	base := Config{TSHostname: "cronlite", TSStateDir: "/state"}
+	fields := func(errs ValidationErrors) map[string]bool {
+		m := map[string]bool{}
+		for _, e := range errs {
+			m[e.Field] = true
+		}
+		return m
+	}
+
+	if errs := validateTailnet(base, true); len(errs) != 0 {
+		t.Errorf("valid config rejected: %v", errs)
+	}
+	if got := fields(validateTailnet(base, false)); !got["WEBHOOK_ALLOW_TAILNET"] {
+		t.Errorf("unsupported build not rejected: %v", got)
+	}
+	noState := base
+	noState.TSStateDir = ""
+	if got := fields(validateTailnet(noState, true)); !got["TS_STATE_DIR"] {
+		t.Errorf("missing TS_STATE_DIR not rejected: %v", got)
+	}
+	for _, name := range []string{"", "Cronlite", "cron.lite", "-cron", "cron-", "cron_lite", strings.Repeat("a", 64)} {
+		bad := base
+		bad.TSHostname = name
+		if got := fields(validateTailnet(bad, true)); !got["TS_HOSTNAME"] {
+			t.Errorf("TS_HOSTNAME %q not rejected", name)
+		}
+	}
+	// The auth key is optional: a state dir may already hold a logged-in node.
+	if errs := validateTailnet(base, true); len(errs) != 0 {
+		t.Errorf("missing TS_AUTHKEY rejected: %v", errs)
+	}
+}
+
+func TestValidateIgnoresTailnetSettingsWhenDisabled(t *testing.T) {
+	cfg := Config{DatabaseURL: "postgres://x", TickIntervalStr: "30s", TSHostname: "Not Valid"}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("tailnet settings validated while WEBHOOK_ALLOW_TAILNET=false: %v", err)
+	}
+}
+
+func TestValidateTailnetMatchesBuild(t *testing.T) {
+	cfg := Config{DatabaseURL: "postgres://x", TickIntervalStr: "30s",
+		WebhookAllowTailnet: true, TSHostname: "cronlite", TSStateDir: "/state"}
+	err := Validate(cfg)
+	if tailnet.Supported && err != nil {
+		t.Fatalf("tailscale build rejected valid tailnet config: %v", err)
+	}
+	if !tailnet.Supported && err == nil {
+		t.Fatal("default build accepted WEBHOOK_ALLOW_TAILNET=true")
 	}
 }

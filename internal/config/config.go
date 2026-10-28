@@ -106,6 +106,14 @@ type Config struct {
 	// private-range addresses webhook delivery may dial. Loopback, link-local
 	// and other always-blocked ranges are never allowed.
 	WebhookAllowedPrivateSuffixes []string `json:"webhook_allowed_private_suffixes"`
+
+	// WebhookAllowTailnet delivers webhooks for hostnames under this node's
+	// tailnet MagicDNS suffix over an embedded Tailscale node. Requires a
+	// binary built with -tags tailscale.
+	WebhookAllowTailnet bool   `json:"webhook_allow_tailnet"`
+	TSAuthKey           string `json:"-"` // never serialized, not even masked
+	TSHostname          string `json:"ts_hostname"`
+	TSStateDir          string `json:"ts_state_dir,omitempty"`
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -144,6 +152,10 @@ func Load() Config {
 		AdminBootstrapToken:          os.Getenv("ADMIN_BOOTSTRAP_TOKEN"),
 		AdminSessionTTLStr:           os.Getenv("ADMIN_SESSION_TTL"),
 		AdminSessionAbsoluteTTLStr:   os.Getenv("ADMIN_SESSION_ABSOLUTE_TTL"),
+		WebhookAllowTailnet:          os.Getenv("WEBHOOK_ALLOW_TAILNET") == "true",
+		TSAuthKey:                    os.Getenv("TS_AUTHKEY"),
+		TSHostname:                   os.Getenv("TS_HOSTNAME"),
+		TSStateDir:                   os.Getenv("TS_STATE_DIR"),
 	}
 
 	cookieSecure := os.Getenv("ADMIN_COOKIE_SECURE")
@@ -256,6 +268,9 @@ func Load() Config {
 		} else {
 			cfg.HTTPAddr = ":8080"
 		}
+	}
+	if cfg.TSHostname == "" {
+		cfg.TSHostname = "cronlite"
 	}
 	if cfg.TickIntervalStr == "" {
 		cfg.TickIntervalStr = "30s"
