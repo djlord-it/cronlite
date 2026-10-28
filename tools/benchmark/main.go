@@ -189,6 +189,19 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 	}
 
 	result.Scenarios = deps.RunScenarios(ctx, env)
+	for index := range result.Scenarios {
+		if chaos := result.Scenarios[index].Chaos; chaos != nil {
+			// Keep one copy: the timeline is large.
+			result.Chaos = chaos
+			result.Scenarios[index].Chaos = nil
+			for key, value := range chaos.Settings.relevantConfig() {
+				if result.Environment.RelevantConfig == nil {
+					result.Environment.RelevantConfig = make(map[string]string)
+				}
+				result.Environment.RelevantConfig[key] = value
+			}
+		}
+	}
 	cleanupObservations := env.cleanup(ctx)
 	if len(cleanupObservations) > 0 {
 		now := time.Now().UTC()
@@ -230,6 +243,9 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 		return exitRuntime
 	}
 	fmt.Fprintf(deps.Stdout, "JSON: %s\nCSV: %s\nReport: %s\nResource samples: %s\nResource summary: %s\n", paths.JSON, paths.CSV, paths.Markdown, paths.ResourceSamplesCSV, paths.ResourceSummaryCSV)
+	if paths.ChaosTimelineCSV != "" {
+		fmt.Fprintf(deps.Stdout, "Chaos timeline: %s\nChaos scorecard: %s\n", paths.ChaosTimelineCSV, paths.ChaosScorecardCSV)
+	}
 
 	if cfg.FailOnCorrectness && hasCriticalFinding(result.Findings) {
 		return exitCorrectness
