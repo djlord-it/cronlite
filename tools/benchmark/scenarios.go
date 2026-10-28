@@ -43,6 +43,11 @@ type scenarioEnvironment struct {
 	Controller   *composeController
 	createdMu    sync.Mutex
 	createdJobs  []string
+
+	// Chaos test seams; runChaos falls back to Controller when they are nil.
+	ChaosProbe         instanceProbe
+	ChaosController    faultController
+	chaosGraceOverride *time.Duration
 }
 
 type scenarioFunc func(context.Context, *scenarioEnvironment) ScenarioResult
@@ -67,6 +72,7 @@ func scenarioRegistry() map[string]scenarioFunc {
 		"crash-recovery":  runCrashRecovery,
 		"leader-failover": runLeaderFailover,
 		"database-outage": runDatabaseOutage,
+		"chaos":           runChaos,
 		"load":            runLoad,
 	}
 }
@@ -121,7 +127,7 @@ func (e *scenarioEnvironment) createJob(
 ) (APIJob, string, Observation, error) {
 	token := e.Receiver.registerPlan(plan)
 	target := e.Config.ReceiverPublicURL + "/hook/" + token
-	job, observation, err := e.createJobWithTarget(ctx, scenario, target)
+	job, observation, err := e.createJobWithTarget(ctx, scenario, target, "0 0 * * *")
 	return job, target, observation, err
 }
 
@@ -129,6 +135,7 @@ func (e *scenarioEnvironment) createJobWithTarget(
 	ctx context.Context,
 	scenario string,
 	target string,
+	cronExpression string,
 ) (APIJob, Observation, error) {
 	timeoutSeconds := int(e.Config.Timeout / time.Second)
 	if timeoutSeconds < 1 {
@@ -139,7 +146,7 @@ func (e *scenarioEnvironment) createJobWithTarget(
 	}
 	job, observation, err := e.API.createJob(ctx, CreateJobInput{
 		Name:           "benchmark-" + scenario + "-" + uuid.NewString()[:8],
-		CronExpression: "0 0 * * *",
+		CronExpression: cronExpression,
 		Timezone:       "UTC",
 		WebhookURL:     target,
 		WebhookSecret:  e.Config.WebhookSecret,

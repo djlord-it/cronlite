@@ -28,6 +28,7 @@ func TestScenarioRegistryContainsRequiredScenarios(t *testing.T) {
 		"leader-failover",
 		"database-outage",
 		"load",
+		"chaos",
 	} {
 		if _, ok := registry[name]; !ok {
 			t.Errorf("missing scenario %q", name)

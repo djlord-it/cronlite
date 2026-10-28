@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -188,6 +189,19 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 	}
 
 	result.Scenarios = deps.RunScenarios(ctx, env)
+	for index := range result.Scenarios {
+		if chaos := result.Scenarios[index].Chaos; chaos != nil {
+			// Keep one copy: the timeline is large.
+			result.Chaos = chaos
+			result.Scenarios[index].Chaos = nil
+			for key, value := range chaos.Settings.relevantConfig() {
+				if result.Environment.RelevantConfig == nil {
+					result.Environment.RelevantConfig = make(map[string]string)
+				}
+				result.Environment.RelevantConfig[key] = value
+			}
+		}
+	}
 	cleanupObservations := env.cleanup(ctx)
 	if len(cleanupObservations) > 0 {
 		now := time.Now().UTC()
@@ -229,6 +243,9 @@ func run(ctx context.Context, args []string, deps runtimeDependencies) int {
 		return exitRuntime
 	}
 	fmt.Fprintf(deps.Stdout, "JSON: %s\nCSV: %s\nReport: %s\nResource samples: %s\nResource summary: %s\n", paths.JSON, paths.CSV, paths.Markdown, paths.ResourceSamplesCSV, paths.ResourceSummaryCSV)
+	if paths.ChaosTimelineCSV != "" {
+		fmt.Fprintf(deps.Stdout, "Chaos timeline: %s\nChaos scorecard: %s\n", paths.ChaosTimelineCSV, paths.ChaosScorecardCSV)
+	}
 
 	if cfg.FailOnCorrectness && hasCriticalFinding(result.Findings) {
 		return exitCorrectness
@@ -271,6 +288,7 @@ func parseConfig(args []string, stderr io.Writer) (Config, string, error) {
 	cfg.DatabaseURL = os.Getenv("CRONLITE_BENCHMARK_DATABASE_URL")
 	var scenarioList string
 	var concurrencyList string
+	var chaosFaultList string
 
 	flags := flag.NewFlagSet("cronlite-benchmark", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -316,6 +334,14 @@ func parseConfig(args []string, stderr io.Writer) (Config, string, error) {
 	flags.StringVar(&cfg.ComposeProject, "compose-project", "", "harness-owned Compose project name")
 	flags.StringVar(&cfg.DispatchMode, "dispatch-mode", cfg.DispatchMode, "channel, db, or unknown")
 	flags.Float64Var(&cfg.MinLoadThroughput, "min-load-throughput", 0, "minimum delivered load executions per second (0 disables gate)")
+	flags.StringVar(&chaosFaultList, "chaos-faults", "", "comma-separated chaos faults: type[:target][:intensity][:duration]")
+	flags.IntVar(&cfg.ChaosJobs, "chaos-jobs", cfg.ChaosJobs, "recurring jobs during chaos")
+	flags.Float64Var(&cfg.ChaosTriggerRate, "chaos-trigger-rate", cfg.ChaosTriggerRate, "manual triggers per second during chaos")
+	flags.DurationVar(&cfg.ChaosSampleInterval, "chaos-sample-interval", cfg.ChaosSampleInterval, "chaos timeline sample interval")
+	flags.DurationVar(&cfg.ChaosSlack, "chaos-slack", cfg.ChaosSlack, "slack added to chaos invariant bounds")
+	flags.DurationVar(&cfg.ChaosBaseline, "chaos-baseline", cfg.ChaosBaseline, "steady window before the first fault")
+	flags.DurationVar(&cfg.ChaosSteady, "chaos-steady", cfg.ChaosSteady, "steady window after each recovery")
+	flags.DurationVar(&cfg.ChaosRecoveryTimeout, "chaos-recovery-timeout", cfg.ChaosRecoveryTimeout, "maximum wait for recovery after a fault clears")
 	if err := flags.Parse(args); err != nil {
 		return cfg, "", err
 	}
@@ -326,6 +352,16 @@ func parseConfig(args []string, stderr io.Writer) (Config, string, error) {
 	cfg.Scenarios = splitList(scenarioList)
 	if len(cfg.Scenarios) == 1 && cfg.Scenarios[0] == "all" {
 		cfg.Scenarios = append([]string(nil), knownScenarios...)
+		if chaosFaultList == "" {
+			cfg.Scenarios = slices.DeleteFunc(cfg.Scenarios, func(s string) bool { return s == "chaos" })
+		}
+	}
+	if chaosFaultList != "" {
+		specs, err := parseFaultSpecs(chaosFaultList)
+		if err != nil {
+			return cfg, "", err
+		}
+		cfg.ChaosFaults = specs
 	}
 	concurrency, err := parseIntegerList(concurrencyList)
 	if err != nil {

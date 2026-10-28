@@ -159,6 +159,7 @@ gates.
 | `leader-failover` | Stop the leader and observe takeover | minutes | `--allow-disruptive` |
 | `database-outage` | Pause/unpause harness-owned PostgreSQL | seconds | `--allow-disruptive` |
 | `load` | Explicit high-load concurrent run | workload-dependent | `--allow-disruptive` |
+| `chaos` | Inject faults under steady traffic and score invariants | minutes | `--allow-disruptive`, `--start-compose`, `--diagnostic`, `--chaos-faults` |
 
 Select more than one scenario with a comma:
 
@@ -300,6 +301,88 @@ CronLite recurring cron expressions have one-minute resolution. Recurring
 results measure scheduler accuracy and drift across real ticks. Manual triggers
 measure millisecond-level API, dispatch, callback, and persistence behavior.
 The report never merges the two sample groups.
+
+## Chaos mode
+
+`--scenario chaos` runs steady traffic through the managed stack, injects
+faults one at a time, samples all three instances every second, and scores
+each fault against a set of invariants. The report says which invariants
+held (strengths), which broke (weak points, with evidence), and which
+settings move each broken bound.
+
+```bash
+BENCHMARK_REQUEUE_THRESHOLD=5s go run ./tools/benchmark \
+  --start-compose --diagnostic --allow-disruptive --cleanup-environment \
+  --scenario chaos \
+  --chaos-faults proc-stop:leader,proc-stop:follower,proc-pause:leader:med:20s,pg-pause::med:15s \
+  --requeue-threshold 5s --fail-on-correctness \
+  --output ./benchmark-output/chaos
+```
+
+### Faults
+
+`--chaos-faults` takes a comma-separated list of
+`type[:target][:intensity][:duration]`. Empty fields take the defaults.
+
+| Type | Targets (default first) | Injection |
+|---|---|---|
+| `proc-stop` | `leader`, `follower`, `all` | `docker compose stop`, then `start` |
+| `proc-pause` | `leader`, `follower`, `all` | `docker compose pause`, then `unpause` |
+| `pg-pause` | `postgres` | Pause PostgreSQL, then unpause |
+
+The intensity defaults to `med` and the duration to `30s`. Intensity is
+recorded but has no effect on these fault types yet. `leader` resolves to
+the current leader when the fault starts. `follower` is a seeded random
+non-leader (`--random-seed`). Every touched service is started and
+unpaused again when the run ends, including after Ctrl-C.
+
+### Workload
+
+- `--chaos-jobs` recurring jobs on `* * * * *` (default 30).
+- A manual job triggered `--chaos-trigger-rate` times per second (default 2;
+  0 disables it).
+
+The run waits `--chaos-baseline` (30s) before the first fault. After each
+fault clears, it waits for recovery (at most `--chaos-recovery-timeout`, 3m),
+then `--chaos-steady` (30s). After the last fault it waits long enough for
+the final minute's fires to land.
+
+### Invariants
+
+| ID | Invariant | Breach |
+|---|---|---|
+| I1 | Every expected recurring fire has an execution that was delivered or failed terminally | critical |
+| I2 | Repeated deliveries after a 2xx overlap a fault window (explained) | unexplained = critical |
+| I3 | Lateness stays under the bound for its window. A delivery belongs to the first fault its trigger-to-arrival interval overlaps | warning in a fault window; outside one, critical when p99 is over the bound, warning for a lone outlier |
+| I6 | No split brain: leader gauge sum > 1, or two instances triggering, in consecutive samples. Leaderless gaps stay under `L + H + ε` | split brain = critical, gap = warning |
+| I7 | After a fault clears: three consecutive samples with all instances ready, one leader, queue back to baseline, and manual lateness back under the steady bound | not recovered = warning |
+| I8 | No execution pending past its lease (`Q + RI + ε`) or the reconcile threshold | critical |
+| I10 | Every callback signature is valid | critical |
+
+Bounds come from settings, and the report prints each formula with the
+values plugged in: fault windows use `D + L + T + P + ε`
+(`D + DB_OP_TIMEOUT + T + ε` for `pg-pause`), and steady windows use
+`baseline p99 × 3 + ε`. `ε` is `--chaos-slack` (2s). The settings are copied
+from this directory's Compose file; keep them in sync.
+
+A breach outside every fault window is attributed to `unattributed`. Apart
+from a lone steady-window lateness outlier, it is critical. An invariant with
+nothing to judge (no samples in a window, or a failed executions query) reports
+`no data`, and the fault's verdict is `inconclusive`. Only callbacks for the
+chaos run's own executions are scored, so other scenarios in the same run do
+not affect it. Critical breaches become critical findings, so
+`--fail-on-correctness` exits 3.
+
+### Outputs
+
+The report gains a **Chaos** section right after the correctness findings: a
+scorecard per fault plus a `run` row, then strengths and weak points.
+`benchmark-results.json` (schema `1.1`) gains a `chaos` object. Two more
+files are written:
+
+- `chaos-timeline.csv`: one row per sample, with each instance's reachability,
+  readiness, leader gauge and trigger delta.
+- `chaos-scorecard.csv`: one row per fault and invariant.
 
 ## Important flags
 

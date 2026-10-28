@@ -2,7 +2,7 @@ package main
 
 import "time"
 
-const resultSchemaVersion = "1.0"
+const resultSchemaVersion = "1.1"
 
 type Provenance string
 
@@ -141,6 +141,7 @@ type ScenarioResult struct {
 	Executions   []ExecutionRecord `json:"executions"`
 	Observations []Observation     `json:"observations"`
 	Findings     []Finding         `json:"findings"`
+	Chaos        *ChaosResult      `json:"chaos,omitempty"`
 }
 
 type EnvironmentInfo struct {
@@ -175,4 +176,5 @@ type RunResult struct {
 	ResourceSummary []ResourceSummary   `json:"resource_summary,omitempty"`
 	Findings        []Finding           `json:"findings"`
 	Limitations     []string            `json:"limitations"`
+	Chaos           *ChaosResult        `json:"chaos,omitempty"`
 }

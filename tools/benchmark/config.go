@@ -34,6 +34,7 @@ var knownScenarios = []string{
 	"leader-failover",
 	"database-outage",
 	"load",
+	"chaos",
 }
 
 var disruptiveScenarios = []string{
@@ -42,6 +43,7 @@ var disruptiveScenarios = []string{
 	"leader-failover",
 	"database-outage",
 	"load",
+	"chaos",
 }
 
 type Config struct {
@@ -72,6 +74,15 @@ type Config struct {
 	ComposeProject     string
 	DispatchMode       string
 	MinLoadThroughput  float64
+
+	ChaosFaults          []FaultSpec
+	ChaosJobs            int
+	ChaosTriggerRate     float64
+	ChaosSampleInterval  time.Duration
+	ChaosSlack           time.Duration
+	ChaosBaseline        time.Duration
+	ChaosSteady          time.Duration
+	ChaosRecoveryTimeout time.Duration
 }
 
 type RedactedConfig struct {
@@ -101,6 +112,14 @@ type RedactedConfig struct {
 	ComposeProject          string        `json:"compose_project,omitempty"`
 	DispatchMode            string        `json:"dispatch_mode"`
 	MinLoadThroughput       float64       `json:"min_load_throughput_per_second,omitempty"`
+	ChaosFaults             []string      `json:"chaos_faults,omitempty"`
+	ChaosJobs               int           `json:"chaos_jobs,omitempty"`
+	ChaosTriggerRate        float64       `json:"chaos_trigger_rate_per_second,omitempty"`
+	ChaosSampleInterval     time.Duration `json:"chaos_sample_interval_ns,omitempty"`
+	ChaosSlack              time.Duration `json:"chaos_slack_ns,omitempty"`
+	ChaosBaseline           time.Duration `json:"chaos_baseline_ns,omitempty"`
+	ChaosSteady             time.Duration `json:"chaos_steady_ns,omitempty"`
+	ChaosRecoveryTimeout    time.Duration `json:"chaos_recovery_timeout_ns,omitempty"`
 }
 
 func defaultConfig() Config {
@@ -121,6 +140,14 @@ func defaultConfig() Config {
 		RetryProfile:      "real-policy",
 		ComposeFile:       filepath.FromSlash("tools/benchmark/docker-compose.yml"),
 		DispatchMode:      "unknown",
+
+		ChaosJobs:            30,
+		ChaosTriggerRate:     2,
+		ChaosSampleInterval:  time.Second,
+		ChaosSlack:           2 * time.Second,
+		ChaosBaseline:        30 * time.Second,
+		ChaosSteady:          30 * time.Second,
+		ChaosRecoveryTimeout: 3 * time.Minute,
 	}
 }
 
@@ -175,6 +202,32 @@ func (c Config) Validate() error {
 	if math.IsNaN(c.MinLoadThroughput) || math.IsInf(c.MinLoadThroughput, 0) || c.MinLoadThroughput < 0 || (c.MinLoadThroughput > 0 && !slices.Contains(c.Scenarios, "load")) {
 		return fmt.Errorf("minimum load throughput must be nonnegative and requires the load scenario")
 	}
+	return c.validateChaos()
+}
+
+func (c Config) validateChaos() error {
+	if !slices.Contains(c.Scenarios, "chaos") {
+		if len(c.ChaosFaults) > 0 {
+			return fmt.Errorf("--chaos-faults requires --scenario chaos")
+		}
+		return nil
+	}
+	switch {
+	case !c.StartCompose:
+		return fmt.Errorf("chaos requires --start-compose")
+	case !c.Diagnostic:
+		return fmt.Errorf("chaos requires --diagnostic")
+	case len(c.ChaosFaults) == 0:
+		return fmt.Errorf("chaos requires --chaos-faults")
+	case c.ChaosJobs < 1 || c.ChaosJobs > 500:
+		return fmt.Errorf("chaos jobs must be between 1 and 500")
+	case math.IsNaN(c.ChaosTriggerRate) || c.ChaosTriggerRate < 0 || c.ChaosTriggerRate > 50:
+		return fmt.Errorf("chaos trigger rate must be between 0 and 50 per second")
+	case c.ChaosSampleInterval < 100*time.Millisecond:
+		return fmt.Errorf("chaos sample interval must be at least 100ms")
+	case c.ChaosSlack < 0 || c.ChaosBaseline < 0 || c.ChaosSteady < 0 || c.ChaosRecoveryTimeout <= 0:
+		return fmt.Errorf("chaos durations must be nonnegative and the recovery timeout positive")
+	}
 	return nil
 }
 
@@ -206,6 +259,14 @@ func (c Config) Redacted() RedactedConfig {
 		ComposeProject:          c.ComposeProject,
 		DispatchMode:            c.DispatchMode,
 		MinLoadThroughput:       c.MinLoadThroughput,
+		ChaosFaults:             faultSpecStrings(c.ChaosFaults),
+		ChaosJobs:               c.ChaosJobs,
+		ChaosTriggerRate:        c.ChaosTriggerRate,
+		ChaosSampleInterval:     c.ChaosSampleInterval,
+		ChaosSlack:              c.ChaosSlack,
+		ChaosBaseline:           c.ChaosBaseline,
+		ChaosSteady:             c.ChaosSteady,
+		ChaosRecoveryTimeout:    c.ChaosRecoveryTimeout,
 	}
 }
 

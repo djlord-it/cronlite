@@ -20,6 +20,7 @@ func renderReport(result RunResult, paths OutputPaths) string {
 
 	writeEnvironmentSection(&report, result)
 	writeCorrectnessSection(&report, result)
+	writeChaosSection(&report, result.Chaos)
 	writeScenarioSection(&report, result)
 	writeObservationStatsSection(&report, "Baseline HTTP Latency", result, "baseline")
 	writeAPIStatsSection(&report, result, []string{
@@ -424,6 +425,10 @@ func writeRawPathsSection(report *strings.Builder, paths OutputPaths) {
 	fmt.Fprintf(report, "- Report: `%s`\n", markdownCell(paths.Markdown))
 	fmt.Fprintf(report, "- Resource samples CSV: `%s`\n", markdownCell(paths.ResourceSamplesCSV))
 	fmt.Fprintf(report, "- Resource summary CSV: `%s`\n", markdownCell(paths.ResourceSummaryCSV))
+	if paths.ChaosTimelineCSV != "" {
+		fmt.Fprintf(report, "- Chaos timeline CSV: `%s`\n", markdownCell(paths.ChaosTimelineCSV))
+		fmt.Fprintf(report, "- Chaos scorecard CSV: `%s`\n", markdownCell(paths.ChaosScorecardCSV))
+	}
 }
 
 func allFindings(result RunResult) []Finding {

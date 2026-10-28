@@ -19,6 +19,8 @@ type OutputPaths struct {
 	Markdown           string `json:"markdown"`
 	ResourceSamplesCSV string `json:"resource_samples_csv"`
 	ResourceSummaryCSV string `json:"resource_summary_csv"`
+	ChaosTimelineCSV   string `json:"chaos_timeline_csv,omitempty"`
+	ChaosScorecardCSV  string `json:"chaos_scorecard_csv,omitempty"`
 }
 
 var (
@@ -58,6 +60,20 @@ func writeOutputs(outputDir string, result RunResult) (OutputPaths, error) {
 		return writeResourceSummaryCSV(buffer, safe.ResourceSummary)
 	}); err != nil {
 		return paths, err
+	}
+	if safe.Chaos != nil {
+		paths.ChaosTimelineCSV = filepath.Join(outputDir, "chaos-timeline.csv")
+		paths.ChaosScorecardCSV = filepath.Join(outputDir, "chaos-scorecard.csv")
+		if err := atomicWrite(paths.ChaosTimelineCSV, func(buffer *bytes.Buffer) error {
+			return writeChaosTimelineCSV(buffer, safe.Chaos)
+		}); err != nil {
+			return paths, err
+		}
+		if err := atomicWrite(paths.ChaosScorecardCSV, func(buffer *bytes.Buffer) error {
+			return writeChaosScorecardCSV(buffer, safe.Chaos)
+		}); err != nil {
+			return paths, err
+		}
 	}
 	if err := atomicWrite(paths.Markdown, func(buffer *bytes.Buffer) error {
 		_, err := buffer.WriteString(renderReport(safe, paths))
