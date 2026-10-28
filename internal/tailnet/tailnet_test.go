@@ -23,7 +23,8 @@ func buildResponse(t *testing.T, rcode dnsmessage.RCode, answers ...dnsmessage.R
 	if err := b.StartAnswers(); err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range answers {
+	for i := range answers {
+		a := &answers[i]
 		a.Header.Name, a.Header.Class = name, dnsmessage.ClassINET
 		var err error
 		switch body := a.Body.(type) {
