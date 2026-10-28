@@ -17,7 +17,7 @@ require (
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/robfig/cron/v3 v3.0.1
 	go.yaml.in/yaml/v2 v2.4.4
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	tailscale.com v1.102.5
 )
 
