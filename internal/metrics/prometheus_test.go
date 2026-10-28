@@ -212,3 +212,17 @@ func TestPrometheusSink_DuplicateRegistration_NoPanic(t *testing.T) {
 		t.Fatal("second NewPrometheusSink returned nil")
 	}
 }
+
+func TestRegisterTailnetUp(t *testing.T) {
+	sink, reg := newTestSink(t)
+	up := true
+	sink.RegisterTailnetUp(reg, func() bool { return up })
+
+	if got := getGaugeValue(t, reg, "cronlite_tailnet_up"); got != 1 {
+		t.Errorf("cronlite_tailnet_up = %v, want 1", got)
+	}
+	up = false
+	if got := getGaugeValue(t, reg, "cronlite_tailnet_up"); got != 0 {
+		t.Errorf("cronlite_tailnet_up = %v, want 0", got)
+	}
+}
