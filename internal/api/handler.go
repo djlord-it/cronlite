@@ -18,6 +18,12 @@ type HealthChecker interface {
 	PingContext(ctx context.Context) error
 }
 
+// TailnetChecker reports the embedded Tailscale node's state for verbose
+// /health responses.
+type TailnetChecker interface {
+	Running(ctx context.Context) bool
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
