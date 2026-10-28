@@ -63,14 +63,16 @@ var urlBearingHTMLAttributes = map[string]struct{}{
 
 func TestTemplatesContainNoExecutableOrExternalAssets(t *testing.T) {
 	_, err := template.New("embedded-admin").Funcs(template.FuncMap{
-		"scheduleText": cron.Describe,
-		"formatTime":   func(time.Time) string { return "" },
-		"tagsText":     tagsText,
-		"bulkResult":   bulkResultText,
-		"jobURL":       jobURL,
-		"executionURL": executionURL,
-		"returnQuery":  returnQuery,
-		"jobCardData":  func(domain.JobWithSchedule, pageData) any { return nil },
+		"scheduleText":  cron.Describe,
+		"formatTime":    func(time.Time) string { return "" },
+		"tagsText":      tagsText,
+		"bulkResult":    bulkResultText,
+		"jobURL":        jobURL,
+		"executionURL":  executionURL,
+		"returnQuery":   returnQuery,
+		"jobCardData":   func(domain.JobWithSchedule, pageData) any { return nil },
+		"tailnetTarget": TailnetConfig{}.target,
+		"tailnetHint":   TailnetConfig{}.hint,
 	}).ParseFS(embeddedFiles, "templates/*.html")
 	if err != nil {
 		t.Fatalf("parse embedded templates: %v", err)

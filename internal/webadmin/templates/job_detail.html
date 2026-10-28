@@ -18,6 +18,7 @@
         <dt>Schedule</dt><dd><code>{{.Schedule.CronExpression}}</code></dd>
         <dt>Timezone</dt><dd>{{.Schedule.Timezone}}</dd>
         <dt>Webhook</dt><dd class="break">{{.Job.Delivery.WebhookURL}}</dd>
+        {{with tailnetTarget .Namespace .Job.Delivery.WebhookURL}}{{if .Tailnet}}<dt>Tailnet</dt><dd>{{template "tailnet_badge" .}}{{if not .Allowed}} <span class="muted">{{.Reason}} Deliveries fail until an operator allows it. <a href="/admin/tailscale">Tailscale settings →</a></span>{{end}}</dd>{{end}}{{end}}
         <dt>Timeout</dt><dd>{{.Job.Delivery.Timeout}}</dd>
         <dt>Tags</dt><dd>{{range .Tags}}<span class="tag">{{.Key}}={{.Value}}</span>{{else}}—{{end}}</dd>
       </dl>

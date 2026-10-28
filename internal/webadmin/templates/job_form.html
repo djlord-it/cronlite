@@ -22,7 +22,8 @@
       </div>
       <div class="full">
         <label for="webhook_url">Webhook URL</label>
-        <input id="webhook_url" name="webhook_url" type="url" value="{{.Form.WebhookURL}}" placeholder="https://example.com/hook" required>
+        <input id="webhook_url" name="webhook_url" type="url" value="{{.Form.WebhookURL}}" placeholder="https://example.com/hook"{{with tailnetHint .Namespace}}{{if .Suffix}} aria-describedby="webhook_help"{{end}}{{end}} required>
+        {{with tailnetHint .Namespace}}{{if .Suffix}}<p class="field-help" id="webhook_help">{{if not .Delivery}}Tailnet delivery is off: hosts under <code>{{.Suffix}}</code> cannot be called.{{else if .AllHosts}}This namespace may call any tailnet host under <code>{{.Suffix}}</code>.{{else if .Hosts}}{{$suffix := .Suffix}}Tailnet hosts this namespace may call: {{range $i, $h := .Hosts}}{{if $i}}, {{end}}<code>{{$h}}.{{$suffix}}</code>{{end}}.{{else}}This namespace may not call any tailnet host under <code>{{.Suffix}}</code>.{{end}}</p>{{end}}{{end}}
       </div>
       <div>
         <label for="webhook_secret">Webhook secret {{if .Edit}}<span class="muted">(leave blank to keep)</span>{{end}}</label>
