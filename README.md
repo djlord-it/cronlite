@@ -152,6 +152,26 @@ func verifySignature(secret string, body []byte, signature string) bool {
 ```
 </details>
 
+## Private Services over Tailscale
+
+Most hosted cron services need a public endpoint to call. CronLite can join your [Tailscale](https://tailscale.com) tailnet with an embedded node (no Tailscale app or sidecar), so jobs can **call private services without opening a port**, and CronLite itself can run **without a public port**.
+
+```bash
+docker build --build-arg TAGS=tailscale -t cronlite:tailscale .
+docker run -d --env-file cronlite-ts.env \
+  -e DATABASE_URL='postgres://…' \
+  -e WEBHOOK_ALLOW_TAILNET=true -e TS_LISTEN=true \
+  -e TS_STATE_DIR=/home/cronlite/tailscale -v cronlite-ts:/home/cronlite \
+  cronlite:tailscale
+```
+
+`cronlite-ts.env` holds your Tailscale auth key (`TS_AUTHKEY=…`).
+
+- **Tailnet delivery** (`WEBHOOK_ALLOW_TAILNET`): a job can target `https://billing.<tailnet>.ts.net/hook`. Only your own tailnet's MagicDNS names take this path; every other URL goes through the usual SSRF guard.
+- **Tailnet access** (`TS_LISTEN`): the API, admin UI and MCP endpoint are served at `https://cronlite.<tailnet>.ts.net`. Add `TS_DISABLE_PUBLIC_LISTENER=true` to serve on the tailnet only.
+
+Both are off by default, and the Tailscale code is only compiled in with `-tags tailscale`. See the [Tailscale guide](TAILSCALE.md) for the full setup, including tailnet ACLs, the auth key and troubleshooting.
+
 ## Horizontal Scaling
 
 Run multiple instances against the same Postgres for HA. Requires `DISPATCH_MODE=db`.
@@ -358,7 +378,7 @@ All tools are namespace-scoped via the API key used for authentication.
 ## Security
 
 - **Namespace isolation**: API keys are scoped to namespaces — each key can only access its own jobs and executions
-- **SSRF protection**: Webhook URLs targeting private/reserved IP ranges (RFC 1918, loopback, link-local) are rejected at creation time, and every webhook connection is checked again after DNS resolution and on every redirect; private ranges are opt-in via `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` (see [Security Hardening](OPERATORS.md#security-hardening))
+- **SSRF protection**: Webhook URLs targeting private/reserved IP ranges (RFC 1918, loopback, link-local) are rejected at creation time, and every webhook connection is checked again after DNS resolution and on every redirect; private ranges are opt-in via `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` (see [Security Hardening](OPERATORS.md#security-hardening)); tailnet hosts are opt-in via `WEBHOOK_ALLOW_TAILNET` and checked separately (see [Tailscale](OPERATORS.md#tailscale))
 - **Rate limiting**: Two-layer rate limiting — per-IP (default 10 req/sec, before auth) and per-namespace (default 100 req/sec, after auth) on all endpoints except `/health`
 - **Credential safety**: `DATABASE_URL` and `REDIS_ADDR` credentials are masked in `cronlite config` output; startup warns when `sslmode=disable`
 - **Error sanitization**: Database error details are never exposed in API responses
