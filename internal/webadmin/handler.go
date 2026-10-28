@@ -112,6 +112,7 @@ type Config struct {
 	SessionTTL         time.Duration
 	SessionAbsoluteTTL time.Duration
 	CookieSecure       bool
+	Tailnet            TailnetConfig
 	Now                func() time.Time
 	Logger             *log.Logger
 }
@@ -122,6 +123,8 @@ type Handler struct {
 	sessions        *sessionManager
 	bootstrapToken  string
 	cookieSecure    bool
+	tailnet         TailnetConfig
+	now             func() time.Time
 	templates       *template.Template
 	css             []byte
 	logger          *log.Logger
@@ -185,6 +188,7 @@ type pageData struct {
 	Batch                           domain.BulkBatch
 	Batches                         []domain.BulkBatch
 	Applied, Unchanged, Failed      int
+	Tailnet                         tailnetView
 }
 
 func NewHandler(cfg Config) (http.Handler, error) {
@@ -215,16 +219,19 @@ func NewHandler(cfg Config) (http.Handler, error) {
 			}
 			return t.UTC().Format("2006-01-02 15:04:05 UTC")
 		},
-		"tagsText":     tagsText,
-		"jobURL":       jobURL,
-		"executionURL": executionURL,
-		"returnQuery":  returnQuery,
-		"bulkResult":   bulkResultText,
+		"tagsText":      tagsText,
+		"jobURL":        jobURL,
+		"executionURL":  executionURL,
+		"returnQuery":   returnQuery,
+		"bulkResult":    bulkResultText,
+		"tailnetTarget": cfg.Tailnet.target,
+		"tailnetHint":   cfg.Tailnet.hint,
 		"jobCardData": func(row domain.JobWithSchedule, data pageData) any {
 			return struct {
-				Row   domain.JobWithSchedule
-				State string
-			}{row, data.ReturnURL}
+				Row       domain.JobWithSchedule
+				State     string
+				Namespace string
+			}{row, data.ReturnURL, data.Namespace}
 		},
 	}).ParseFS(embeddedFiles, "templates/*.html")
 	if err != nil {
@@ -241,6 +248,8 @@ func NewHandler(cfg Config) (http.Handler, error) {
 		sessions:        newSessionManager(cfg.Sessions, cfg.Keys, cfg.SessionTTL, cfg.SessionAbsoluteTTL, cfg.CookieSecure, cfg.Now),
 		bootstrapToken:  cfg.BootstrapToken,
 		cookieSecure:    cfg.CookieSecure,
+		tailnet:         cfg.Tailnet,
+		now:             cfg.Now,
 		templates:       templates,
 		css:             css,
 		logger:          cfg.Logger,
@@ -262,6 +271,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /admin/keys/{id}/delete", h.deleteKey)
 	h.mux.HandleFunc("GET /admin/onboarding", h.onboardingPage)
 	h.mux.HandleFunc("GET /admin/settings", h.settingsPage)
+	h.mux.HandleFunc("GET /admin/tailscale", h.tailnetPage)
 	h.mux.HandleFunc("GET /admin/schedule", h.schedulePage)
 	h.mux.HandleFunc("POST /admin/schedule", h.resolveSchedule)
 	h.mux.HandleFunc("GET /admin/executions", h.executionsPage)
@@ -424,7 +434,7 @@ func (h *Handler) render(w http.ResponseWriter, name string, data pageData) {
 		data.Navigation = "keys"
 	case "executions", "execution":
 		data.Navigation = "executions"
-	case "settings", "schedule", "onboarding", "runs":
+	case "settings", "schedule", "onboarding", "runs", "tailscale":
 		data.Navigation = name
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

@@ -133,6 +133,8 @@ docker run -d --name cronlite \
 
    The service receives a signed `POST` from CronLite's tailnet address.
 
+5. **Admin UI:** **Workspace → Tailscale** shows the node's status, MagicDNS name, addresses, tags and key expiry, whether you reached the page over the tailnet, and the tailnet hosts your namespace may call. It also lists the namespace's jobs that call tailnet hosts, marked allowed or blocked. Jobs and the job form carry the same marks. The page is read-only: settings still come from the environment. A namespace sees only its own `WEBHOOK_TAILNET_HOSTS` entries and the `*` entry, never another namespace's.
+
 ## Tailnet-only mode
 
 Once tailnet access works, add `-e TS_DISABLE_PUBLIC_LISTENER=true` and drop `-p 8080:8080`. CronLite then only answers on the tailnet. Anything that probes the container port, such as a Railway, Docker or Kubernetes health check, will fail, so remove those probes. To monitor the instance, scrape `/metrics` over the tailnet instead.

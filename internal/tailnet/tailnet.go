@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
 
@@ -33,6 +34,26 @@ type Config struct {
 	// Logf receives tsnet's user-facing messages (such as a login URL when
 	// no auth key is set). tsnet's verbose backend logs are discarded.
 	Logf func(format string, args ...any)
+}
+
+// Info is the node's state as reported by its local Tailscale backend.
+type Info struct {
+	// BackendState is the ipn state, e.g. "Running" or "NeedsLogin".
+	BackendState string
+	// Online reports whether the node is connected to the control plane.
+	Online bool
+	// DNSName is the node's MagicDNS name, without the trailing dot.
+	DNSName string
+	// TailnetName is the tailnet's display name.
+	TailnetName string
+	// LoginName is the node owner's login; "tagged-devices" for tagged nodes.
+	LoginName string
+	// Tags are the node's ACL tags.
+	Tags []string
+	// KeyExpiry is when the node key expires; zero when it never does.
+	KeyExpiry time.Time
+	// Health lists the backend's current health warnings.
+	Health []string
 }
 
 // ErrUnsupported is returned by Start in binaries built without the

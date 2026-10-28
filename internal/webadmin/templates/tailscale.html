@@ -1,0 +1,77 @@
+{{define "tailscale"}}
+{{template "head" .}}
+{{template "nav" .}}
+<main id="main" class="container">
+  <div class="page-heading"><div><h1>Tailscale</h1><p class="muted">Change these settings in the server environment, then restart.</p></div>{{if .Tailnet.Built}}<a class="button secondary" href="/admin/tailscale">Refresh ↻</a>{{end}}</div>
+  {{with .Tailnet}}
+  {{if not .Built}}
+  <section class="card tailnet-off">
+    <p class="eyebrow">Not built in</p>
+    <h2>Tailscale is not built into this binary</h2>
+    <p class="muted">The default build leaves Tailscale out to keep the binary small. Tailnet delivery (<code>WEBHOOK_ALLOW_TAILNET</code>) and tailnet access (<code>TS_LISTEN</code>) need a build made with the <code>tailscale</code> tag:</p>
+    <pre><code>docker build --build-arg TAGS=tailscale -t cronlite:tailscale .
+go build -tags tailscale -o cronlite ./cmd/cronlite</code></pre>
+    <p class="muted">See <code>TAILSCALE.md</code> in the CronLite repository for the step-by-step guide.</p>
+  </section>
+  {{else if not .Started}}
+  <section class="card tailnet-off">
+    <p class="eyebrow">Built in · off</p>
+    <h2>Tailscale is built in but not enabled</h2>
+    <p class="muted">Set <code>WEBHOOK_ALLOW_TAILNET=true</code> (with <code>WEBHOOK_TAILNET_HOSTS</code>) to deliver webhooks to tailnet hosts, or <code>TS_LISTEN=true</code> to serve CronLite on the tailnet. Both need <code>TS_STATE_DIR</code>.</p>
+    <p class="muted">See <code>TAILSCALE.md</code> in the CronLite repository for the step-by-step guide.</p>
+  </section>
+  {{else}}
+
+  {{if .Info.BackendState}}{{if not .Running}}<div class="error" role="alert">The tailnet node is not running (state: {{.Info.BackendState}}). Tailnet deliveries and tailnet access fail until it reconnects.</div>{{end}}{{end}}
+  {{if .InfoError}}<div class="error" role="alert">The tailnet node did not report its status. It may be stopped or unresponsive.</div>{{end}}
+  {{if .KeyExpiresSoon}}<div class="error" role="alert">The node key expires {{formatTime .Info.KeyExpiry}}. Re-authenticate the node, or use a tagged auth key so it never expires.</div>{{end}}
+
+  <section class="detail-grid">
+    <div class="card">
+      <h2>Node</h2>
+      <dl>
+        <dt>Status</dt><dd>{{if .Running}}<span class="badge tailnet-ok">Connected</span>{{else}}<span class="badge tailnet-blocked">{{if .Info.BackendState}}{{.Info.BackendState}}{{else}}Unknown{{end}}</span>{{end}}</dd>
+        <dt>MagicDNS name</dt><dd class="break"><code>{{if .Info.DNSName}}{{.Info.DNSName}}{{else}}{{.Hostname}}.{{.Suffix}}{{end}}</code></dd>
+        <dt>Tailnet suffix</dt><dd class="break"><code>{{.Suffix}}</code></dd>
+        {{if .Info.TailnetName}}<dt>Tailnet</dt><dd class="break">{{.Info.TailnetName}}</dd>{{end}}
+        <dt>Addresses</dt><dd>{{range .Addrs}}<code>{{.}}</code> {{else}}—{{end}}</dd>
+        <dt>Logged in as</dt><dd class="break">{{range .Info.Tags}}<span class="tag">{{.}}</span>{{else}}{{if .Info.LoginName}}{{.Info.LoginName}}{{else}}—{{end}}{{end}}</dd>
+        <dt>Key expiry</dt><dd>{{if .Info.KeyExpiry.IsZero}}Never{{else}}{{formatTime .Info.KeyExpiry}}{{end}}</dd>
+        {{if .Info.Health}}<dt>Health</dt><dd><ul class="compact-list">{{range .Info.Health}}<li>{{.}}</li>{{end}}</ul></dd>{{end}}
+      </dl>
+    </div>
+    <div class="card tailnet-access">
+      <h2>Access</h2>
+      <dl>
+        <dt>This page</dt><dd>{{if .ViaTailnet}}<span class="badge tailnet-ok">Over the tailnet</span>{{else}}<span class="badge">Over the public listener</span>{{end}}</dd>
+        <dt>Tailnet access</dt><dd class="break">{{if .Listen}}On{{else}}Off{{end}} <small class="muted env"><code>TS_LISTEN</code></small></dd>
+        {{if .Listen}}<dt>Tailnet URL</dt><dd class="break">{{if .CertDomain}}<code>https://{{.CertDomain}}</code>{{else}}HTTPS certificates are disabled on this tailnet{{end}}</dd>{{end}}
+        <dt>Public listener</dt><dd class="break">{{if .DisablePublicListener}}Disabled{{else}}On <code>{{.PublicAddr}}</code>{{end}} <small class="muted env"><code>TS_DISABLE_PUBLIC_LISTENER={{.DisablePublicListener}}</code></small></dd>
+      </dl>
+    </div>
+  </section>
+
+  <section class="card welcome-note">
+    <h2>Webhook delivery</h2>
+    <dl>
+      <dt>Tailnet delivery</dt><dd>{{if .Delivery}}On: hosts under <code>{{.Suffix}}</code> are called over the tailnet{{else}}Off: tailnet hosts are not reachable{{end}} <small class="muted env"><code>WEBHOOK_ALLOW_TAILNET</code></small></dd>
+      {{if .Delivery}}<dt>This namespace may call</dt><dd>{{if .AllHosts}}Every tailnet host{{else}}{{range .Hosts}}<span class="tag">{{.}}</span>{{else}}No tailnet hosts{{end}}{{end}}</dd>{{end}}
+    </dl>
+    {{if .Delivery}}<p class="muted"><small>Only this namespace's entries in <code>WEBHOOK_TAILNET_HOSTS</code> (and the <code>*</code> entry) are shown.</small></p>{{end}}
+  </section>
+
+  <section class="welcome-note">
+    <h2>Jobs calling tailnet hosts</h2>
+    <div class="table-wrap"><table><thead><tr><th>Job</th><th>Host</th><th>Delivery</th></tr></thead><tbody>
+    {{range .Jobs}}<tr><td><a href="{{jobURL .Job.Job.ID ""}}">{{.Job.Job.Name}}</a>{{if not .Job.Job.Enabled}} <span class="muted">(paused)</span>{{end}}</td><td><code>{{.Target.Host}}</code></td><td>{{template "tailnet_badge" .Target}}</td></tr>
+    {{else}}<tr><td colspan="3" class="empty">No job in this namespace calls a tailnet host.</td></tr>{{end}}
+    </tbody></table></div>
+    {{if .JobsLimited}}<p class="field-help">Only the first 2,000 jobs were checked.</p>{{end}}
+  </section>
+  {{end}}
+  {{end}}
+</main>
+{{template "foot" .}}
+{{end}}
+
+{{define "tailnet_badge"}}{{if .Allowed}}<span class="badge tailnet-ok">Tailnet · allowed</span>{{else}}<span class="badge tailnet-blocked" title="{{.Reason}}">Tailnet · blocked</span>{{end}}{{end}}

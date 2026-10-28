@@ -168,3 +168,46 @@ func (p *TailnetPolicy) Namespaces() []string {
 	slices.Sort(out)
 	return out
 }
+
+// Hosts returns what namespace may reach: all is set when every tailnet host
+// is allowed, otherwise hosts lists the allowed single labels, sorted. Like
+// Allows, it unions the namespace's own entry and the "*" entry. A nil policy
+// and an empty namespace allow nothing.
+func (p *TailnetPolicy) Hosts(namespace string) (all bool, hosts []string) {
+	if p == nil || namespace == "" {
+		return false, nil
+	}
+	seen := make(map[string]struct{})
+	for _, key := range []string{namespace, "*"} {
+		set := p.byNamespace[key]
+		if set.all {
+			return true, nil
+		}
+		for h := range set.names {
+			if _, dup := seen[h]; !dup {
+				seen[h] = struct{}{}
+				hosts = append(hosts, h)
+			}
+		}
+	}
+	slices.Sort(hosts)
+	return false, hosts
+}
+
+// TailnetRelativeHost reports whether host is under suffix, judged as Check
+// judges it (IDNA-mapped, case-insensitive, one trailing dot ignored), and
+// returns the part before the suffix, e.g. "invoices". It reports false for an
+// empty suffix and for a host IDNA cannot map.
+func TailnetRelativeHost(host, suffix string) (rel string, ok bool) {
+	suffix = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(suffix)), ".")
+	if suffix == "" {
+		return "", false
+	}
+	if !isASCII(host) {
+		var err error
+		if host, err = idna.Lookup.ToASCII(host); err != nil {
+			return "", false
+		}
+	}
+	return relativeTailnetHost(host, suffix)
+}

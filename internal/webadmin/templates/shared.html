@@ -19,13 +19,14 @@
   <nav aria-label="Primary navigation">
     <a href="/admin/jobs"{{if eq .Navigation "jobs"}} aria-current="page"{{end}}>Jobs</a>
     <a href="/admin/runs"{{if eq .Navigation "runs"}} aria-current="page"{{end}}>Runs</a>
-    <details class="nav-more{{if or (eq .Navigation "executions") (eq .Navigation "keys") (eq .Navigation "schedule") (eq .Navigation "settings") (eq .Navigation "onboarding")}} is-current{{end}}">
+    <details class="nav-more{{if or (eq .Navigation "executions") (eq .Navigation "keys") (eq .Navigation "schedule") (eq .Navigation "settings") (eq .Navigation "tailscale") (eq .Navigation "onboarding")}} is-current{{end}}">
       <summary>Workspace</summary>
       <div class="nav-menu">
         <a href="/admin/executions"{{if eq .Navigation "executions"}} aria-current="page"{{end}}>Executions</a>
         <a href="/admin/keys"{{if eq .Navigation "keys"}} aria-current="page"{{end}}>API keys</a>
         <a href="/admin/schedule"{{if eq .Navigation "schedule"}} aria-current="page"{{end}}>Schedule builder</a>
         <a href="/admin/settings"{{if eq .Navigation "settings"}} aria-current="page"{{end}}>Settings</a>
+        <a href="/admin/tailscale"{{if eq .Navigation "tailscale"}} aria-current="page"{{end}}>Tailscale</a>
         <a href="/admin/onboarding"{{if eq .Navigation "onboarding"}} aria-current="page"{{end}}>Getting started</a>
       </div>
     </details>
