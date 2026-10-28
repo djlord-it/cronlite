@@ -141,6 +141,7 @@ type ScenarioResult struct {
 	Executions   []ExecutionRecord `json:"executions"`
 	Observations []Observation     `json:"observations"`
 	Findings     []Finding         `json:"findings"`
+	Chaos        *ChaosResult      `json:"chaos,omitempty"`
 }
 
 type EnvironmentInfo struct {

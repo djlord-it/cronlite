@@ -294,6 +294,7 @@ func runRetry(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 					caseCtx,
 					retryCase.name,
 					target,
+					"0 0 * * *",
 				)
 			} else {
 				job, target, observations[index], err = env.createJob(
