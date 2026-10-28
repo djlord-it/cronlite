@@ -191,12 +191,14 @@ type mockSender struct {
 	results []WebhookResult
 	index   int
 	calls   int
+	reqs    []WebhookRequest
 }
 
 func (s *mockSender) Send(ctx context.Context, req WebhookRequest) WebhookResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
+	s.reqs = append(s.reqs, req)
 	if s.index < len(s.results) {
 		result := s.results[s.index]
 		s.index++
@@ -210,6 +212,43 @@ func (s *mockSender) callCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls
+}
+
+// TestDispatcher_WebhookRequestNamespace verifies the sender is told which
+// namespace the execution belongs to, so it can apply the tailnet policy.
+func TestDispatcher_WebhookRequestNamespace(t *testing.T) {
+	store := newMockStore()
+	sender := &mockSender{}
+	jobID := uuid.New()
+	store.addJob(domain.Job{
+		ID:        jobID,
+		Namespace: domain.Namespace("billing"),
+		Name:      "ns-job",
+		Enabled:   true,
+		Delivery: domain.DeliveryConfig{
+			Type:       "webhook",
+			WebhookURL: "http://example.com/webhook",
+			Timeout:    30 * time.Second,
+		},
+	})
+	event := domain.TriggerEvent{
+		ExecutionID: uuid.New(),
+		JobID:       jobID,
+		Namespace:   domain.Namespace("billing"),
+		ScheduledAt: time.Now().UTC(),
+		FiredAt:     time.Now().UTC(),
+	}
+	if err := New(store, sender).Dispatch(context.Background(), event); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.reqs) != 1 {
+		t.Fatalf("sends = %d, want 1", len(sender.reqs))
+	}
+	if got := sender.reqs[0].Namespace; got != "billing" {
+		t.Errorf("req.Namespace = %q, want %q", got, "billing")
+	}
 }
 
 // TestDispatcher_TerminalState_DeliveredCannotRegress verifies that once an

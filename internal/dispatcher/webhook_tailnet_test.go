@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -132,9 +134,11 @@ func TestSenderTailnetRouting(t *testing.T) {
 			tailnetHits.Store(0)
 			opts := []SenderOption{WithDialContext(public)}
 			if !tc.noTailnet {
-				opts = append(opts, WithTailnet(newTailnet()))
+				// Allow every tailnet host so this test exercises routing and
+				// the dial guards, not the namespace policy.
+				opts = append(opts, WithTailnet(newTailnet()), WithTailnetPolicy(mustPolicy(t, "billing=*")))
 			}
-			res := NewHTTPWebhookSender(opts...).Send(context.Background(), guardTestRequest(tc.url))
+			res := NewHTTPWebhookSender(opts...).Send(context.Background(), nsRequest("billing", tc.url))
 
 			if tc.wantBlocked {
 				if !errors.Is(res.Error, webhookurl.ErrDestinationBlocked) {
@@ -158,5 +162,185 @@ func TestSenderTailnetRouting(t *testing.T) {
 				t.Errorf("tailnet server hits = %d, want %d", got, tc.wantTailnet)
 			}
 		})
+	}
+}
+
+// policySetup starts a stand-in tailnet service that answers for svc and other
+// under testTailnet's suffix, and returns its hit counter and the tailnet.
+func policySetup(t *testing.T, h http.Handler) (*testTailnet, *httptest.Server) {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	tn := &testTailnet{
+		target: srv.Listener.Addr().String(),
+		dns: mapResolver{
+			"svc.example-tailnet.ts.net":   {{IP: net.ParseIP("100.101.102.103")}},
+			"other.example-tailnet.ts.net": {{IP: net.ParseIP("100.101.102.104")}},
+		},
+	}
+	return tn, srv
+}
+
+func mustPolicy(t *testing.T, raw string) *webhookurl.TailnetPolicy {
+	t.Helper()
+	p, err := webhookurl.ParseTailnetPolicy(raw)
+	if err != nil {
+		t.Fatalf("ParseTailnetPolicy(%q): %v", raw, err)
+	}
+	return p
+}
+
+func nsRequest(namespace, url string) WebhookRequest {
+	req := guardTestRequest(url)
+	req.Namespace = namespace
+	return req
+}
+
+func wantPolicyBlocked(t *testing.T, res WebhookResult) {
+	t.Helper()
+	if !errors.Is(res.Error, webhookurl.ErrDestinationBlocked) {
+		t.Fatalf("err = %v, want ErrDestinationBlocked", res.Error)
+	}
+	if !strings.Contains(res.Error.Error(), webhookurl.ReasonTailnetNotAllowed) {
+		t.Errorf("err = %v, want reason %q", res.Error, webhookurl.ReasonTailnetNotAllowed)
+	}
+	if res.IsRetryable() {
+		t.Error("policy refusal must not be retryable")
+	}
+}
+
+func TestSenderTailnetPolicy(t *testing.T) {
+	const svc = "http://svc.example-tailnet.ts.net/"
+	cases := []struct {
+		name        string
+		namespace   string
+		wantBlocked bool
+	}{
+		{name: "allowed namespace", namespace: "billing"},
+		{name: "other namespace", namespace: "ops", wantBlocked: true},
+		{name: "empty namespace", namespace: "", wantBlocked: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var hits atomic.Int32
+			tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc")))
+			res := s.Send(context.Background(), nsRequest(tc.namespace, svc))
+			if tc.wantBlocked {
+				wantPolicyBlocked(t, res)
+				if got := hits.Load(); got != 0 {
+					t.Errorf("server hits = %d, want 0", got)
+				}
+				return
+			}
+			if res.Error != nil || res.StatusCode != http.StatusOK {
+				t.Fatalf("res = %+v, want 200", res)
+			}
+			if got := hits.Load(); got != 1 {
+				t.Errorf("server hits = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestSenderTailnetPolicyRedirect(t *testing.T) {
+	var svcHits, otherHits atomic.Int32
+	tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.Host, "other.") {
+			otherHits.Add(1)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		svcHits.Add(1)
+		http.Redirect(w, r, "http://other.example-tailnet.ts.net/", http.StatusTemporaryRedirect)
+	}))
+	s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc")))
+	res := s.Send(context.Background(), nsRequest("billing", "http://svc.example-tailnet.ts.net/"))
+	wantPolicyBlocked(t, res)
+	if got := svcHits.Load(); got != 1 {
+		t.Errorf("svc hits = %d, want 1", got)
+	}
+	if got := otherHits.Load(); got != 0 {
+		t.Errorf("other hits = %d, want 0", got)
+	}
+}
+
+func TestSenderTailnetPolicyPooledConnection(t *testing.T) {
+	var hits atomic.Int32
+	tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc;ops=other")))
+	const svc = "http://svc.example-tailnet.ts.net/"
+
+	res := s.Send(context.Background(), nsRequest("billing", svc))
+	if res.Error != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("billing res = %+v, want 200", res)
+	}
+	// ops may reach other but not svc; billing's idle connection to svc must
+	// not carry its request.
+	wantPolicyBlocked(t, s.Send(context.Background(), nsRequest("ops", svc)))
+	if got := hits.Load(); got != 1 {
+		t.Errorf("server hits = %d, want 1", got)
+	}
+	// A third billing send reuses the pooled connection, proving one was kept.
+	if res := s.Send(context.Background(), nsRequest("billing", svc)); res.Error != nil {
+		t.Fatalf("second billing send: %v", res.Error)
+	}
+	if got := tn.dials.Load(); got != 1 {
+		t.Errorf("tailnet dials = %d, want 1 (connection pooled)", got)
+	}
+}
+
+func TestSenderTailnetPolicyNilDenies(t *testing.T) {
+	var hits atomic.Int32
+	tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	s := NewHTTPWebhookSender(WithTailnet(tn))
+	wantPolicyBlocked(t, s.Send(context.Background(), nsRequest("billing", "http://svc.example-tailnet.ts.net/")))
+	if got := hits.Load(); got != 0 {
+		t.Errorf("server hits = %d, want 0", got)
+	}
+}
+
+func TestSenderTailnetPolicyPublicUnaffected(t *testing.T) {
+	var publicHits atomic.Int32
+	publicSrv := redirectServer(&publicHits)
+	defer publicSrv.Close()
+	public := func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, publicSrv.Listener.Addr().String())
+	}
+	tn, _ := policySetup(t, http.NotFoundHandler())
+	s := NewHTTPWebhookSender(WithDialContext(public), WithTailnet(tn),
+		WithTailnetPolicy(mustPolicy(t, "billing=svc")))
+	res := s.Send(context.Background(), nsRequest("ops", "http://hooks.example.com/"))
+	if res.Error != nil || res.StatusCode != http.StatusOK {
+		t.Fatalf("res = %+v, want 200", res)
+	}
+	if got := publicHits.Load(); got != 1 {
+		t.Errorf("public hits = %d, want 1", got)
+	}
+}
+
+func TestSenderRedirectLimit(t *testing.T) {
+	// /0 → /1 → … → /11 is 11 redirects on the same allowed host.
+	tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/"))
+		if n >= 11 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, "/"+strconv.Itoa(n+1), http.StatusTemporaryRedirect)
+	}))
+	s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc")))
+	res := s.Send(context.Background(), nsRequest("billing", "http://svc.example-tailnet.ts.net/0"))
+	if res.Error == nil || !strings.Contains(res.Error.Error(), "stopped after 10 redirects") {
+		t.Fatalf("err = %v, want stopped after 10 redirects", res.Error)
 	}
 }
