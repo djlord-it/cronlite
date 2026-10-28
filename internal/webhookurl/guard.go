@@ -37,6 +37,9 @@ type BlockedError struct {
 }
 
 func (e *BlockedError) Error() string {
+	if e.IP == nil {
+		return fmt.Sprintf("destination blocked: host %q: %s", e.Host, e.Reason)
+	}
 	return fmt.Sprintf("destination blocked: host %q resolved to %s: %s", e.Host, e.IP, e.Reason)
 }
 
