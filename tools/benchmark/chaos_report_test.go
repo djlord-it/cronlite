@@ -25,7 +25,7 @@ func fixtureChaosResult() *ChaosResult {
 	in.Callbacks = append(in.Callbacks,
 		callback("ok1", 101.2, 204), callback("post1", 130.6, 204),
 		callback("slow1", 260, 204), callback("post2", 231.1, 204))
-	in.Timeline = []TimelineSample{sample(10, 1), sample(131, 1), sample(132, 1), sample(233, 1)}
+	in.Timeline = []TimelineSample{sample(10, 1), sample(131, 1), sample(132, 1), sample(133, 1), sample(233, 1), sample(234, 1), sample(235, 1)}
 	return scoreChaos(in, 30*time.Second)
 }
 
@@ -86,8 +86,8 @@ func TestChaosTimelineCSVHeader(t *testing.T) {
 	if header != want {
 		t.Fatalf("header = %q", header)
 	}
-	if lines := strings.Count(out.String(), "\n"); lines != 5 {
-		t.Fatalf("lines = %d, want header + 4 samples", lines)
+	if lines := strings.Count(out.String(), "\n"); lines != 8 {
+		t.Fatalf("lines = %d, want header + 7 samples", lines)
 	}
 }
 

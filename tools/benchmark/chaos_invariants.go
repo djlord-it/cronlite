@@ -23,6 +23,10 @@ const (
 
 const unattributedFault = "unattributed"
 
+// chaosRecoveryStreak is how many consecutive healthy samples count as
+// recovered, so one lucky sample does not close a fault's window early.
+const chaosRecoveryStreak = 3
+
 type Breach struct {
 	Invariant    InvariantID `json:"invariant"`
 	Severity     Severity    `json:"severity"`
@@ -46,18 +50,21 @@ type RecurringJob struct {
 }
 
 type ChaosInputs struct {
-	Settings        ChaosSettings
-	Windows         []FaultWindow
-	Timeline        []TimelineSample
-	Jobs            []RecurringJob
-	Executions      []ChaosExecutionRow
-	Manual          []ManualSample
-	Callbacks       []CallbackObservation
-	Stuck           []string
-	RecoveryTimeout time.Duration
-	RunStart        time.Time
-	RunEnd          time.Time
-	BaselineEnd     time.Time
+	Settings   ChaosSettings
+	Windows    []FaultWindow
+	Timeline   []TimelineSample
+	Jobs       []RecurringJob
+	Executions []ChaosExecutionRow
+	Manual     []ManualSample
+	Callbacks  []CallbackObservation
+	Stuck      []string
+	// ExecutionsUnavailable is set when the final executions query failed, so
+	// I1 has no data instead of reporting every fire as lost.
+	ExecutionsUnavailable bool
+	RecoveryTimeout       time.Duration
+	RunStart              time.Time
+	RunEnd                time.Time
+	BaselineEnd           time.Time
 }
 
 type LatenessStat struct {
@@ -124,6 +131,9 @@ func firstCallbacks(callbacks []CallbackObservation) map[string]CallbackObservat
 // checkNoLost is I1: every expected fire has a row that was delivered or
 // failed terminally.
 func checkNoLost(in ChaosInputs, grace time.Duration) []Breach {
+	if in.ExecutionsUnavailable {
+		return nil
+	}
 	rows := make(map[string]ChaosExecutionRow)
 	for _, row := range in.Executions {
 		rows[fmt.Sprintf("%s@%d", row.JobID, row.ScheduledAt.UTC().Unix())] = row
@@ -202,15 +212,21 @@ func classifyDuplicates(in ChaosInputs) (explained, unexplained, concurrent int,
 }
 
 func (in ChaosInputs) overlapsFault(from, to time.Time) bool {
-	for _, window := range in.Windows {
+	return in.overlappingFault(from, to) != unattributedFault
+}
+
+// overlappingFault returns the key of the first fault window that overlaps
+// [from, to].
+func (in ChaosInputs) overlappingFault(from, to time.Time) string {
+	for index, window := range in.Windows {
 		if window.AppliedAt.IsZero() {
 			continue
 		}
 		if !window.AppliedAt.After(to) && !windowEnd(window, in.RecoveryTimeout).Before(from) {
-			return true
+			return faultKey(index, window)
 		}
 	}
-	return false
+	return unattributedFault
 }
 
 type latenessPoint struct {
@@ -218,6 +234,8 @@ type latenessPoint struct {
 	lateness time.Duration
 	id       string
 }
+
+func (p latenessPoint) receivedAt() time.Time { return p.at.Add(p.lateness) }
 
 func (in ChaosInputs) latenessPoints() map[string][]latenessPoint {
 	first := firstCallbacks(in.Callbacks)
@@ -242,12 +260,15 @@ func (in ChaosInputs) latenessPoints() map[string][]latenessPoint {
 	return points
 }
 
-func (in ChaosInputs) windowOf(at time.Time) string {
-	if at.Before(in.BaselineEnd) {
-		return windowBaseline
-	}
-	if key := in.attribute(at); key != unattributedFault {
+// windowOf assigns a lateness point to the first fault its delivery interval
+// overlaps, so a delivery already in flight when a fault starts belongs to
+// that fault.
+func (in ChaosInputs) windowOf(point latenessPoint) string {
+	if key := in.overlappingFault(point.at, point.receivedAt()); key != unattributedFault {
 		return key
+	}
+	if point.at.Before(in.BaselineEnd) {
+		return windowBaseline
 	}
 	return windowSteady
 }
@@ -266,7 +287,7 @@ func p99Of(points []latenessPoint) (time.Duration, time.Duration) {
 func baselineP99(in ChaosInputs, kind string) (time.Duration, bool) {
 	var baseline []latenessPoint
 	for _, point := range in.latenessPoints()[kind] {
-		if point.at.Before(in.BaselineEnd) {
+		if in.windowOf(point) == windowBaseline {
 			baseline = append(baseline, point)
 		}
 	}
@@ -294,7 +315,7 @@ func checkLateness(in ChaosInputs) ([]LatenessStat, []Breach) {
 	for _, kind := range []string{latenessManual, latenessRecurring} {
 		grouped := make(map[string][]latenessPoint)
 		for _, point := range points[kind] {
-			window := in.windowOf(point.at)
+			window := in.windowOf(point)
 			grouped[window] = append(grouped[window], point)
 		}
 		for _, window := range windows {
@@ -311,7 +332,7 @@ func checkLateness(in ChaosInputs) ([]LatenessStat, []Breach) {
 				p99, maximum := p99Of(grouped[window])
 				stat.P99, stat.Max = &p99, &maximum
 				if stat.Bound != nil && maximum > stat.Bound.Value {
-					breaches = append(breaches, latenessBreach(window, kind, grouped[window], *stat.Bound))
+					breaches = append(breaches, latenessBreach(window, kind, grouped[window], *stat.Bound, p99 > stat.Bound.Value))
 				}
 			}
 			stats = append(stats, stat)
@@ -320,12 +341,17 @@ func checkLateness(in ChaosInputs) ([]LatenessStat, []Breach) {
 	return stats, breaches
 }
 
-func latenessBreach(window, kind string, points []latenessPoint, bound Bound) Breach {
+// latenessBreach is a warning inside a fault window. In the steady window it
+// is unattributed, and critical only when p99 (not a single outlier) is over
+// the bound.
+func latenessBreach(window, kind string, points []latenessPoint, bound Bound, p99Over bool) Breach {
 	fault := window
 	severity := SeverityWarning
 	if window == windowSteady {
 		fault = unattributedFault
-		severity = SeverityCritical
+		if p99Over {
+			severity = SeverityCritical
+		}
 	}
 	worst := points[0]
 	var ids []string
@@ -445,6 +471,7 @@ func recoveryTimes(in ChaosInputs, steady Bound, recoveryTimeout time.Duration) 
 		key := faultKey(index, window)
 		deadline := window.ClearedAt.Add(recoveryTimeout)
 		recovered := false
+		streak := 0
 		var last time.Time
 		for _, sample := range in.Timeline {
 			if sample.At.Before(window.ClearedAt) {
@@ -454,7 +481,11 @@ func recoveryTimes(in ChaosInputs, steady Bound, recoveryTimeout time.Duration) 
 			if sample.At.After(deadline) {
 				break
 			}
-			if healthy(sample, queueLimit) && in.manualRecovered(window.ClearedAt, sample.At, steady, first) {
+			if !healthy(sample, queueLimit) || !in.manualRecovered(window.ClearedAt, sample.At, steady, first) {
+				streak = 0
+				continue
+			}
+			if streak++; streak == chaosRecoveryStreak {
 				times[key] = sample.At.Sub(window.ClearedAt)
 				recovered = true
 				break

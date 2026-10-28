@@ -261,9 +261,10 @@ func TestRecoveryTime(t *testing.T) {
 	in.Windows = []FaultWindow{stopWindow(40, 70, nil)}
 	notReady := sample(71, 1)
 	notReady.Instances[0].Ready = false
-	in.Timeline = []TimelineSample{sample(10, 1), sample(70, 0), notReady, sample(73, 1), sample(74, 1)}
+	in.Timeline = []TimelineSample{sample(10, 1), sample(70, 0), notReady, sample(73, 1), sample(74, 1), sample(75, 1)}
 	times, breaches := recoveryTimes(in, Bound{}, time.Minute)
-	if got := times[faultKey(0, in.Windows[0])]; got != 3*time.Second || len(breaches) != 0 {
+	// Recovered at the third consecutive healthy sample (73, 74, 75).
+	if got := times[faultKey(0, in.Windows[0])]; got != 5*time.Second || len(breaches) != 0 {
 		t.Fatalf("recovery = %s breaches = %+v", got, breaches)
 	}
 }
@@ -271,12 +272,12 @@ func TestRecoveryTime(t *testing.T) {
 func TestRecoveryWaitsForManualDelivery(t *testing.T) {
 	in := baseInputs()
 	in.Windows = []FaultWindow{stopWindow(40, 70, nil)}
-	in.Timeline = []TimelineSample{sample(71, 1), sample(72, 1), sample(73, 1)}
+	in.Timeline = []TimelineSample{sample(71, 1), sample(72, 1), sample(73, 1), sample(74, 1), sample(75, 1)}
 	in.Manual = []ManualSample{{ExecutionID: "m1", TriggeredAt: at(71)}}
 	in.Callbacks = []CallbackObservation{callback("m1", 72.5, 204)}
 	times, _ := recoveryTimes(in, Bound{Value: 2 * time.Second}, time.Minute)
-	if got := times[faultKey(0, in.Windows[0])]; got != 3*time.Second {
-		t.Fatalf("recovery = %s, want 3s (first sample after the manual delivery)", got)
+	if got := times[faultKey(0, in.Windows[0])]; got != 5*time.Second {
+		t.Fatalf("recovery = %s, want 5s (third healthy sample after the manual delivery)", got)
 	}
 }
 

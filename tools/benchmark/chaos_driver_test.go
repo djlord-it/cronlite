@@ -15,26 +15,41 @@ type fakeFaultController struct {
 	leader    string
 	leaderErr error
 	calls     []string
+	// honorCancel mimics exec.CommandContext: a cancelled context fails the call.
+	honorCancel bool
+	failOn      string
+	onCall      func(call string)
 }
 
-func (f *fakeFaultController) record(action, service string) error {
+func (f *fakeFaultController) record(ctx context.Context, action, service string) error {
+	call := action + " " + service
+	if f.honorCancel && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if call == f.failOn {
+		return errors.New("injected failure: " + call)
+	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.calls = append(f.calls, action+" "+service)
+	f.calls = append(f.calls, call)
+	onCall := f.onCall
+	f.mu.Unlock()
+	if onCall != nil {
+		onCall(call)
+	}
 	return nil
 }
 
-func (f *fakeFaultController) stopService(_ context.Context, s string) error {
-	return f.record("stop", s)
+func (f *fakeFaultController) stopService(ctx context.Context, s string) error {
+	return f.record(ctx, "stop", s)
 }
-func (f *fakeFaultController) startService(_ context.Context, s string) error {
-	return f.record("start", s)
+func (f *fakeFaultController) startService(ctx context.Context, s string) error {
+	return f.record(ctx, "start", s)
 }
-func (f *fakeFaultController) pauseService(_ context.Context, s string) error {
-	return f.record("pause", s)
+func (f *fakeFaultController) pauseService(ctx context.Context, s string) error {
+	return f.record(ctx, "pause", s)
 }
-func (f *fakeFaultController) unpauseService(_ context.Context, s string) error {
-	return f.record("unpause", s)
+func (f *fakeFaultController) unpauseService(ctx context.Context, s string) error {
+	return f.record(ctx, "unpause", s)
 }
 func (f *fakeFaultController) leaderService(context.Context) (string, error) {
 	return f.leader, f.leaderErr

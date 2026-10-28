@@ -56,9 +56,13 @@ func (d *faultDriver) apply(ctx context.Context, spec FaultSpec) (FaultWindow, e
 	window.Services = services
 	d.markTouched(services)
 	window.AppliedAt = time.Now().UTC()
-	for _, service := range services {
+	for index, service := range services {
 		if err := d.inject(ctx, spec.Type, service); err != nil {
+			// Undo what was injected so a half-applied fault does not stay in
+			// force until the final cleanup.
+			window.Services = services[:index]
 			window.ApplyError = err.Error()
+			_ = d.clear(ctx, &window)
 			return window, err
 		}
 	}

@@ -114,6 +114,7 @@ type timelineSampler struct {
 	activeFault func() string
 	interval    time.Duration
 	settings    ChaosSettings
+	dbTimeout   time.Duration
 
 	mu      sync.Mutex
 	samples []TimelineSample
@@ -135,7 +136,34 @@ func newTimelineSampler(
 		activeFault: activeFault,
 		interval:    interval,
 		settings:    settings,
+		dbTimeout:   chaosDBSampleTimeout,
 		prev:        make(map[string]float64),
+	}
+}
+
+// chaosDBSampleTimeout bounds each sampler query. lib/pq does not interrupt a
+// read from a paused PostgreSQL when the context is cancelled, so the query
+// runs in its own goroutine and is abandoned at the deadline.
+const chaosDBSampleTimeout = 2 * time.Second
+
+func withDeadline[T any](ctx context.Context, timeout time.Duration, query func(context.Context) (T, error)) (T, error) {
+	queryCtx, cancel := context.WithTimeout(ctx, timeout)
+	type outcome struct {
+		value T
+		err   error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		defer cancel()
+		value, err := query(queryCtx)
+		done <- outcome{value, err}
+	}()
+	select {
+	case result := <-done:
+		return result.value, result.err
+	case <-queryCtx.Done():
+		var zero T
+		return zero, queryCtx.Err()
 	}
 }
 
@@ -164,11 +192,15 @@ func (t *timelineSampler) sampleOnce(ctx context.Context, at time.Time) Timeline
 
 	sample := TimelineSample{At: at.UTC(), Instances: instances, QueueDepth: -1, StuckCount: -1, ActiveFault: t.activeFault()}
 	jobIDs := t.jobIDs()
-	if depth, err := t.db.chaosQueueDepth(ctx, jobIDs); err == nil {
+	if depth, err := withDeadline(ctx, t.dbTimeout, func(queryCtx context.Context) (int, error) {
+		return t.db.chaosQueueDepth(queryCtx, jobIDs)
+	}); err == nil {
 		sample.QueueDepth = depth
 	}
 	ageLimit := t.settings.ReconcileThreshold + t.settings.ReconcileInterval
-	if stuck, err := t.db.chaosStuck(ctx, jobIDs, t.settings.stuckLeaseBound().Value, ageLimit); err == nil {
+	if stuck, err := withDeadline(ctx, t.dbTimeout, func(queryCtx context.Context) ([]string, error) {
+		return t.db.chaosStuck(queryCtx, jobIDs, t.settings.stuckLeaseBound().Value, ageLimit)
+	}); err == nil {
 		sample.StuckCount = len(stuck)
 	}
 
@@ -205,8 +237,10 @@ func (t *timelineSampler) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case now := <-ticker.C:
-			t.sampleOnce(ctx, now)
+		case <-ticker.C:
+			// Stamp with the wall clock: a slow previous sample makes the
+			// ticker's value stale.
+			t.sampleOnce(ctx, time.Now())
 		}
 	}
 }

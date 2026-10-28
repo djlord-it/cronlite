@@ -14,6 +14,9 @@ const (
 	// The last recurring fire of a minute-resolution cron needs up to a minute
 	// to land after the final fault.
 	chaosLastFireMargin = time.Minute
+	// Restoring services must not depend on the run context: a cancelled
+	// context would kill `compose unpause` before it runs.
+	chaosRestoreTimeout = time.Minute
 )
 
 // runChaos runs the workload, applies each fault in order, waits for recovery,
@@ -43,7 +46,7 @@ func runChaos(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 	cleaned := false
 	defer func() {
 		if !cleaned {
-			driver.cleanupAll(context.Background())
+			restoreAll(driver)
 		}
 	}()
 
@@ -91,7 +94,10 @@ func runChaos(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 		}
 		setActive(spec.String())
 		sleepContext(ctx, spec.Duration)
-		if clearErr := driver.clear(ctx, &window); clearErr != nil {
+		restoreCtx, cancelRestore := context.WithTimeout(context.Background(), chaosRestoreTimeout)
+		clearErr := driver.clear(restoreCtx, &window)
+		cancelRestore()
+		if clearErr != nil {
 			errs = append(errs, fmt.Errorf("clear %s: %w", spec, clearErr))
 		}
 		setActive("")
@@ -110,22 +116,25 @@ func runChaos(ctx context.Context, env *scenarioEnvironment) ScenarioResult {
 
 	in.Manual = workload.stop()
 	stopSampler()
-	<-samplerDone
-	cleanupObservations := driver.cleanupAll(context.Background())
+	// Restore before waiting for the sampler: its last query may be stuck on a
+	// paused PostgreSQL until the unpause.
+	cleanupObservations := restoreAll(driver)
 	cleaned = true
+	<-samplerDone
 	in.RunEnd = time.Now().UTC()
 
 	queryCtx, cancel := context.WithTimeout(context.Background(), chaosFinalQueryBudget)
 	defer cancel()
 	jobIDs := workload.jobIDs()
 	if in.Executions, err = db.chaosExecutions(queryCtx, jobIDs); err != nil {
+		in.ExecutionsUnavailable = true
 		errs = append(errs, err)
 	}
 	if in.Stuck, err = db.chaosStuck(queryCtx, jobIDs, settings.stuckLeaseBound().Value, settings.ReconcileThreshold+settings.ReconcileInterval); err != nil {
 		errs = append(errs, err)
 	}
 	in.Jobs = workload.recurringJobs()
-	in.Callbacks = env.Receiver.snapshot()
+	in.Callbacks = chaosCallbacks(env.Receiver.snapshot(), in.Executions, in.Manual)
 	in.Timeline = sampler.snapshot()
 
 	result := finalizeScenario(name, started, nil, cleanupObservations, errs)
@@ -221,4 +230,29 @@ func sleepContext(ctx context.Context, duration time.Duration) {
 	case <-ctx.Done():
 	case <-timer.C:
 	}
+}
+
+func restoreAll(driver *faultDriver) []Observation {
+	ctx, cancel := context.WithTimeout(context.Background(), chaosRestoreTimeout)
+	defer cancel()
+	return driver.cleanupAll(ctx)
+}
+
+// chaosCallbacks keeps only callbacks for this run's executions: the receiver
+// store is shared with every scenario in the run.
+func chaosCallbacks(callbacks []CallbackObservation, executions []ChaosExecutionRow, manual []ManualSample) []CallbackObservation {
+	ids := make(map[string]bool, len(executions)+len(manual))
+	for _, row := range executions {
+		ids[row.ID] = true
+	}
+	for _, sample := range manual {
+		ids[sample.ExecutionID] = true
+	}
+	var kept []CallbackObservation
+	for _, callback := range callbacks {
+		if ids[callback.ExecutionID] {
+			kept = append(kept, callback)
+		}
+	}
+	return kept
 }

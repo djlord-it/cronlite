@@ -77,8 +77,14 @@ func newChaosResult(
 		if duration, ok := recovery[key]; ok {
 			score.Recovery = &duration
 		}
+		hasSamples := samplesBetween(in.Timeline, window.AppliedAt, windowEnd(window, in.RecoveryTimeout))
 		for _, invariant := range scoredInvariants {
-			score.Invariants[invariant] = faultInvariantResult(invariant, key, breaches, score)
+			result := faultInvariantResult(invariant, key, breaches, score)
+			if result == invariantPass && (invariant == InvariantLeader && !hasSamples ||
+				invariant == InvariantNoLost && in.ExecutionsUnavailable) {
+				result = invariantNoData
+			}
+			score.Invariants[invariant] = result
 		}
 		score.Verdict = verdictFor(score, window.ApplyError != "")
 		score.Knobs = knobsFor(key, breaches)
@@ -87,9 +93,14 @@ func newChaosResult(
 
 	run := FaultScore{Fault: runScoreName, Invariants: make(map[InvariantID]string), Duplicates: duplicates}
 	for _, invariant := range scoredInvariants {
-		run.Invariants[invariant] = invariantPass
-		if hasBreach(breaches, invariant, unattributedFault) {
+		switch {
+		case hasBreach(breaches, invariant, unattributedFault):
 			run.Invariants[invariant] = invariantFail
+		case invariant == InvariantLeader && len(in.Timeline) == 0,
+			invariant == InvariantNoLost && in.ExecutionsUnavailable:
+			run.Invariants[invariant] = invariantNoData
+		default:
+			run.Invariants[invariant] = invariantPass
 		}
 	}
 	run.Verdict = verdictFor(run, false)
@@ -121,13 +132,23 @@ func faultInvariantResult(invariant InvariantID, key string, breaches []Breach, 
 	return invariantPass
 }
 
+func samplesBetween(timeline []TimelineSample, from, to time.Time) bool {
+	for _, sample := range timeline {
+		if !sample.At.Before(from) && !sample.At.After(to) {
+			return true
+		}
+	}
+	return false
+}
+
 func verdictFor(score FaultScore, applyFailed bool) string {
 	for _, result := range score.Invariants {
 		if result == invariantFail {
 			return verdictWeakPoint
 		}
 	}
-	if applyFailed || score.Invariants[InvariantLateness] == invariantNoData {
+	if applyFailed || score.Invariants[InvariantLateness] == invariantNoData ||
+		score.Invariants[InvariantLeader] == invariantNoData || score.Invariants[InvariantNoLost] == invariantNoData {
 		return verdictInconclusive
 	}
 	return verdictStrength

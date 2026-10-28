@@ -353,9 +353,9 @@ the final minute's fires to land.
 |---|---|---|
 | I1 | Every expected recurring fire has an execution that was delivered or failed terminally | critical |
 | I2 | Repeated deliveries after a 2xx overlap a fault window (explained) | unexplained = critical |
-| I3 | Lateness stays under the bound for its window | warning in a fault window, critical outside one |
+| I3 | Lateness stays under the bound for its window. A delivery belongs to the first fault its trigger-to-arrival interval overlaps | warning in a fault window; outside one, critical when p99 is over the bound, warning for a lone outlier |
 | I6 | No split brain: leader gauge sum > 1, or two instances triggering, in consecutive samples. Leaderless gaps stay under `L + H + ε` | split brain = critical, gap = warning |
-| I7 | After a fault clears: all instances ready, one leader, queue back to baseline, manual lateness back under the steady bound | not recovered = warning |
+| I7 | After a fault clears: three consecutive samples with all instances ready, one leader, queue back to baseline, and manual lateness back under the steady bound | not recovered = warning |
 | I8 | No execution pending past its lease (`Q + RI + ε`) or the reconcile threshold | critical |
 | I10 | Every callback signature is valid | critical |
 
@@ -365,8 +365,12 @@ values plugged in: fault windows use `D + L + T + P + ε`
 `baseline p99 × 3 + ε`. `ε` is `--chaos-slack` (2s). The settings are copied
 from this directory's Compose file; keep them in sync.
 
-A breach outside every fault window is attributed to `unattributed` and is
-always critical. Critical breaches become critical findings, so
+A breach outside every fault window is attributed to `unattributed`. Apart
+from a lone steady-window lateness outlier, it is critical. An invariant with
+nothing to judge (no samples in a window, or a failed executions query) reports
+`no data`, and the fault's verdict is `inconclusive`. Only callbacks for the
+chaos run's own executions are scored, so other scenarios in the same run do
+not affect it. Critical breaches become critical findings, so
 `--fail-on-correctness` exits 3.
 
 ### Outputs
