@@ -358,6 +358,23 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 - `host.docker.internal` only helps where it resolves to a private range (Linux `host-gateway`, e.g. 172.17.0.1). Docker Desktop resolves it to 0.250.250.254, inside the always-blocked `0.0.0.0/8`, so allowlisting it does not work there: run the receiver as a Compose service (or a relay on the Compose network) and allowlist that service name.
 - A blocked delivery fails immediately: it is not retried and does not count toward the circuit breaker.
 - **Breaking change:** jobs that call private destinations (Docker/Compose service names, `*.railway.internal`, LAN hosts) now fail until their hostnames are allowlisted. See [Upgrading](README.md#upgrading).
+- Tailnet hosts are a separate, opt-in path with its own checks: see [Tailnet delivery](#tailnet-delivery).
+
+**Credential masking:** `cronlite config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
+
+**Admin secret handling:** `cronlite config` omits `ADMIN_BOOTSTRAP_TOKEN`, and admin startup logs report only idle/absolute session TTLs and the Secure-cookie setting. Do not put bootstrap tokens or one-time API keys in logs, build output, diagnostics, or retained artifacts.
+
+**SSL mode warning:** Startup emits a warning when `DATABASE_URL` uses `sslmode=disable`. Production deployments should use `sslmode=require` or stricter.
+
+**Error sanitization:** Database error details (constraint names, query fragments) are never leaked in API responses. Internal errors return generic `500 Internal Server Error`.
+
+**API key storage:** Tokens are SHA-256 hashed before storage. The plaintext token is returned exactly once at creation time and never persisted.
+
+**Admin transport:** Production admin traffic must use HTTPS with `ADMIN_COOKIE_SECURE=true`. In that mode CronLite adds `Strict-Transport-Security: max-age=31536000`; local HTTP intentionally uses insecure cookies and does not emit HSTS.
+
+## Tailscale
+
+CronLite can join a Tailscale tailnet with an embedded node (`tsnet`): it can deliver webhooks to tailnet services, serve its API and admin UI on the tailnet, or both. For a step-by-step setup (tailnet ACLs, auth key, `docker run`, troubleshooting), see the [Tailscale guide](TAILSCALE.md). This section is the reference.
 
 ### Tailnet delivery
 
@@ -383,18 +400,6 @@ With `TS_LISTEN=true`, the same embedded node also serves everything the HTTP li
 - **Shutdown:** the tailnet listener drains together with the HTTP listener, first in the shutdown order. The node stops last, after the dispatcher.
 - **Status:** `/health?verbose=true` includes `"tailnet": "up"` or `"down"` whenever the node is enabled. It is informational and never turns the response into a 503, so a Tailscale outage does not take a healthy instance out of a load balancer. Alert on the `cronlite_tailnet_up` gauge (1 = connected) instead.
 - **Multiple instances:** each instance runs its own node. A second node with the same `TS_HOSTNAME` is renamed by Tailscale (`cronlite-1`, …), so a single tailnet URL reaches one instance; it is not load-balanced.
-
-**Credential masking:** `cronlite config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
-
-**Admin secret handling:** `cronlite config` omits `ADMIN_BOOTSTRAP_TOKEN`, and admin startup logs report only idle/absolute session TTLs and the Secure-cookie setting. Do not put bootstrap tokens or one-time API keys in logs, build output, diagnostics, or retained artifacts.
-
-**SSL mode warning:** Startup emits a warning when `DATABASE_URL` uses `sslmode=disable`. Production deployments should use `sslmode=require` or stricter.
-
-**Error sanitization:** Database error details (constraint names, query fragments) are never leaked in API responses. Internal errors return generic `500 Internal Server Error`.
-
-**API key storage:** Tokens are SHA-256 hashed before storage. The plaintext token is returned exactly once at creation time and never persisted.
-
-**Admin transport:** Production admin traffic must use HTTPS with `ADMIN_COOKIE_SECURE=true`. In that mode CronLite adds `Strict-Transport-Security: max-age=31536000`; local HTTP intentionally uses insecure cookies and does not emit HSTS.
 
 ## MCP Transport
 
