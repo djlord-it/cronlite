@@ -639,7 +639,7 @@ func TestMaskedJSONNeverIncludesTSAuthKey(t *testing.T) {
 }
 
 func TestValidateTailnet(t *testing.T) {
-	base := Config{WebhookAllowTailnet: true, TSHostname: "cronlite", TSStateDir: "/state"}
+	base := Config{WebhookAllowTailnet: true, WebhookTailnetHosts: "*=*", TSHostname: "cronlite", TSStateDir: "/state"}
 	fields := func(errs ValidationErrors) map[string]bool {
 		m := map[string]bool{}
 		for _, e := range errs {
@@ -681,7 +681,7 @@ func TestValidateIgnoresTailnetSettingsWhenDisabled(t *testing.T) {
 
 func TestValidateTailnetMatchesBuild(t *testing.T) {
 	cfg := Config{DatabaseURL: "postgres://x", TickIntervalStr: "30s",
-		WebhookAllowTailnet: true, TSHostname: "cronlite", TSStateDir: "/state"}
+		WebhookAllowTailnet: true, WebhookTailnetHosts: "*=*", TSHostname: "cronlite", TSStateDir: "/state"}
 	err := Validate(cfg)
 	if tailnet.Supported && err != nil {
 		t.Fatalf("tailscale build rejected valid tailnet config: %v", err)
@@ -727,4 +727,60 @@ func TestValidateDisablePublicListenerNeedsTSListen(t *testing.T) {
 		}
 	}
 	t.Fatalf("no TS_DISABLE_PUBLIC_LISTENER error in %v", errs)
+}
+
+func TestLoadWebhookTailnetHosts(t *testing.T) {
+	t.Setenv("WEBHOOK_TAILNET_HOSTS", "  billing=invoices  ")
+	if got := Load().WebhookTailnetHosts; got != "billing=invoices" {
+		t.Fatalf("WebhookTailnetHosts = %q, want %q", got, "billing=invoices")
+	}
+}
+
+func TestValidateTailnetHosts(t *testing.T) {
+	tests := []struct {
+		name      string
+		allow     bool
+		tsListen  bool
+		hosts     string
+		wantErr   bool
+		wantInMsg string
+	}{
+		{"required when allowed", true, false, "", true, "*=*"},
+		{"parse error", true, false, "billing=", true, "billing"},
+		{"valid", true, false, "*=*", false, ""},
+		{"set but unused with TS_LISTEN", false, true, "*=*", true, "only used when WEBHOOK_ALLOW_TAILNET=true"},
+		{"set but unused, tailnet disabled", false, false, "*=*", true, "only used when WEBHOOK_ALLOW_TAILNET=true"},
+		{"unset and unused", false, false, "", false, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{
+				DatabaseURL: "postgres://x", TickIntervalStr: "30s",
+				WebhookAllowTailnet: tc.allow, TSListen: tc.tsListen,
+				WebhookTailnetHosts: tc.hosts,
+				TSHostname:          "cronlite", TSStateDir: "/state",
+			}
+			// Validate calls validateTailnet with tailnet.Supported; errors on other
+			// fields (e.g. an untagged build) are filtered out below.
+			var errs ValidationErrors
+			if err := Validate(cfg); err != nil {
+				errs = err.(ValidationErrors)
+			}
+			var onField []ValidationError
+			for _, e := range errs {
+				if e.Field == "WEBHOOK_TAILNET_HOSTS" {
+					onField = append(onField, e)
+				}
+			}
+			if len(onField) > 1 {
+				t.Fatalf("duplicate errors on WEBHOOK_TAILNET_HOSTS: %v", onField)
+			}
+			if tc.wantErr != (len(onField) == 1) {
+				t.Fatalf("errors on WEBHOOK_TAILNET_HOSTS = %v, wantErr %v", onField, tc.wantErr)
+			}
+			if tc.wantErr && !strings.Contains(onField[0].Message, tc.wantInMsg) {
+				t.Errorf("message %q missing %q", onField[0].Message, tc.wantInMsg)
+			}
+		})
+	}
 }

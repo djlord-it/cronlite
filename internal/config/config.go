@@ -111,6 +111,10 @@ type Config struct {
 	// tailnet MagicDNS suffix over an embedded Tailscale node. Requires a
 	// binary built with -tags tailscale.
 	WebhookAllowTailnet bool `json:"webhook_allow_tailnet"`
+	// WebhookTailnetHosts is the raw per-namespace allowlist of tailnet hosts
+	// webhooks may call, e.g. "billing=invoices;ops=*" or "*=*". Required when
+	// WebhookAllowTailnet is true; rejected otherwise.
+	WebhookTailnetHosts string `json:"webhook_tailnet_hosts"`
 	// TSListen also serves the HTTP API, admin UI and MCP endpoint on the
 	// tailnet at https://<TSHostname>.<tailnet>.ts.net.
 	TSListen bool `json:"ts_listen"`
@@ -164,6 +168,7 @@ func Load() Config {
 		AdminSessionTTLStr:           os.Getenv("ADMIN_SESSION_TTL"),
 		AdminSessionAbsoluteTTLStr:   os.Getenv("ADMIN_SESSION_ABSOLUTE_TTL"),
 		WebhookAllowTailnet:          os.Getenv("WEBHOOK_ALLOW_TAILNET") == "true",
+		WebhookTailnetHosts:          strings.TrimSpace(os.Getenv("WEBHOOK_TAILNET_HOSTS")),
 		TSListen:                     os.Getenv("TS_LISTEN") == "true",
 		TSDisablePublicListener:      os.Getenv("TS_DISABLE_PUBLIC_LISTENER") == "true",
 		TSAuthKey:                    os.Getenv("TS_AUTHKEY"),

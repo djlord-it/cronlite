@@ -129,6 +129,12 @@ func Validate(cfg Config) error {
 	if cfg.TailnetEnabled() {
 		errs = append(errs, validateTailnet(cfg, tailnet.Supported)...)
 	}
+	if !cfg.WebhookAllowTailnet && cfg.WebhookTailnetHosts != "" {
+		errs = append(errs, ValidationError{
+			Field:   "WEBHOOK_TAILNET_HOSTS",
+			Message: "only used when WEBHOOK_ALLOW_TAILNET=true",
+		})
+	}
 	if cfg.TSDisablePublicListener && !cfg.TSListen {
 		errs = append(errs, ValidationError{
 			Field:   "TS_DISABLE_PUBLIC_LISTENER",
@@ -227,6 +233,16 @@ func validateTailnet(cfg Config, supported bool) ValidationErrors {
 			Field:   "TS_HOSTNAME",
 			Message: fmt.Sprintf("must be a single DNS label (a-z, 0-9, '-', at most 63 characters), got %q", cfg.TSHostname),
 		})
+	}
+	if cfg.WebhookAllowTailnet {
+		if cfg.WebhookTailnetHosts == "" {
+			errs = append(errs, ValidationError{
+				Field:   "WEBHOOK_TAILNET_HOSTS",
+				Message: "required when WEBHOOK_ALLOW_TAILNET=true; list the tailnet hosts each namespace may call, e.g. billing=invoices;ops=*, or *=* to allow every namespace every host",
+			})
+		} else if _, err := webhookurl.ParseTailnetPolicy(cfg.WebhookTailnetHosts); err != nil {
+			errs = append(errs, ValidationError{Field: "WEBHOOK_TAILNET_HOSTS", Message: err.Error()})
+		}
 	}
 	return errs
 }
