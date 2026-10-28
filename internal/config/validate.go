@@ -126,8 +126,14 @@ func Validate(cfg Config) error {
 		errs = append(errs, ValidationError{Field: "WEBHOOK_ALLOWED_PRIVATE_SUFFIXES", Message: err.Error()})
 	}
 
-	if cfg.WebhookAllowTailnet {
+	if cfg.TailnetEnabled() {
 		errs = append(errs, validateTailnet(cfg, tailnet.Supported)...)
+	}
+	if cfg.TSDisablePublicListener && !cfg.TSListen {
+		errs = append(errs, ValidationError{
+			Field:   "TS_DISABLE_PUBLIC_LISTENER",
+			Message: "requires TS_LISTEN=true; otherwise no HTTP listener would remain",
+		})
 	}
 
 	// Reconciler parameters (when enabled)
@@ -195,20 +201,25 @@ func Validate(cfg Config) error {
 	return nil
 }
 
-// validateTailnet checks the settings used when WEBHOOK_ALLOW_TAILNET=true.
-// supported reports whether the binary was built with Tailscale support.
+// validateTailnet checks the settings used when WEBHOOK_ALLOW_TAILNET or
+// TS_LISTEN is true. supported reports whether the binary was built with
+// Tailscale support.
 func validateTailnet(cfg Config, supported bool) ValidationErrors {
 	var errs ValidationErrors
+	field := "WEBHOOK_ALLOW_TAILNET"
+	if !cfg.WebhookAllowTailnet {
+		field = "TS_LISTEN"
+	}
 	if !supported {
 		errs = append(errs, ValidationError{
-			Field:   "WEBHOOK_ALLOW_TAILNET",
+			Field:   field,
 			Message: "this binary was built without Tailscale support; use a build made with -tags tailscale",
 		})
 	}
 	if cfg.TSStateDir == "" {
 		errs = append(errs, ValidationError{
 			Field:   "TS_STATE_DIR",
-			Message: "required when WEBHOOK_ALLOW_TAILNET=true (holds the node's identity across restarts)",
+			Message: fmt.Sprintf("required when %s=true (holds the node's identity across restarts)", field),
 		})
 	}
 	if !validNodeName(cfg.TSHostname) {

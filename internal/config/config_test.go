@@ -639,7 +639,7 @@ func TestMaskedJSONNeverIncludesTSAuthKey(t *testing.T) {
 }
 
 func TestValidateTailnet(t *testing.T) {
-	base := Config{TSHostname: "cronlite", TSStateDir: "/state"}
+	base := Config{WebhookAllowTailnet: true, TSHostname: "cronlite", TSStateDir: "/state"}
 	fields := func(errs ValidationErrors) map[string]bool {
 		m := map[string]bool{}
 		for _, e := range errs {
@@ -689,4 +689,42 @@ func TestValidateTailnetMatchesBuild(t *testing.T) {
 	if !tailnet.Supported && err == nil {
 		t.Fatal("default build accepted WEBHOOK_ALLOW_TAILNET=true")
 	}
+}
+
+func TestLoadTailnetListener(t *testing.T) {
+	t.Setenv("TS_LISTEN", "true")
+	t.Setenv("TS_DISABLE_PUBLIC_LISTENER", "true")
+	cfg := Load()
+	if !cfg.TSListen || !cfg.TSDisablePublicListener {
+		t.Fatalf("TSListen = %v, TSDisablePublicListener = %v, want both true", cfg.TSListen, cfg.TSDisablePublicListener)
+	}
+	if !cfg.TailnetEnabled() {
+		t.Error("TS_LISTEN must enable the tailnet node")
+	}
+}
+
+func TestValidateTailnetListenOnly(t *testing.T) {
+	cfg := Config{TSListen: true, TSHostname: "cronlite"}
+	got := map[string]bool{}
+	for _, e := range validateTailnet(cfg, false) {
+		got[e.Field] = true
+	}
+	if !got["TS_LISTEN"] || !got["TS_STATE_DIR"] || got["WEBHOOK_ALLOW_TAILNET"] {
+		t.Errorf("errors on %v, want TS_LISTEN and TS_STATE_DIR", got)
+	}
+}
+
+func TestValidateDisablePublicListenerNeedsTSListen(t *testing.T) {
+	cfg := Config{DatabaseURL: "postgres://x", TickIntervalStr: "30s", TSDisablePublicListener: true}
+	err := Validate(cfg)
+	var errs ValidationErrors
+	if !errors.As(err, &errs) {
+		t.Fatalf("expected ValidationErrors, got %v", err)
+	}
+	for _, e := range errs {
+		if e.Field == "TS_DISABLE_PUBLIC_LISTENER" {
+			return
+		}
+	}
+	t.Fatalf("no TS_DISABLE_PUBLIC_LISTENER error in %v", errs)
 }

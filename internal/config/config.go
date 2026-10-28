@@ -110,10 +110,21 @@ type Config struct {
 	// WebhookAllowTailnet delivers webhooks for hostnames under this node's
 	// tailnet MagicDNS suffix over an embedded Tailscale node. Requires a
 	// binary built with -tags tailscale.
-	WebhookAllowTailnet bool   `json:"webhook_allow_tailnet"`
-	TSAuthKey           string `json:"-"` // never serialized, not even masked
-	TSHostname          string `json:"ts_hostname"`
-	TSStateDir          string `json:"ts_state_dir,omitempty"`
+	WebhookAllowTailnet bool `json:"webhook_allow_tailnet"`
+	// TSListen also serves the HTTP API, admin UI and MCP endpoint on the
+	// tailnet at https://<TSHostname>.<tailnet>.ts.net.
+	TSListen bool `json:"ts_listen"`
+	// TSDisablePublicListener skips the HTTP_ADDR listener, leaving only the
+	// tailnet one. Requires TSListen.
+	TSDisablePublicListener bool   `json:"ts_disable_public_listener"`
+	TSAuthKey               string `json:"-"` // never serialized, not even masked
+	TSHostname              string `json:"ts_hostname"`
+	TSStateDir              string `json:"ts_state_dir,omitempty"`
+}
+
+// TailnetEnabled reports whether serve needs the embedded Tailscale node.
+func (c Config) TailnetEnabled() bool {
+	return c.WebhookAllowTailnet || c.TSListen
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -153,6 +164,8 @@ func Load() Config {
 		AdminSessionTTLStr:           os.Getenv("ADMIN_SESSION_TTL"),
 		AdminSessionAbsoluteTTLStr:   os.Getenv("ADMIN_SESSION_ABSOLUTE_TTL"),
 		WebhookAllowTailnet:          os.Getenv("WEBHOOK_ALLOW_TAILNET") == "true",
+		TSListen:                     os.Getenv("TS_LISTEN") == "true",
+		TSDisablePublicListener:      os.Getenv("TS_DISABLE_PUBLIC_LISTENER") == "true",
 		TSAuthKey:                    os.Getenv("TS_AUTHKEY"),
 		TSHostname:                   os.Getenv("TS_HOSTNAME"),
 		TSStateDir:                   os.Getenv("TS_STATE_DIR"),
