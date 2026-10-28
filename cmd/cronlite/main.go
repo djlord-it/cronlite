@@ -34,6 +34,7 @@ import (
 	"github.com/djlord-it/cronlite/internal/scheduler"
 	"github.com/djlord-it/cronlite/internal/service"
 	"github.com/djlord-it/cronlite/internal/store/postgres"
+	"github.com/djlord-it/cronlite/internal/tailnet"
 	"github.com/djlord-it/cronlite/internal/transport/channel"
 	"github.com/djlord-it/cronlite/internal/webadmin"
 	"github.com/djlord-it/cronlite/internal/webhookurl"
@@ -68,6 +69,10 @@ const (
 	httpReadHeaderTimeout = 5 * time.Second
 	httpReadTimeout       = 30 * time.Second
 	httpIdleTimeout       = 60 * time.Second
+
+	// tailnetUpTimeout bounds how long serve waits for the embedded Tailscale
+	// node to connect before giving up.
+	tailnetUpTimeout = 60 * time.Second
 )
 
 func main() {
@@ -126,6 +131,11 @@ Environment Variables:
   MIGRATE_LOCK_TIMEOUT      Max wait for the migration lock (default: "2m")
   WEBHOOK_ALLOWED_PRIVATE_SUFFIXES  Comma-separated hostnames (".suffix" or exact) allowed to resolve
                             to private ranges (RFC 1918 / fc00::/7); loopback and link-local stay blocked
+  WEBHOOK_ALLOW_TAILNET     Deliver webhooks to hosts under this node's tailnet (*.<tailnet>.ts.net) over an
+                            embedded Tailscale node (default: "false"; needs a -tags tailscale build)
+  TS_AUTHKEY                Tailscale auth key for the embedded node (optional once TS_STATE_DIR is logged in)
+  TS_HOSTNAME               Node name on the tailnet (default: "cronlite")
+  TS_STATE_DIR              Directory for the node's state (required with WEBHOOK_ALLOW_TAILNET)
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
   DB_MAX_OPEN_CONNS         Max open database connections (default: "25")
@@ -367,7 +377,33 @@ func runServe() int {
 		fmt.Fprintf(os.Stderr, "invalid WEBHOOK_ALLOWED_PRIVATE_SUFFIXES: %v\n", err)
 		return exitInvalidConfig
 	}
-	webhookSender := dispatcher.NewHTTPWebhookSender(dispatcher.WithAllowlist(webhookAllowlist))
+	senderOpts := []dispatcher.SenderOption{dispatcher.WithAllowlist(webhookAllowlist)}
+	var tailnetNode *tailnet.Node
+	if cfg.WebhookAllowTailnet {
+		log.Printf("tailnet: starting node %q (state=%s)", cfg.TSHostname, cfg.TSStateDir)
+		upCtx, cancelUp := context.WithTimeout(context.Background(), tailnetUpTimeout)
+		tailnetNode, err = tailnet.Start(upCtx, tailnet.Config{
+			AuthKey:  cfg.TSAuthKey,
+			Hostname: cfg.TSHostname,
+			StateDir: cfg.TSStateDir,
+			Logf: func(format string, args ...any) {
+				log.Printf("tailnet: "+format, args...)
+			},
+		})
+		cancelUp()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to start tailnet node: %v\n", err)
+			return exitRuntimeError
+		}
+		defer func() {
+			if tailnetNode != nil { // early return before ordered shutdown
+				closeTailnet(tailnetNode)
+			}
+		}()
+		senderOpts = append(senderOpts, dispatcher.WithTailnet(tailnetNode))
+		log.Printf("tailnet: webhook delivery enabled for *.%s (node addresses %v)", tailnetNode.Suffix(), tailnetNode.SelfAddrs())
+	}
+	webhookSender := dispatcher.NewHTTPWebhookSender(senderOpts...)
 
 	var metricsSink *metrics.PrometheusSink
 
@@ -665,8 +701,23 @@ func runServe() int {
 	dispatcherWg.Wait()
 	log.Println("cronlite: dispatcher stopped")
 
+	// The tailnet node outlives the dispatcher so in-flight tailnet deliveries
+	// can finish draining.
+	if tailnetNode != nil {
+		closeTailnet(tailnetNode)
+		tailnetNode = nil
+	}
+
 	log.Println("cronlite: stopped")
 	return exitCode
+}
+
+func closeTailnet(n *tailnet.Node) {
+	if err := n.Close(); err != nil {
+		log.Printf("tailnet: shutdown error: %v", err)
+		return
+	}
+	log.Println("tailnet: node stopped")
 }
 
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
