@@ -123,3 +123,82 @@ func TestTailnetPolicyNamespaces(t *testing.T) {
 		t.Errorf("nil policy Namespaces() = %v, want none", n)
 	}
 }
+
+// The HTTP transport maps a non-ASCII host through IDNA before dialing, so
+// each of these reaches payroll.example-tailnet.ts.net. Check must see the
+// same host the transport dials.
+func TestTailnetPolicyCheckIDNA(t *testing.T) {
+	const suffix = "example-tailnet.ts.net"
+	deny, err := ParseTailnetPolicy("billing=invoices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow, err := ParseTailnetPolicy("payroll-ns=payroll")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts := map[string]string{
+		"fullwidth ts":        "payroll.example-tailnet.ｔｓ.net",
+		"fullwidth full stop": "payroll.example-tailnet．ts.net",
+		"fullwidth label":     "ＰＡＹＲＯＬＬ.example-tailnet.ts.net",
+		"ideographic dots":    "payroll。example-tailnet。ts。net",
+	}
+	for name, host := range hosts {
+		t.Run(name, func(t *testing.T) {
+			if err := deny.Check("ops", host, suffix); !errors.Is(err, ErrDestinationBlocked) {
+				t.Errorf("Check(ops, %q) = %v, want ErrDestinationBlocked", host, err)
+			}
+		})
+	}
+	for _, name := range []string{"fullwidth ts", "ideographic dots"} {
+		host := hosts[name]
+		t.Run(name+" allowed", func(t *testing.T) {
+			if err := allow.Check("payroll-ns", host, suffix); err != nil {
+				t.Errorf("Check(payroll-ns, %q) = %v, want nil", host, err)
+			}
+		})
+	}
+}
+
+func TestTailnetPolicyCheckIDNAFailure(t *testing.T) {
+	const suffix = "example-tailnet.ts.net"
+	p, err := ParseTailnetPolicy("*=*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Invalid non-ASCII input fails closed: its tailnet status is unknown.
+	if err := p.Check("ops", "a‍.example.com", suffix); !errors.Is(err, ErrDestinationBlocked) {
+		t.Errorf("non-ASCII conversion failure: Check = %v, want ErrDestinationBlocked", err)
+	}
+	if err := p.Check("ops", "a\u200d.example-tailnet.ts.net", suffix); !errors.Is(err, ErrDestinationBlocked) {
+		t.Errorf("non-ASCII tailnet conversion failure: Check = %v, want ErrDestinationBlocked", err)
+	}
+	// An ASCII public host that IDNA rejects is left to the public path.
+	if err := p.Check("ops", "under_score.example.com", suffix); err != nil {
+		t.Errorf("ASCII public host: Check = %v, want nil", err)
+	}
+	// net/http dials an ASCII host as written, without IDNA, so an allowed
+	// ASCII tailnet host that IDNA would reject keeps working.
+	named, err := ParseTailnetPolicy("ops=my_svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := named.Check("ops", "my_svc.example-tailnet.ts.net", suffix); err != nil {
+		t.Errorf("ASCII tailnet host IDNA rejects: Check = %v, want nil", err)
+	}
+	if err := named.Check("billing", "my_svc.example-tailnet.ts.net", suffix); !errors.Is(err, ErrDestinationBlocked) {
+		t.Errorf("ASCII tailnet host, other namespace: Check = %v, want ErrDestinationBlocked", err)
+	}
+}
+
+func TestTailnetPolicyAllowsNormalizesHost(t *testing.T) {
+	p, err := ParseTailnetPolicy("billing=invoices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"INVOICES", "invoices.", "Invoices."} {
+		if !p.Allows("billing", h) {
+			t.Errorf("Allows(billing, %q) = false, want true", h)
+		}
+	}
+}

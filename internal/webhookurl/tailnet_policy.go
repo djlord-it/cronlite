@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 // ReasonTailnetNotAllowed is the refusal reason for a tailnet host that the
@@ -84,12 +86,14 @@ func checkPolicyHost(h string) error {
 }
 
 // Allows reports whether namespace may reach relHost, a single label relative
-// to the tailnet suffix. The namespace's own entry and the "*" entry are
-// unioned. A nil policy and an empty namespace allow nothing.
+// to the tailnet suffix. relHost is matched case-insensitively and may carry
+// one trailing dot. The namespace's own entry and the "*" entry are unioned. A
+// nil policy and an empty namespace allow nothing.
 func (p *TailnetPolicy) Allows(namespace, relHost string) bool {
 	if p == nil || namespace == "" {
 		return false
 	}
+	relHost = strings.TrimSuffix(strings.ToLower(relHost), ".")
 	for _, key := range []string{strings.ToLower(namespace), "*"} {
 		set := p.byNamespace[key]
 		if _, ok := set.names[relHost]; ok || set.all {
@@ -103,17 +107,51 @@ func (p *TailnetPolicy) Allows(namespace, relHost string) bool {
 // those) or when namespace may reach it. Otherwise it returns a *BlockedError
 // with ReasonTailnetNotAllowed. suffix may be a raw Tailnet.Suffix(); it is
 // normalized here. A nil policy refuses every tailnet host.
+//
+// host is judged as the HTTP transport dials it: a non-ASCII host is mapped
+// through IDNA (idna.Lookup), as net/http does, so "svc.tailnet.ｔｓ.net" is the
+// tailnet host "svc.tailnet.ts.net". A non-ASCII host IDNA cannot map is
+// refused, since whether it is a tailnet host cannot be told.
 func (p *TailnetPolicy) Check(namespace, host, suffix string) error {
 	suffix = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(suffix)), ".")
-	if !tailnetHost(host, suffix) {
+	if suffix == "" {
 		return nil
 	}
-	h := strings.TrimSuffix(strings.ToLower(host), ".")
-	rel := strings.TrimSuffix(h, "."+suffix)
+	ascii := host
+	if !isASCII(host) {
+		var err error
+		if ascii, err = idna.Lookup.ToASCII(host); err != nil {
+			return &BlockedError{Host: host, Reason: ReasonTailnetNotAllowed}
+		}
+	}
+	rel, isTailnet := relativeTailnetHost(ascii, suffix)
+	if !isTailnet {
+		return nil
+	}
 	if !strings.Contains(rel, ".") && p.Allows(namespace, rel) {
 		return nil
 	}
 	return &BlockedError{Host: host, Reason: ReasonTailnetNotAllowed}
+}
+
+// relativeTailnetHost reports whether host, an ASCII hostname, is a strict
+// subdomain of suffix (lowercased, without a trailing dot) and returns the
+// part before the suffix. Case and one trailing dot on host are ignored.
+func relativeTailnetHost(host, suffix string) (rel string, isTailnet bool) {
+	if !tailnetHost(host, suffix) {
+		return "", false
+	}
+	h := strings.TrimSuffix(strings.ToLower(host), ".")
+	return strings.TrimSuffix(h, "."+suffix), true
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 // Namespaces returns the namespaces the policy lists, lowercased and sorted.

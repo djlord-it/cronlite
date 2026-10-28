@@ -1642,6 +1642,23 @@ func TestCreateJobTailnetPolicy(t *testing.T) {
 	}
 }
 
+// The HTTP transport dials the IDNA-mapped host, so a fullwidth "ｔｓ" form of
+// a tailnet host must be judged by the policy, not passed as a public host.
+func TestCreateJobTailnetPolicyIDNA(t *testing.T) {
+	policy, err := webhookurl.ParseTailnetPolicy("billing=invoices")
+	if err != nil {
+		t.Fatalf("ParseTailnetPolicy: %v", err)
+	}
+	svc := newTestService(nil).WithTailnetPolicy(policy, "example-tailnet.ts.net")
+	_, _, err = svc.CreateJob(ctxWithNS("ops"), CreateJobInput{
+		Name: "j", CronExpression: "*/5 * * * *", Timezone: "UTC",
+		WebhookURL: "https://payroll.example-tailnet.ｔｓ.net/hook",
+	})
+	if !errors.Is(err, domain.ErrWebhookHostNotAllowed) {
+		t.Fatalf("expected ErrWebhookHostNotAllowed, got %v", err)
+	}
+}
+
 func TestUpdateJobTailnetPolicy(t *testing.T) {
 	const blockedURL = "https://invoices.example-tailnet.ts.net/hook"
 	policy, err := webhookurl.ParseTailnetPolicy("billing=invoices")

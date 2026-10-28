@@ -344,3 +344,85 @@ func TestSenderRedirectLimit(t *testing.T) {
 		t.Fatalf("err = %v, want stopped after 10 redirects", res.Error)
 	}
 }
+
+// The transport maps non-ASCII hosts through IDNA before dialing, so these
+// URLs reach svc.example-tailnet.ts.net. The policy must judge that host.
+func TestSenderTailnetPolicyIDNA(t *testing.T) {
+	for _, u := range []string{
+		"http://svc.example-tailnet.ｔｓ.net/",
+		"http://svc。example-tailnet。ts。net/",
+		"http://svc.example-tailnet%EF%BC%8Ets.net/",
+	} {
+		t.Run(u, func(t *testing.T) {
+			var hits atomic.Int32
+			tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc")))
+			wantPolicyBlocked(t, s.Send(context.Background(), nsRequest("ops", u)))
+			if got := hits.Load(); got != 0 {
+				t.Errorf("server hits = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestSenderTailnetPolicyCaseAndTrailingDot(t *testing.T) {
+	const u = "http://SVC.Example-Tailnet.ts.net./"
+	for _, tc := range []struct {
+		namespace   string
+		wantBlocked bool
+	}{
+		{namespace: "billing"},
+		{namespace: "ops", wantBlocked: true},
+	} {
+		t.Run(tc.namespace, func(t *testing.T) {
+			var hits atomic.Int32
+			tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				w.WriteHeader(http.StatusOK)
+			}))
+			// MagicDNS is case-insensitive; the stand-in resolver is exact.
+			tn.dns["SVC.Example-Tailnet.ts.net."] = tn.dns["svc.example-tailnet.ts.net"]
+			s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc")))
+			res := s.Send(context.Background(), nsRequest(tc.namespace, u))
+			if tc.wantBlocked {
+				wantPolicyBlocked(t, res)
+				if got := hits.Load(); got != 0 {
+					t.Errorf("server hits = %d, want 0", got)
+				}
+				return
+			}
+			if res.Error != nil || res.StatusCode != http.StatusOK {
+				t.Fatalf("res = %+v, want 200", res)
+			}
+			if got := hits.Load(); got != 1 {
+				t.Errorf("server hits = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestSenderTailnetPolicyRedirectIDNA(t *testing.T) {
+	var svcHits, otherHits atomic.Int32
+	tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.Host, "other.") {
+			otherHits.Add(1)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		svcHits.Add(1)
+		w.Header().Set("Location", "http://other.example-tailnet.ｔｓ.net/")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc")))
+	res := s.Send(context.Background(), nsRequest("billing", "http://svc.example-tailnet.ts.net/"))
+	wantPolicyBlocked(t, res)
+	if got := svcHits.Load(); got != 1 {
+		t.Errorf("svc hits = %d, want 1", got)
+	}
+	if got := otherHits.Load(); got != 0 {
+		t.Errorf("other hits = %d, want 0", got)
+	}
+}
