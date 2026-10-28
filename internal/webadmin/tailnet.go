@@ -179,9 +179,10 @@ func (h *Handler) tailnetJobs(ctx context.Context, ns domain.Namespace) ([]tailn
 		if err != nil {
 			return nil, false, err
 		}
-		for _, row := range rows {
+		for i := range rows {
+			row := &rows[i]
 			if t := h.tailnet.target(ns.String(), row.Job.Delivery.WebhookURL); t.Tailnet {
-				out = append(out, tailnetJob{Job: row, Target: t})
+				out = append(out, tailnetJob{Job: *row, Target: t})
 			}
 		}
 		if len(rows) < tailnetJobPageSize {
