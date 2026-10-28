@@ -160,7 +160,7 @@ Most hosted cron services need a public endpoint to call. CronLite can join your
 docker build --build-arg TAGS=tailscale -t cronlite:tailscale .
 docker run -d --env-file cronlite-ts.env \
   -e DATABASE_URL='postgres://…' \
-  -e WEBHOOK_ALLOW_TAILNET=true -e WEBHOOK_TAILNET_HOSTS='default=billing' \
+  -e WEBHOOK_ALLOW_TAILNET=true -e WEBHOOK_TAILNET_HOSTS='billing=invoices' \
   -e TS_LISTEN=true \
   -e TS_STATE_DIR=/home/cronlite/tailscale -v cronlite-ts:/home/cronlite \
   cronlite:tailscale
@@ -168,7 +168,7 @@ docker run -d --env-file cronlite-ts.env \
 
 `cronlite-ts.env` holds your Tailscale auth key (`TS_AUTHKEY=…`).
 
-- **Tailnet delivery** (`WEBHOOK_ALLOW_TAILNET`): a job can target `https://billing.<tailnet>.ts.net/hook`. `WEBHOOK_TAILNET_HOSTS` sets which hosts each namespace may call. Only your own tailnet's MagicDNS names take this path; every other URL goes through the usual SSRF guard.
+- **Tailnet delivery** (`WEBHOOK_ALLOW_TAILNET`): a job can target `https://invoices.<tailnet>.ts.net/hook`. `WEBHOOK_TAILNET_HOSTS` sets which hosts each namespace may call; `billing=invoices` lets namespace `billing` call `invoices`. Only your own tailnet's MagicDNS names take this path; every other URL goes through the usual SSRF guard.
 - **Tailnet access** (`TS_LISTEN`): the API, admin UI and MCP endpoint are served at `https://cronlite.<tailnet>.ts.net`. Add `TS_DISABLE_PUBLIC_LISTENER=true` to serve on the tailnet only.
 
 Both are off by default, and the Tailscale code is only compiled in with `-tags tailscale`. See the [Tailscale guide](TAILSCALE.md) for the full setup, including tailnet ACLs, the auth key and troubleshooting.

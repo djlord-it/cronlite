@@ -2,7 +2,7 @@
 
 CronLite can join your [Tailscale](https://tailscale.com) tailnet with an embedded node. No Tailscale app or sidecar is needed. This gives you two features, each opt-in:
 
-- **Tailnet delivery** (`WEBHOOK_ALLOW_TAILNET=true`): jobs can call services on your tailnet that have no public address, e.g. `https://billing.<tailnet>.ts.net/hooks/invoice`.
+- **Tailnet delivery** (`WEBHOOK_ALLOW_TAILNET=true`): jobs can call services on your tailnet that have no public address, e.g. `https://invoices.<tailnet>.ts.net/hooks/invoice`.
 - **Tailnet access** (`TS_LISTEN=true`): the API, admin UI and MCP endpoint are served at `https://cronlite.<tailnet>.ts.net`. With `TS_DISABLE_PUBLIC_LISTENER=true`, CronLite has no public port at all.
 
 This guide takes you from an empty tailnet to both features working. Every setting is described in the [Operator Guide](OPERATORS.md#tailscale).
@@ -36,7 +36,7 @@ In the [Tailscale admin console](https://login.tailscale.com/admin):
    ]
    ```
 
-   Adjust the ports to what your services listen on. **If your policy still has the default allow-all rule** (`"src": ["*"], "dst": ["*"]`), these grants restrict nothing, and every CronLite namespace can call every machine on your tailnet. Remove allow-all before real use.
+   Adjust the ports to what your services listen on. **If your policy still has the default allow-all rule** (`"src": ["*"], "dst": ["*"]`), these grants restrict nothing: CronLite can reach every machine on your tailnet, and `WEBHOOK_TAILNET_HOSTS` is then the only limit on which namespace calls which. Remove allow-all before real use.
 
 3. **Tag the services CronLite should call.** Tag servers, not your own laptop: a tagged device stops belonging to you, so it would drop out of the `autogroup:member` grant above. On each target:
 
@@ -91,7 +91,7 @@ docker run -d --name cronlite \
 ```
 
 - **Mount the volume on `/home/cronlite`**, as shown. The image runs as the `cronlite` user (uid 1000), and Docker creates a volume on a path that doesn't exist in the image (e.g. `/data`) owned by root, so the node could not write its state. A bind mount works too, if the host directory is owned by uid 1000.
-- `WEBHOOK_TAILNET_HOSTS` is required with `WEBHOOK_ALLOW_TAILNET=true`. It lists which tailnet hosts each namespace may call, as `namespace=host,host;namespace=host`. Hosts are single names without the tailnet suffix: `invoices`, not `invoices.tail1234.ts.net`. `*` as a host allows every tailnet host. `*` as a namespace applies to every namespace. A namespace not listed can reach no tailnet host. Examples:
+- `WEBHOOK_TAILNET_HOSTS` is required with `WEBHOOK_ALLOW_TAILNET=true`. It lists which tailnet hosts each namespace may call, as `namespace=host,host;namespace=host`. Hosts are single names without the tailnet suffix: `invoices`, not `invoices.tail1234.ts.net`. `*` as a host allows every tailnet host. `*` as a namespace applies to every namespace. A namespace may call its own hosts plus the hosts of the `*` entry, so a `*` entry grants those hosts to every namespace. Namespace names are matched exactly (case-sensitive); host names are matched case-insensitively. A namespace not listed can reach no tailnet host. Examples:
   - `billing=invoices;ops=*`: `billing` may call only `invoices`; `ops` may call any tailnet host.
   - `*=*`: every namespace may call every tailnet host. This is the old, installation-wide behaviour.
 - `TS_HOSTNAME` (default `cronlite`) sets the node's name, and so the URL.
@@ -125,7 +125,7 @@ docker run -d --name cronlite \
 
    The response should be `{"database":"healthy","status":"ok","tailnet":"up"}`. The admin UI is at `https://cronlite.tail1234.ts.net/admin`. Plain `http://` redirects to HTTPS. API requests still need an API key, as on the public listener.
 
-4. **Tailnet delivery:** create a job whose `webhook_url` is a tagged service's MagicDNS name, e.g. `http://billing.tail1234.ts.net:8080/hook`, and trigger it:
+4. **Tailnet delivery:** create a job whose `webhook_url` is a tagged service's MagicDNS name, e.g. `http://invoices.tail1234.ts.net:8080/hook`. With `WEBHOOK_TAILNET_HOSTS='billing=invoices;ops=*'` from section 3, create it with an API key in namespace `billing`. Then trigger it:
 
    ```bash
    curl -X POST https://cronlite.tail1234.ts.net/jobs/<job-id>/trigger -H "Authorization: Bearer $CRONLITE_API_KEY"
@@ -150,7 +150,7 @@ Once tailnet access works, add `-e TS_DISABLE_PUBLIC_LISTENER=true` and drop `-p
 | `you must enable HTTPS in the admin panel` | Turn on HTTPS Certificates in the admin console (DNS), or don't set `TS_LISTEN`. |
 | TLS handshake error on the first HTTPS request | The certificate is still being issued. Wait for `tailnet: https certificate ready`. |
 | `https certificate not ready: … server misbehaving` | The host can't resolve `acme-v02.api.letsencrypt.org`. This happens when CronLite runs on a machine whose own Tailscale client has taken over system DNS. Run `tailscale set --accept-dns=false` there, and restore `/etc/resolv.conf` if needed, or add global nameservers in the admin console. |
-| Webhook fails with `destination blocked: … carrier-grade NAT address` | The URL uses a `100.x` IP. Tailnet delivery only works with MagicDNS names under your tailnet, e.g. `billing.tail1234.ts.net`. |
+| Webhook fails with `destination blocked: … carrier-grade NAT address` | The URL uses a `100.x` IP. Tailnet delivery only works with MagicDNS names under your tailnet, e.g. `invoices.tail1234.ts.net`. |
 | Webhook fails with `not a tailnet address` | The name resolved to something other than a Tailscale node. Check the hostname. |
 | Webhook fails with `this node's own tailnet address` | The URL points at CronLite itself. This is blocked on purpose. |
 | Creating a job gives 422 `webhook_host_not_allowed`, or a delivery fails with `tailnet host not allowed for namespace` | The job's namespace is not allowed to call that host. Add the host to that namespace in `WEBHOOK_TAILNET_HOSTS` and restart. The admin UI says "This namespace may not call that tailnet host. Ask an operator to add it to WEBHOOK_TAILNET_HOSTS." and MCP names `WEBHOOK_TAILNET_HOSTS` in its error. If a host is removed later, existing jobs can still be edited when their URL is unchanged, but their deliveries are blocked and not retried. |
