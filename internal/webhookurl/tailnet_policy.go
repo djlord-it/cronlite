@@ -2,6 +2,7 @@ package webhookurl
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -113,4 +114,18 @@ func (p *TailnetPolicy) Check(namespace, host, suffix string) error {
 		return nil
 	}
 	return &BlockedError{Host: host, Reason: ReasonTailnetNotAllowed}
+}
+
+// Namespaces returns the namespaces the policy lists, lowercased and sorted.
+// A "*" entry is included as "*". A nil policy lists none.
+func (p *TailnetPolicy) Namespaces() []string {
+	if p == nil {
+		return nil
+	}
+	out := make([]string, 0, len(p.byNamespace))
+	for ns := range p.byNamespace {
+		out = append(out, ns)
+	}
+	slices.Sort(out)
+	return out
 }

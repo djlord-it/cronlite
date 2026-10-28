@@ -108,3 +108,18 @@ func TestBlockedErrorWithoutIP(t *testing.T) {
 		t.Errorf("Error() = %q, want %q", got, want)
 	}
 }
+
+func TestTailnetPolicyNamespaces(t *testing.T) {
+	p, err := ParseTailnetPolicy("Ops=*;billing=invoices;*=status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(p.Namespaces(), ",")
+	if want := "*,billing,ops"; got != want {
+		t.Errorf("Namespaces() = %q, want %q", got, want)
+	}
+	var nilPolicy *TailnetPolicy
+	if n := nilPolicy.Namespaces(); len(n) != 0 {
+		t.Errorf("nil policy Namespaces() = %v, want none", n)
+	}
+}

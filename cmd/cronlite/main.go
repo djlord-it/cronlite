@@ -384,6 +384,7 @@ func runServe() int {
 	}
 	senderOpts := []dispatcher.SenderOption{dispatcher.WithAllowlist(webhookAllowlist)}
 	var tailnetNode *tailnet.Node
+	var tailnetPolicy *webhookurl.TailnetPolicy
 	if cfg.TailnetEnabled() {
 		log.Printf("tailnet: starting node %q (state=%s)", cfg.TSHostname, cfg.TSStateDir)
 		upCtx, cancelUp := context.WithTimeout(context.Background(), tailnetUpTimeout)
@@ -407,8 +408,14 @@ func runServe() int {
 		}()
 		log.Printf("tailnet: node up on %s (addresses %v)", tailnetNode.Suffix(), tailnetNode.SelfAddrs())
 		if cfg.WebhookAllowTailnet {
-			senderOpts = append(senderOpts, dispatcher.WithTailnet(tailnetNode))
-			log.Printf("tailnet: webhook delivery enabled for *.%s", tailnetNode.Suffix())
+			tailnetPolicy, err = webhookurl.ParseTailnetPolicy(cfg.WebhookTailnetHosts)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "invalid WEBHOOK_TAILNET_HOSTS: %v\n", err)
+				return exitInvalidConfig
+			}
+			senderOpts = append(senderOpts, dispatcher.WithTailnet(tailnetNode), dispatcher.WithTailnetPolicy(tailnetPolicy))
+			log.Printf("tailnet: webhook delivery enabled for *.%s (namespaces: %s)",
+				tailnetNode.Suffix(), strings.Join(tailnetPolicy.Namespaces(), ", "))
 		}
 	}
 	webhookSender := dispatcher.NewHTTPWebhookSender(senderOpts...)
@@ -495,6 +502,9 @@ func runServe() int {
 	// ── Service layer ─────────────────────────────────────────────────────────
 	jobService := service.NewJobService(store, store, store, store, store, store, cronParser.parser)
 
+	if tailnetPolicy != nil {
+		jobService = jobService.WithTailnetPolicy(tailnetPolicy, tailnetNode.Suffix())
+	}
 	if cfg.DispatchMode == "channel" {
 		jobService = jobService.WithEmitter(emitter)
 	}
