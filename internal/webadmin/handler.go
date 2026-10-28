@@ -526,6 +526,7 @@ func isUserError(err error) bool {
 	return errors.Is(err, domain.ErrInvalidCronExpression) ||
 		errors.Is(err, domain.ErrInvalidTimezone) ||
 		errors.Is(err, domain.ErrInvalidWebhookURL) ||
+		errors.Is(err, domain.ErrWebhookHostNotAllowed) ||
 		errors.Is(err, domain.ErrJobDisabled)
 }
 
@@ -540,6 +541,7 @@ func errorClass(err error) string {
 	case errors.Is(err, domain.ErrInvalidCronExpression),
 		errors.Is(err, domain.ErrInvalidTimezone),
 		errors.Is(err, domain.ErrInvalidWebhookURL),
+		errors.Is(err, domain.ErrWebhookHostNotAllowed),
 		errors.Is(err, domain.ErrJobDisabled),
 		errors.Is(err, domain.ErrDuplicateExecution),
 		errors.Is(err, domain.ErrDuplicateAPIKey),
@@ -559,6 +561,8 @@ func userErrorText(err error) string {
 		return "The timezone is invalid."
 	case errors.Is(err, domain.ErrInvalidWebhookURL):
 		return "The webhook URL is invalid."
+	case errors.Is(err, domain.ErrWebhookHostNotAllowed):
+		return "This namespace may not call that tailnet host. Ask an operator to add it to WEBHOOK_TAILNET_HOSTS."
 	case errors.Is(err, domain.ErrJobDisabled):
 		return "Resume this job before triggering it."
 	default:

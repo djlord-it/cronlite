@@ -579,6 +579,7 @@ func TestErrorClassUsesStableCategoriesForWrappedErrors(t *testing.T) {
 		{name: "not found", err: fmt.Errorf("repository: %w", domain.ErrJobNotFound), want: "not_found"},
 		{name: "namespace mismatch is not found", err: fmt.Errorf("repository: %w", domain.ErrNamespaceMismatch), want: "not_found"},
 		{name: "validation", err: fmt.Errorf("service: %w", domain.ErrInvalidWebhookURL), want: "validation"},
+		{name: "tailnet host not allowed is validation", err: fmt.Errorf("service: %w", domain.ErrWebhookHostNotAllowed), want: "validation"},
 		{name: "namespace required is internal", err: fmt.Errorf("service: %w", domain.ErrNamespaceRequired), want: "internal"},
 		{name: "internal", err: errors.New("database unavailable"), want: "internal"},
 	} {
@@ -587,5 +588,16 @@ func TestErrorClassUsesStableCategoriesForWrappedErrors(t *testing.T) {
 				t.Fatalf("errorClass() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestTailnetHostNotAllowedIsUserError(t *testing.T) {
+	err := fmt.Errorf("service: %w", domain.ErrWebhookHostNotAllowed)
+	if !isUserError(err) {
+		t.Fatal("ErrWebhookHostNotAllowed must be a user error")
+	}
+	want := "This namespace may not call that tailnet host. Ask an operator to add it to WEBHOOK_TAILNET_HOSTS."
+	if got := userErrorText(err); got != want {
+		t.Fatalf("userErrorText() = %q, want %q", got, want)
 	}
 }
