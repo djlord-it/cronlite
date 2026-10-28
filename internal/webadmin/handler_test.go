@@ -273,8 +273,9 @@ func TestLoginAndSetupExplainExpectedCredentials(t *testing.T) {
 				t.Fatalf("login page missing %q: %s", want, body)
 			}
 		}
-		if got := strings.Count(body, "(i)"); got != 1 {
-			t.Fatalf("login info marker count = %d, want 1", got)
+		// Help text sits under each field, so no "(i)" marker is needed.
+		if got := strings.Count(body, "(i)"); got != 0 {
+			t.Fatalf("login info marker count = %d, want 0", got)
 		}
 	})
 
@@ -302,8 +303,8 @@ func TestLoginAndSetupExplainExpectedCredentials(t *testing.T) {
 				t.Fatalf("setup page missing %q: %s", want, body)
 			}
 		}
-		if got := strings.Count(body, "(i)"); got != 3 {
-			t.Fatalf("setup info marker count = %d, want 3", got)
+		if got := strings.Count(body, "(i)"); got != 0 {
+			t.Fatalf("setup info marker count = %d, want 0", got)
 		}
 	})
 }

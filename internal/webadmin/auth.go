@@ -34,6 +34,7 @@ type sessionManager struct {
 type authState struct {
 	Session domain.AdminSession
 	Key     domain.APIKey
+	Theme   string // "light", "dark", or "" to follow the system
 }
 
 func newSessionManager(

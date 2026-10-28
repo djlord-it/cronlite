@@ -1,45 +1,41 @@
 {{define "setup"}}
 {{template "head" .}}
-<main id="main" class="auth-shell">
-  <section class="card auth-card">
-    <p class="eyebrow">CronLite</p>
+<main id="main" class="auth"><div>
+  <section class="card"><div class="card-body">
+    <span class="brand"><img src="/admin/assets/favicon.svg" alt="">CronLite</span>
     <h1>Set up CronLite</h1>
-    <p class="muted">Create a workspace and its first API key.</p>
+    <p class="lede">Create a workspace and its first API key.</p>
     {{template "messages" .}}
     <form method="post" action="/admin/setup">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-      <label for="bootstrap_token">Installation token <span class="field-info" aria-hidden="true">(i)</span></label>
+      <div class="field"><label for="bootstrap_token">Installation token</label>
       <input id="bootstrap_token" name="bootstrap_token" type="password" autocomplete="off" aria-describedby="bootstrap_token_help" required>
-      <p class="field-help" id="bootstrap_token_help">Paste the <code>ADMIN_BOOTSTRAP_TOKEN</code> configured on the server.</p>
-      <label for="namespace">Namespace <span class="field-info" aria-hidden="true">(i)</span></label>
+      <p class="help" id="bootstrap_token_help">Paste the <code>ADMIN_BOOTSTRAP_TOKEN</code> configured on the server.</p></div>
+      <div class="field"><label for="namespace">Namespace</label>
       <input id="namespace" name="namespace" type="text" maxlength="128" aria-describedby="namespace_help" required>
-      <p class="field-help" id="namespace_help">Choose the isolated workspace name, for example <code>team-prod</code>.</p>
-      <label for="label">Key label <span class="field-info" aria-hidden="true">(i)</span></label>
+      <p class="help" id="namespace_help">Choose the isolated workspace name, for example <code>team-prod</code>.</p></div>
+      <div class="field"><label for="label">Key label</label>
       <input id="label" name="label" type="text" maxlength="128" value="owner" aria-describedby="label_help" required>
-      <p class="field-help" id="label_help">Give this key a recognizable name, for example <code>owner</code>.</p>
-      <button type="submit">Create first key</button>
+      <p class="help" id="label_help">Give this key a recognizable name, for example <code>owner</code>.</p></div>
+      <button class="btn btn-primary full-width" type="submit">Create first key</button>
     </form>
-  </section>
-</main>
-{{template "foot" .}}
+  </div></section>
+{{template "public_foot" .}}
 {{end}}
 
 {{define "setup_complete"}}
 {{template "head" .}}
-<main id="main" class="auth-shell">
-  <section class="card auth-card">
-
-    <h1>Save your API key</h1>
-    <p>This key is shown once. Store it in a password manager before continuing.</p>
+<main id="main" class="auth"><div>
+  <section class="card"><div class="card-body stack">
+    <span class="brand"><img src="/admin/assets/favicon.svg" alt="">CronLite</span>
+    <div><h1>Save your API key</h1><p class="lede">This key is shown once. Store it in a password manager before continuing.</p></div>
     {{template "messages" .}}
-    <pre class="secret">{{.APIKey}}</pre>
-    <p><strong>Namespace:</strong> {{.Namespace}}</p>
+    <div class="field"><span class="label">API key · namespace <code>{{.Namespace}}</code></span><pre class="secret" tabindex="0" aria-label="New API key">{{.APIKey}}</pre></div>
     {{if .SetupAuthenticated}}
-    <a class="button" href="/admin/onboarding">Continue to workspace →</a><p><a href="/admin/jobs">Skip onboarding →</a></p>
+    <div class="actions"><a class="btn btn-primary" href="/admin/onboarding">Continue to workspace{{icon "arrow"}}</a><a class="btn btn-secondary" href="/admin/jobs">Skip onboarding</a></div>
     {{else}}
-    <a class="button" href="/admin/login">Sign in</a>
+    <a class="btn btn-primary full-width" href="/admin/login">Sign in</a>
     {{end}}
-  </section>
-</main>
-{{template "foot" .}}
+  </div></section>
+{{template "public_foot" .}}
 {{end}}

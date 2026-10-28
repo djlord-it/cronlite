@@ -189,6 +189,7 @@ type pageData struct {
 	Batches                         []domain.BulkBatch
 	Applied, Unchanged, Failed      int
 	Tailnet                         tailnetView
+	Theme                           string
 }
 
 func NewHandler(cfg Config) (http.Handler, error) {
@@ -211,7 +212,17 @@ func NewHandler(cfg Config) (http.Handler, error) {
 		cfg.Logger = log.Default()
 	}
 
+	css, err := fs.ReadFile(embeddedFiles, "assets/admin.css")
+	if err != nil {
+		return nil, fmt.Errorf("read admin CSS: %w", err)
+	}
+	// The stylesheet is cached for a day, so its URL carries a content hash:
+	// an upgrade changes the URL instead of serving a stale cached copy.
+	cssSum := sha256.Sum256(css)
+	cssVersion := fmt.Sprintf("%x", cssSum[:6])
+
 	templates, err := template.New("admin").Funcs(template.FuncMap{
+		"cssVersion":   func() string { return cssVersion },
 		"scheduleText": cron.Describe,
 		"formatTime": func(t time.Time) string {
 			if t.IsZero() {
@@ -224,6 +235,8 @@ func NewHandler(cfg Config) (http.Handler, error) {
 		"executionURL":  executionURL,
 		"returnQuery":   returnQuery,
 		"bulkResult":    bulkResultText,
+		"icon":          icon,
+		"nextRun":       nextRun(cfg.Now),
 		"tailnetTarget": cfg.Tailnet.target,
 		"tailnetHint":   cfg.Tailnet.hint,
 		"jobCardData": func(row domain.JobWithSchedule, data pageData) any {
@@ -231,17 +244,13 @@ func NewHandler(cfg Config) (http.Handler, error) {
 				Row       domain.JobWithSchedule
 				State     string
 				Namespace string
-			}{row, data.ReturnURL, data.Namespace}
+				CSRFToken string
+			}{row, data.ReturnURL, data.Namespace, data.CSRFToken}
 		},
 	}).ParseFS(embeddedFiles, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse admin templates: %w", err)
 	}
-	css, err := fs.ReadFile(embeddedFiles, "assets/admin.css")
-	if err != nil {
-		return nil, fmt.Errorf("read admin CSS: %w", err)
-	}
-
 	h := &Handler{
 		runtimeSettings: cfg.RuntimeSettings,
 		service:         cfg.Service,
@@ -271,6 +280,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /admin/keys/{id}/delete", h.deleteKey)
 	h.mux.HandleFunc("GET /admin/onboarding", h.onboardingPage)
 	h.mux.HandleFunc("GET /admin/settings", h.settingsPage)
+	h.mux.HandleFunc("POST /admin/settings/appearance", h.saveAppearance)
 	h.mux.HandleFunc("GET /admin/tailscale", h.tailnetPage)
 	h.mux.HandleFunc("GET /admin/schedule", h.schedulePage)
 	h.mux.HandleFunc("POST /admin/schedule", h.resolveSchedule)
@@ -397,6 +407,7 @@ func (h *Handler) requireAuth(w http.ResponseWriter, r *http.Request) (authState
 		h.internalError(w, r, err)
 		return authState{}, false
 	}
+	auth.Theme = themeFromRequest(r)
 	ctx := domain.NamespaceToContext(r.Context(), auth.Key.Namespace)
 	*r = *r.WithContext(ctx)
 	return auth, true
@@ -416,12 +427,13 @@ func (h *Handler) requireMutation(w http.ResponseWriter, r *http.Request) (authS
 
 func (h *Handler) authPage(auth authState, title string) pageData {
 	return pageData{
-		Title: title, Namespace: auth.Key.Namespace.String(), CSRFToken: auth.Session.CSRFToken,
+		Title: title, Namespace: auth.Key.Namespace.String(), CSRFToken: auth.Session.CSRFToken, Theme: auth.Theme,
 	}
 }
 
-func (h *Handler) renderPublicForm(w http.ResponseWriter, _ *http.Request, name string, data pageData) {
+func (h *Handler) renderPublicForm(w http.ResponseWriter, r *http.Request, name string, data pageData) {
 	data.CSRFToken = h.issuePublicCSRF(w)
+	data.Theme = themeFromRequest(r)
 	w.Header().Set("Cache-Control", "no-store")
 	h.render(w, name, data)
 }
@@ -523,12 +535,13 @@ func tagsText(tags []domain.Tag) string {
 
 func noticeText(code string) string {
 	return map[string]string{
-		"created":   "Job created.",
-		"updated":   "Job updated.",
-		"deleted":   "Job deleted.",
-		"paused":    "Job paused.",
-		"resumed":   "Job resumed.",
-		"triggered": "Execution queued.",
+		"created":    "Job created.",
+		"updated":    "Job updated.",
+		"deleted":    "Job deleted.",
+		"paused":     "Job paused.",
+		"resumed":    "Job resumed.",
+		"triggered":  "Execution queued.",
+		"appearance": "Appearance saved.",
 	}[code]
 }
 
