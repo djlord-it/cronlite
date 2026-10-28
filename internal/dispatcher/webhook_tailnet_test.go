@@ -247,24 +247,66 @@ func TestSenderTailnetPolicy(t *testing.T) {
 }
 
 func TestSenderTailnetPolicyRedirect(t *testing.T) {
-	var svcHits, otherHits atomic.Int32
-	tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.Host, "other.") {
-			otherHits.Add(1)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		svcHits.Add(1)
-		http.Redirect(w, r, "http://other.example-tailnet.ts.net/", http.StatusTemporaryRedirect)
-	}))
-	s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc")))
-	res := s.Send(context.Background(), nsRequest("billing", "http://svc.example-tailnet.ts.net/"))
-	wantPolicyBlocked(t, res)
-	if got := svcHits.Load(); got != 1 {
-		t.Errorf("svc hits = %d, want 1", got)
+	for _, tc := range []struct {
+		name     string
+		code     int
+		location string
+	}{
+		{name: "302", code: http.StatusFound, location: "http://other.example-tailnet.ts.net/"},
+		{name: "307", code: http.StatusTemporaryRedirect, location: "http://other.example-tailnet.ts.net/"},
+		{name: "308", code: http.StatusPermanentRedirect, location: "http://other.example-tailnet.ts.net/"},
+		{name: "302 case and trailing dot", code: http.StatusFound, location: "http://OTHER.Example-Tailnet.ts.net./"},
+		{name: "308 case and trailing dot", code: http.StatusPermanentRedirect, location: "http://OTHER.Example-Tailnet.ts.net./"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var svcHits, otherHits atomic.Int32
+			tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasPrefix(strings.ToLower(r.Host), "other.") {
+					otherHits.Add(1)
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				svcHits.Add(1)
+				http.Redirect(w, r, tc.location, tc.code)
+			}))
+			// MagicDNS is case-insensitive; the stand-in resolver is exact.
+			tn.dns["OTHER.Example-Tailnet.ts.net."] = tn.dns["other.example-tailnet.ts.net"]
+			s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc")))
+			res := s.Send(context.Background(), nsRequest("billing", "http://svc.example-tailnet.ts.net/"))
+			wantPolicyBlocked(t, res)
+			if got := svcHits.Load(); got != 1 {
+				t.Errorf("svc hits = %d, want 1", got)
+			}
+			if got := otherHits.Load(); got != 0 {
+				t.Errorf("other hits = %d, want 0", got)
+			}
+		})
 	}
-	if got := otherHits.Load(); got != 0 {
-		t.Errorf("other hits = %d, want 0", got)
+}
+
+// An allowed redirect target is followed whatever the status code, so the
+// refusals above come from the policy and not from the redirect handling.
+func TestSenderTailnetPolicyRedirectAllowed(t *testing.T) {
+	for _, code := range []int{http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			var otherHits atomic.Int32
+			tn, _ := policySetup(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasPrefix(r.Host, "other.") {
+					otherHits.Add(1)
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				http.Redirect(w, r, "http://other.example-tailnet.ts.net/", code)
+			}))
+			s := NewHTTPWebhookSender(WithTailnet(tn), WithTailnetPolicy(mustPolicy(t, "billing=svc,other")))
+			res := s.Send(context.Background(), nsRequest("billing", "http://svc.example-tailnet.ts.net/"))
+			if res.Error != nil || res.StatusCode != http.StatusOK {
+				t.Fatalf("res = %+v, want 200", res)
+			}
+			if got := otherHits.Load(); got != 1 {
+				t.Errorf("other hits = %d, want 1", got)
+			}
+		})
 	}
 }
 
