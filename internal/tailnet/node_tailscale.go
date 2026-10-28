@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
@@ -103,6 +104,32 @@ func (n *Node) Dial(ctx context.Context, network, addr string) (net.Conn, error)
 func (n *Node) Running(ctx context.Context) bool {
 	st, err := n.lc.StatusWithoutPeers(ctx)
 	return err == nil && st.BackendState == ipn.Running.String()
+}
+
+// Info reports the node's current state, login and key expiry.
+func (n *Node) Info(ctx context.Context) (Info, error) {
+	st, err := n.lc.StatusWithoutPeers(ctx)
+	if err != nil {
+		return Info{}, fmt.Errorf("tailnet: status: %w", err)
+	}
+	info := Info{BackendState: st.BackendState, Health: st.Health}
+	if st.CurrentTailnet != nil {
+		info.TailnetName = st.CurrentTailnet.Name
+	}
+	if self := st.Self; self != nil {
+		info.Online = self.Online
+		info.DNSName = strings.TrimSuffix(self.DNSName, ".")
+		if self.Tags != nil {
+			info.Tags = self.Tags.AsSlice()
+		}
+		if self.KeyExpiry != nil {
+			info.KeyExpiry = *self.KeyExpiry
+		}
+		if u, ok := st.User[self.UserID]; ok {
+			info.LoginName = u.LoginName
+		}
+	}
+	return info, nil
 }
 
 // CertDomain returns the node's HTTPS name, e.g.
