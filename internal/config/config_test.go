@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/djlord-it/cronlite/internal/tailnet"
 )
 
 func TestLoad_TimeoutDefaults(t *testing.T) {
@@ -594,5 +596,191 @@ func TestValidateAcceptsAllowlist(t *testing.T) {
 	}
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadTailnetDefaults(t *testing.T) {
+	for _, k := range []string{"WEBHOOK_ALLOW_TAILNET", "TS_AUTHKEY", "TS_HOSTNAME", "TS_STATE_DIR"} {
+		t.Setenv(k, "")
+	}
+	cfg := Load()
+	if cfg.WebhookAllowTailnet {
+		t.Error("WebhookAllowTailnet must default to false")
+	}
+	if cfg.TSHostname != "cronlite" {
+		t.Errorf("TSHostname = %q, want cronlite", cfg.TSHostname)
+	}
+}
+
+func TestLoadTailnet(t *testing.T) {
+	t.Setenv("WEBHOOK_ALLOW_TAILNET", "true")
+	t.Setenv("TS_AUTHKEY", "tskey-auth-secret")
+	t.Setenv("TS_HOSTNAME", "cron-prod")
+	t.Setenv("TS_STATE_DIR", "/var/lib/cronlite/ts")
+	cfg := Load()
+	if !cfg.WebhookAllowTailnet || cfg.TSAuthKey != "tskey-auth-secret" ||
+		cfg.TSHostname != "cron-prod" || cfg.TSStateDir != "/var/lib/cronlite/ts" {
+		t.Fatalf("unexpected tailnet config: %+v", cfg)
+	}
+}
+
+func TestMaskedJSONNeverIncludesTSAuthKey(t *testing.T) {
+	cfg := Config{TSAuthKey: "tskey-auth-secret", TSHostname: "cronlite", WebhookAllowTailnet: true}
+	data, err := cfg.MaskedJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "tskey") {
+		t.Fatalf("auth key leaked into config output: %s", data)
+	}
+	if !strings.Contains(string(data), `"webhook_allow_tailnet": true`) {
+		t.Errorf("webhook_allow_tailnet missing from config output: %s", data)
+	}
+}
+
+func TestValidateTailnet(t *testing.T) {
+	base := Config{WebhookAllowTailnet: true, WebhookTailnetHosts: "*=*", TSHostname: "cronlite", TSStateDir: "/state"}
+	fields := func(errs ValidationErrors) map[string]bool {
+		m := map[string]bool{}
+		for _, e := range errs {
+			m[e.Field] = true
+		}
+		return m
+	}
+
+	if errs := validateTailnet(base, true); len(errs) != 0 {
+		t.Errorf("valid config rejected: %v", errs)
+	}
+	if got := fields(validateTailnet(base, false)); !got["WEBHOOK_ALLOW_TAILNET"] {
+		t.Errorf("unsupported build not rejected: %v", got)
+	}
+	noState := base
+	noState.TSStateDir = ""
+	if got := fields(validateTailnet(noState, true)); !got["TS_STATE_DIR"] {
+		t.Errorf("missing TS_STATE_DIR not rejected: %v", got)
+	}
+	for _, name := range []string{"", "Cronlite", "cron.lite", "-cron", "cron-", "cron_lite", strings.Repeat("a", 64)} {
+		bad := base
+		bad.TSHostname = name
+		if got := fields(validateTailnet(bad, true)); !got["TS_HOSTNAME"] {
+			t.Errorf("TS_HOSTNAME %q not rejected", name)
+		}
+	}
+	// The auth key is optional: a state dir may already hold a logged-in node.
+	if errs := validateTailnet(base, true); len(errs) != 0 {
+		t.Errorf("missing TS_AUTHKEY rejected: %v", errs)
+	}
+}
+
+func TestValidateIgnoresTailnetSettingsWhenDisabled(t *testing.T) {
+	cfg := Config{DatabaseURL: "postgres://x", TickIntervalStr: "30s", TSHostname: "Not Valid"}
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("tailnet settings validated while WEBHOOK_ALLOW_TAILNET=false: %v", err)
+	}
+}
+
+func TestValidateTailnetMatchesBuild(t *testing.T) {
+	cfg := Config{DatabaseURL: "postgres://x", TickIntervalStr: "30s",
+		WebhookAllowTailnet: true, WebhookTailnetHosts: "*=*", TSHostname: "cronlite", TSStateDir: "/state"}
+	err := Validate(cfg)
+	if tailnet.Supported && err != nil {
+		t.Fatalf("tailscale build rejected valid tailnet config: %v", err)
+	}
+	if !tailnet.Supported && err == nil {
+		t.Fatal("default build accepted WEBHOOK_ALLOW_TAILNET=true")
+	}
+}
+
+func TestLoadTailnetListener(t *testing.T) {
+	t.Setenv("TS_LISTEN", "true")
+	t.Setenv("TS_DISABLE_PUBLIC_LISTENER", "true")
+	cfg := Load()
+	if !cfg.TSListen || !cfg.TSDisablePublicListener {
+		t.Fatalf("TSListen = %v, TSDisablePublicListener = %v, want both true", cfg.TSListen, cfg.TSDisablePublicListener)
+	}
+	if !cfg.TailnetEnabled() {
+		t.Error("TS_LISTEN must enable the tailnet node")
+	}
+}
+
+func TestValidateTailnetListenOnly(t *testing.T) {
+	cfg := Config{TSListen: true, TSHostname: "cronlite"}
+	got := map[string]bool{}
+	for _, e := range validateTailnet(cfg, false) {
+		got[e.Field] = true
+	}
+	if !got["TS_LISTEN"] || !got["TS_STATE_DIR"] || got["WEBHOOK_ALLOW_TAILNET"] {
+		t.Errorf("errors on %v, want TS_LISTEN and TS_STATE_DIR", got)
+	}
+}
+
+func TestValidateDisablePublicListenerNeedsTSListen(t *testing.T) {
+	cfg := Config{DatabaseURL: "postgres://x", TickIntervalStr: "30s", TSDisablePublicListener: true}
+	err := Validate(cfg)
+	var errs ValidationErrors
+	if !errors.As(err, &errs) {
+		t.Fatalf("expected ValidationErrors, got %v", err)
+	}
+	for _, e := range errs {
+		if e.Field == "TS_DISABLE_PUBLIC_LISTENER" {
+			return
+		}
+	}
+	t.Fatalf("no TS_DISABLE_PUBLIC_LISTENER error in %v", errs)
+}
+
+func TestLoadWebhookTailnetHosts(t *testing.T) {
+	t.Setenv("WEBHOOK_TAILNET_HOSTS", "  billing=invoices  ")
+	if got := Load().WebhookTailnetHosts; got != "billing=invoices" {
+		t.Fatalf("WebhookTailnetHosts = %q, want %q", got, "billing=invoices")
+	}
+}
+
+func TestValidateTailnetHosts(t *testing.T) {
+	tests := []struct {
+		name      string
+		allow     bool
+		tsListen  bool
+		hosts     string
+		wantErr   bool
+		wantInMsg string
+	}{
+		{"required when allowed", true, false, "", true, "*=*"},
+		{"parse error", true, false, "billing=", true, "billing"},
+		{"valid", true, false, "*=*", false, ""},
+		{"set but unused with TS_LISTEN", false, true, "*=*", true, "only used when WEBHOOK_ALLOW_TAILNET=true"},
+		{"set but unused, tailnet disabled", false, false, "*=*", true, "only used when WEBHOOK_ALLOW_TAILNET=true"},
+		{"unset and unused", false, false, "", false, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := Config{
+				DatabaseURL: "postgres://x", TickIntervalStr: "30s",
+				WebhookAllowTailnet: tc.allow, TSListen: tc.tsListen,
+				WebhookTailnetHosts: tc.hosts,
+				TSHostname:          "cronlite", TSStateDir: "/state",
+			}
+			// Validate calls validateTailnet with tailnet.Supported; errors on other
+			// fields (e.g. an untagged build) are filtered out below.
+			var errs ValidationErrors
+			if err := Validate(cfg); err != nil {
+				errs = err.(ValidationErrors)
+			}
+			var onField []ValidationError
+			for _, e := range errs {
+				if e.Field == "WEBHOOK_TAILNET_HOSTS" {
+					onField = append(onField, e)
+				}
+			}
+			if len(onField) > 1 {
+				t.Fatalf("duplicate errors on WEBHOOK_TAILNET_HOSTS: %v", onField)
+			}
+			if tc.wantErr != (len(onField) == 1) {
+				t.Fatalf("errors on WEBHOOK_TAILNET_HOSTS = %v, wantErr %v", onField, tc.wantErr)
+			}
+			if tc.wantErr && !strings.Contains(onField[0].Message, tc.wantInMsg) {
+				t.Errorf("message %q missing %q", onField[0].Message, tc.wantInMsg)
+			}
+		})
 	}
 }

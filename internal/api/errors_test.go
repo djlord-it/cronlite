@@ -59,6 +59,12 @@ func TestMapDomainError(t *testing.T) {
 			wantCode:   "invalid_webhook_url",
 		},
 		{
+			name:       "ErrWebhookHostNotAllowed",
+			err:        domain.ErrWebhookHostNotAllowed,
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "webhook_host_not_allowed",
+		},
+		{
 			name:       "ErrScheduleParseFailure",
 			err:        domain.ErrScheduleParseFailure,
 			wantStatus: http.StatusUnprocessableEntity,

@@ -1732,3 +1732,54 @@ func TestListExecutions_WithFilters(t *testing.T) {
 		t.Fatalf("expected Until=%v, got %v", until, *capturedFilter.Until)
 	}
 }
+
+type mockTailnetChecker struct{ running bool }
+
+func (m mockTailnetChecker) Running(context.Context) bool { return m.running }
+
+func TestGetHealth_VerboseTailnet(t *testing.T) {
+	cases := []struct {
+		name    string
+		tailnet TailnetChecker
+		want    *string
+	}{
+		{name: "not enabled", tailnet: nil, want: nil},
+		{name: "up", tailnet: mockTailnetChecker{running: true}, want: strPtr("up")},
+		{name: "down stays 200", tailnet: mockTailnetChecker{running: false}, want: strPtr("down")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newTestServer(nil, nil, nil, nil, nil, nil)
+			srv.WithHealthChecker(&mockHealthCheckerV2{})
+			if tc.tailnet != nil {
+				srv.WithTailnetChecker(tc.tailnet)
+			}
+			resp, err := srv.GetHealth(context.Background(), GetHealthRequestObject{
+				Params: GetHealthParams{Verbose: boolPtr(true)},
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got, ok := resp.(GetHealth200JSONResponse)
+			if !ok {
+				t.Fatalf("expected GetHealth200JSONResponse, got %T", resp)
+			}
+			if got.Status != "ok" {
+				t.Errorf("status = %q, want ok", got.Status)
+			}
+			switch {
+			case tc.want == nil && got.Tailnet != nil:
+				t.Errorf("tailnet = %q, want omitted", *got.Tailnet)
+			case tc.want != nil && (got.Tailnet == nil || *got.Tailnet != *tc.want):
+				t.Errorf("tailnet = %v, want %q", got.Tailnet, *tc.want)
+			}
+		})
+	}
+
+	// The non-verbose response never reports the tailnet.
+	srv := newTestServer(nil, nil, nil, nil, nil, nil).WithTailnetChecker(mockTailnetChecker{})
+	resp, _ := srv.GetHealth(context.Background(), GetHealthRequestObject{})
+	if got := resp.(GetHealth200JSONResponse); got.Tailnet != nil {
+		t.Errorf("non-verbose tailnet = %q, want omitted", *got.Tailnet)
+	}
+}

@@ -266,3 +266,18 @@ func (s *PrometheusSink) LeaderAcquired() {
 func (s *PrometheusSink) LeaderLost(reason string) {
 	s.leaderLosses.WithLabelValues(reason).Inc()
 }
+
+// RegisterTailnetUp exports cronlite_tailnet_up (1 when the embedded Tailscale
+// node is connected, 0 otherwise). up is called on every scrape.
+func (s *PrometheusSink) RegisterTailnetUp(reg prometheus.Registerer, up func() bool) {
+	g := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "cronlite_tailnet_up",
+		Help: "Whether the embedded Tailscale node is connected to the tailnet (1=up, 0=down).",
+	}, func() float64 {
+		if up() {
+			return 1
+		}
+		return 0
+	})
+	s.register(reg, g, "cronlite_tailnet_up")
+}

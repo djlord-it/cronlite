@@ -11,6 +11,7 @@ var (
 	ErrInvalidCronExpression     = errors.New("invalid cron expression")
 	ErrInvalidTimezone           = errors.New("invalid timezone")
 	ErrInvalidWebhookURL         = errors.New("invalid webhook URL")
+	ErrWebhookHostNotAllowed     = errors.New("webhook host not allowed for this namespace")
 	ErrJobDisabled               = errors.New("job is disabled")
 	ErrDuplicateExecution        = errors.New("execution already exists")
 	ErrDuplicateAPIKey           = errors.New("api key already exists")

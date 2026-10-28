@@ -24,13 +24,16 @@ COPY . .
 # builds to preserve stack trace quality in race reports.
 ARG VERSION=dev
 ARG COMMIT=unknown
+# TAGS=tailscale embeds a Tailscale node for WEBHOOK_ALLOW_TAILNET. It adds
+# roughly 19 MB to the binary, so the default image leaves it out.
+ARG TAGS=""
 RUN set -e; \
     if [ "$RACE_ENABLED" = "1" ]; then \
-      CGO_ENABLED=1 GOOS=linux go build -race \
+      CGO_ENABLED=1 GOOS=linux go build -race -tags "${TAGS}" \
         -ldflags="-X main.version=${VERSION} -X main.commit=${COMMIT}" \
         -o /cronlite ./cmd/cronlite; \
     else \
-      CGO_ENABLED=0 GOOS=linux go build \
+      CGO_ENABLED=0 GOOS=linux go build -tags "${TAGS}" \
         -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}" \
         -o /cronlite ./cmd/cronlite; \
     fi

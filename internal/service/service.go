@@ -5,6 +5,7 @@ import (
 
 	"github.com/djlord-it/cronlite/internal/cron"
 	"github.com/djlord-it/cronlite/internal/domain"
+	"github.com/djlord-it/cronlite/internal/webhookurl"
 )
 
 // EventEmitter sends trigger events to the dispatch pipeline.
@@ -23,6 +24,9 @@ type JobService struct {
 	attempts   domain.DeliveryAttemptRepository
 	parser     *cron.Parser
 	emitter    EventEmitter
+
+	tailnetPolicy *webhookurl.TailnetPolicy
+	tailnetSuffix string
 }
 
 // NewJobService constructs a JobService with all required repository
@@ -50,5 +54,14 @@ func NewJobService(
 // directly to the dispatch pipeline (used in channel mode).
 func (s *JobService) WithEmitter(e EventEmitter) *JobService {
 	s.emitter = e
+	return s
+}
+
+// WithTailnetPolicy sets the per-namespace tailnet host policy applied when
+// jobs are created or updated. An empty suffix means tailnet delivery is off
+// and no check runs.
+func (s *JobService) WithTailnetPolicy(p *webhookurl.TailnetPolicy, suffix string) *JobService {
+	s.tailnetPolicy = p
+	s.tailnetSuffix = suffix
 	return s
 }

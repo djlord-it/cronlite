@@ -13,8 +13,9 @@ import (
 
 // ServerImpl implements StrictServerInterface by delegating to the service layer.
 type ServerImpl struct {
-	svc *service.JobService
-	db  HealthChecker // optional, for verbose health checks
+	svc     *service.JobService
+	db      HealthChecker  // optional, for verbose health checks
+	tailnet TailnetChecker // optional, reported in verbose health checks
 }
 
 // NewServerImpl creates a new ServerImpl backed by the given service.
@@ -25,6 +26,13 @@ func NewServerImpl(svc *service.JobService) *ServerImpl {
 // WithHealthChecker sets the database health checker for verbose /health responses.
 func (s *ServerImpl) WithHealthChecker(db HealthChecker) *ServerImpl {
 	s.db = db
+	return s
+}
+
+// WithTailnetChecker reports the tailnet node's state in verbose /health
+// responses. The state is informational and never makes the response 503.
+func (s *ServerImpl) WithTailnetChecker(tn TailnetChecker) *ServerImpl {
+	s.tailnet = tn
 	return s
 }
 
@@ -44,6 +52,13 @@ func (s *ServerImpl) GetHealth(ctx context.Context, request GetHealthRequestObje
 	defer cancel()
 
 	resp := HealthResponse{Status: "ok"}
+	if s.tailnet != nil {
+		tailnetStatus := "down"
+		if s.tailnet.Running(pingCtx) {
+			tailnetStatus = "up"
+		}
+		resp.Tailnet = &tailnetStatus
+	}
 	if err := s.db.PingContext(pingCtx); err != nil {
 		resp.Status = "degraded"
 		dbStatus := "unhealthy"

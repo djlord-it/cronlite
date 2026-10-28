@@ -106,6 +106,29 @@ type Config struct {
 	// private-range addresses webhook delivery may dial. Loopback, link-local
 	// and other always-blocked ranges are never allowed.
 	WebhookAllowedPrivateSuffixes []string `json:"webhook_allowed_private_suffixes"`
+
+	// WebhookAllowTailnet delivers webhooks for hostnames under this node's
+	// tailnet MagicDNS suffix over an embedded Tailscale node. Requires a
+	// binary built with -tags tailscale.
+	WebhookAllowTailnet bool `json:"webhook_allow_tailnet"`
+	// WebhookTailnetHosts is the raw per-namespace allowlist of tailnet hosts
+	// webhooks may call, e.g. "billing=invoices;ops=*" or "*=*". Required when
+	// WebhookAllowTailnet is true; rejected otherwise.
+	WebhookTailnetHosts string `json:"webhook_tailnet_hosts"`
+	// TSListen also serves the HTTP API, admin UI and MCP endpoint on the
+	// tailnet at https://<TSHostname>.<tailnet>.ts.net.
+	TSListen bool `json:"ts_listen"`
+	// TSDisablePublicListener skips the HTTP_ADDR listener, leaving only the
+	// tailnet one. Requires TSListen.
+	TSDisablePublicListener bool   `json:"ts_disable_public_listener"`
+	TSAuthKey               string `json:"-"` // never serialized, not even masked
+	TSHostname              string `json:"ts_hostname"`
+	TSStateDir              string `json:"ts_state_dir,omitempty"`
+}
+
+// TailnetEnabled reports whether serve needs the embedded Tailscale node.
+func (c Config) TailnetEnabled() bool {
+	return c.WebhookAllowTailnet || c.TSListen
 }
 
 // Load reads configuration from environment variables with defaults.
@@ -144,6 +167,13 @@ func Load() Config {
 		AdminBootstrapToken:          os.Getenv("ADMIN_BOOTSTRAP_TOKEN"),
 		AdminSessionTTLStr:           os.Getenv("ADMIN_SESSION_TTL"),
 		AdminSessionAbsoluteTTLStr:   os.Getenv("ADMIN_SESSION_ABSOLUTE_TTL"),
+		WebhookAllowTailnet:          os.Getenv("WEBHOOK_ALLOW_TAILNET") == "true",
+		WebhookTailnetHosts:          strings.TrimSpace(os.Getenv("WEBHOOK_TAILNET_HOSTS")),
+		TSListen:                     os.Getenv("TS_LISTEN") == "true",
+		TSDisablePublicListener:      os.Getenv("TS_DISABLE_PUBLIC_LISTENER") == "true",
+		TSAuthKey:                    os.Getenv("TS_AUTHKEY"),
+		TSHostname:                   os.Getenv("TS_HOSTNAME"),
+		TSStateDir:                   os.Getenv("TS_STATE_DIR"),
 	}
 
 	cookieSecure := os.Getenv("ADMIN_COOKIE_SECURE")
@@ -256,6 +286,9 @@ func Load() Config {
 		} else {
 			cfg.HTTPAddr = ":8080"
 		}
+	}
+	if cfg.TSHostname == "" {
+		cfg.TSHostname = "cronlite"
 	}
 	if cfg.TickIntervalStr == "" {
 		cfg.TickIntervalStr = "30s"

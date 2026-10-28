@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/djlord-it/cronlite/internal/dispatcher"
+	"github.com/djlord-it/cronlite/internal/tailnet"
 	"github.com/djlord-it/cronlite/internal/webhookurl"
 )
 
@@ -125,6 +126,22 @@ func Validate(cfg Config) error {
 		errs = append(errs, ValidationError{Field: "WEBHOOK_ALLOWED_PRIVATE_SUFFIXES", Message: err.Error()})
 	}
 
+	if cfg.TailnetEnabled() {
+		errs = append(errs, validateTailnet(cfg, tailnet.Supported)...)
+	}
+	if !cfg.WebhookAllowTailnet && cfg.WebhookTailnetHosts != "" {
+		errs = append(errs, ValidationError{
+			Field:   "WEBHOOK_TAILNET_HOSTS",
+			Message: "only used when WEBHOOK_ALLOW_TAILNET=true",
+		})
+	}
+	if cfg.TSDisablePublicListener && !cfg.TSListen {
+		errs = append(errs, ValidationError{
+			Field:   "TS_DISABLE_PUBLIC_LISTENER",
+			Message: "requires TS_LISTEN=true; otherwise no HTTP listener would remain",
+		})
+	}
+
 	// Reconciler parameters (when enabled)
 	if cfg.ReconcileEnabled {
 		if cfg.ReconcileInterval <= 0 && cfg.ReconcileIntervalStr != "" {
@@ -188,6 +205,58 @@ func Validate(cfg Config) error {
 		return errs
 	}
 	return nil
+}
+
+// validateTailnet checks the settings used when WEBHOOK_ALLOW_TAILNET or
+// TS_LISTEN is true. supported reports whether the binary was built with
+// Tailscale support.
+func validateTailnet(cfg Config, supported bool) ValidationErrors {
+	var errs ValidationErrors
+	field := "WEBHOOK_ALLOW_TAILNET"
+	if !cfg.WebhookAllowTailnet {
+		field = "TS_LISTEN"
+	}
+	if !supported {
+		errs = append(errs, ValidationError{
+			Field:   field,
+			Message: "this binary was built without Tailscale support; use a build made with -tags tailscale",
+		})
+	}
+	if cfg.TSStateDir == "" {
+		errs = append(errs, ValidationError{
+			Field:   "TS_STATE_DIR",
+			Message: fmt.Sprintf("required when %s=true (holds the node's identity across restarts)", field),
+		})
+	}
+	if !validNodeName(cfg.TSHostname) {
+		errs = append(errs, ValidationError{
+			Field:   "TS_HOSTNAME",
+			Message: fmt.Sprintf("must be a single DNS label (a-z, 0-9, '-', at most 63 characters), got %q", cfg.TSHostname),
+		})
+	}
+	if cfg.WebhookAllowTailnet {
+		if cfg.WebhookTailnetHosts == "" {
+			errs = append(errs, ValidationError{
+				Field:   "WEBHOOK_TAILNET_HOSTS",
+				Message: "required when WEBHOOK_ALLOW_TAILNET=true; list the tailnet hosts each namespace may call, e.g. billing=invoices;ops=*, or *=* to allow every namespace every host",
+			})
+		} else if _, err := webhookurl.ParseTailnetPolicy(cfg.WebhookTailnetHosts); err != nil {
+			errs = append(errs, ValidationError{Field: "WEBHOOK_TAILNET_HOSTS", Message: err.Error()})
+		}
+	}
+	return errs
+}
+
+func validNodeName(s string) bool {
+	if s == "" || len(s) > 63 || s[0] == '-' || s[len(s)-1] == '-' {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func validateProduction(cfg Config) ValidationErrors {

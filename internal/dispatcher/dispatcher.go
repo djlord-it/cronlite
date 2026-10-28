@@ -90,6 +90,9 @@ type WebhookRequest struct {
 	Timeout   time.Duration
 	Payload   WebhookPayload
 	AttemptID string
+	// Namespace is the sending execution's namespace. The sender checks
+	// tailnet destinations against its policy for this namespace.
+	Namespace string
 }
 
 type WebhookPayload struct {
@@ -413,10 +416,11 @@ func (d *Dispatcher) dispatchOwned(ctx context.Context, execution domain.Executi
 	}
 
 	req := WebhookRequest{
-		URL:     job.Delivery.WebhookURL,
-		Secret:  job.Delivery.Secret,
-		Timeout: job.Delivery.Timeout,
-		Payload: payload,
+		URL:       job.Delivery.WebhookURL,
+		Secret:    job.Delivery.Secret,
+		Timeout:   job.Delivery.Timeout,
+		Payload:   payload,
+		Namespace: string(execution.Namespace),
 	}
 
 	var lastResult WebhookResult

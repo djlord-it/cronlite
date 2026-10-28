@@ -55,6 +55,12 @@ func TestToolError(t *testing.T) {
 			wantIsError: true,
 		},
 		{
+			name:        "ErrWebhookHostNotAllowed",
+			err:         fmt.Errorf("%w: \"h\" in namespace \"ops\"", domain.ErrWebhookHostNotAllowed),
+			wantSubstr:  "WEBHOOK_TAILNET_HOSTS",
+			wantIsError: true,
+		},
+		{
 			name:        "ErrJobDisabled",
 			err:         domain.ErrJobDisabled,
 			wantSubstr:  "then retry the operation",

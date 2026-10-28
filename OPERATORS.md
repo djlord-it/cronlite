@@ -115,6 +115,13 @@ HTTP and channel-dispatch drain budgets total `DISPATCHER_DRAIN_TIMEOUT` + `HTTP
 | `MIGRATE_ON_START` | `false` | Apply pending schema migrations before `serve` starts (see [Migrations](#migrations)) |
 | `MIGRATE_LOCK_TIMEOUT` | `2m` | How long migrations wait for the migration lock held by another instance |
 | `WEBHOOK_ALLOWED_PRIVATE_SUFFIXES` | *(empty)* | Comma-separated hostnames or `.suffix` domains whose private-range (RFC 1918 / unique-local) addresses webhooks may reach; see [Security Hardening](#security-hardening) |
+| `WEBHOOK_ALLOW_TAILNET` | `false` | Deliver webhooks to hosts on this node's tailnet over an embedded Tailscale node; needs a `-tags tailscale` build. See [Tailnet delivery](#tailnet-delivery) |
+| `WEBHOOK_TAILNET_HOSTS` | *(empty)* | Which tailnet hosts each namespace may call, e.g. `billing=invoices;ops=*`. Required with `WEBHOOK_ALLOW_TAILNET=true`, rejected otherwise. Hosts are single names without the tailnet suffix; `*` allows all hosts or all namespaces. A namespace may call its own hosts plus the hosts of the `*` entry, so a `*` entry grants those hosts to every namespace. Namespace names are matched exactly (case-sensitive), host names case-insensitively. A namespace not listed can reach no tailnet host. See [Tailnet delivery](#tailnet-delivery) |
+| `TS_LISTEN` | `false` | Also serve the API, admin UI and MCP endpoint at `https://<TS_HOSTNAME>.<tailnet>.ts.net`; needs a `-tags tailscale` build. See [Tailnet access](#tailnet-access) |
+| `TS_DISABLE_PUBLIC_LISTENER` | `false` | Skip the `HTTP_ADDR` listener so CronLite is reachable only over the tailnet; requires `TS_LISTEN=true` |
+| `TS_AUTHKEY` | *(empty)* | Tailscale auth key for the embedded node. Never logged or printed by `cronlite config`. Optional once `TS_STATE_DIR` holds a logged-in node |
+| `TS_HOSTNAME` | `cronlite` | Node name on the tailnet (a single DNS label) |
+| `TS_STATE_DIR` | *(empty)* | Directory for the node's identity and keys (and its HTTPS certificate); required with `WEBHOOK_ALLOW_TAILNET` or `TS_LISTEN`. Use a persistent volume |
 
 ### Required in Production
 
@@ -352,6 +359,7 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 - `host.docker.internal` only helps where it resolves to a private range (Linux `host-gateway`, e.g. 172.17.0.1). Docker Desktop resolves it to 0.250.250.254, inside the always-blocked `0.0.0.0/8`, so allowlisting it does not work there: run the receiver as a Compose service (or a relay on the Compose network) and allowlist that service name.
 - A blocked delivery fails immediately: it is not retried and does not count toward the circuit breaker.
 - **Breaking change:** jobs that call private destinations (Docker/Compose service names, `*.railway.internal`, LAN hosts) now fail until their hostnames are allowlisted. See [Upgrading](README.md#upgrading).
+- Tailnet hosts are a separate, opt-in path with its own checks: see [Tailnet delivery](#tailnet-delivery).
 
 **Credential masking:** `cronlite config` masks `DATABASE_URL` passwords and `REDIS_ADDR` credentials in output. Safe for logging.
 
@@ -364,6 +372,35 @@ Events in the in-memory buffer and incomplete retry sequences may be lost.
 **API key storage:** Tokens are SHA-256 hashed before storage. The plaintext token is returned exactly once at creation time and never persisted.
 
 **Admin transport:** Production admin traffic must use HTTPS with `ADMIN_COOKIE_SECURE=true`. In that mode CronLite adds `Strict-Transport-Security: max-age=31536000`; local HTTP intentionally uses insecure cookies and does not emit HSTS.
+
+## Tailscale
+
+CronLite can join a Tailscale tailnet with an embedded node (`tsnet`): it can deliver webhooks to tailnet services, serve its API and admin UI on the tailnet, or both. For a step-by-step setup (tailnet ACLs, auth key, `docker run`, troubleshooting), see the [Tailscale guide](TAILSCALE.md). This section is the reference.
+
+### Tailnet delivery
+
+With `WEBHOOK_ALLOW_TAILNET=true`, CronLite runs an embedded Tailscale node (`tsnet`, no Tailscale app or sidecar) and can deliver webhooks to services on your tailnet that have no public address, e.g. `https://my-service.<tailnet>.ts.net/hook`.
+
+- **Build:** the Tailscale code is only compiled into binaries built with `-tags tailscale` (`docker build --build-arg TAGS=tailscale .`). It adds about 19 MB to the binary. A default build refuses `WEBHOOK_ALLOW_TAILNET=true` at startup and in `cronlite validate`.
+- **Startup:** the node starts when `WEBHOOK_ALLOW_TAILNET` or `TS_LISTEN` is set. `serve` waits up to 60s for it to connect and exits if it does not. The tailnet must have MagicDNS enabled. The node shuts down after the dispatcher has drained.
+- **Which URLs use the tailnet:** only hostnames that are subdomains of this node's own tailnet domain (the MagicDNS suffix, e.g. `example-tailnet.ts.net`). Matching works on whole labels, so `evil-ts.net`, `ts.net.evil.com` and other tailnets' `*.ts.net` hosts (for example Funnel URLs) take the normal public path as before.
+- **Checks on the tailnet path:** the name is resolved through MagicDNS. Every answer must be a Tailscale node address (`100.64.0.0/10` or `fd7a:115c:a1e0::/48`), excluding `100.100.100.100`, the 4via6 subnet-router range and this node's own addresses. A checked address is then dialled directly. Anything else is blocked and not retried.
+- **Unchanged everywhere else:** IP literals, including `100.x` tailnet addresses, are never routed to the tailnet and stay blocked. Every redirect hop is routed and checked again on its own, in both directions.
+- **Scope:** each namespace reaches only the hosts listed for it in `WEBHOOK_TAILNET_HOSTS`, e.g. `billing=invoices;ops=*`. Job creation fails with 422 `webhook_host_not_allowed` for any other host, and delivery is blocked with `tailnet host not allowed for namespace` and not retried. Also use Tailscale ACLs: tag the node (e.g. `tag:cronlite`) and grant it only the destinations and ports it should call.
+- **Logs:** `TS_AUTHKEY` is never logged. tsnet's verbose backend logs are discarded; its user-facing messages (such as a login URL when no auth key is set) appear with a `tailnet:` prefix. tsnet uploads diagnostic logs to Tailscale by default; set `TS_NO_LOGS_NO_SUPPORT=true` to turn that off.
+
+### Tailnet access
+
+With `TS_LISTEN=true`, the same embedded node also serves everything the HTTP listener serves (REST API, `/admin`, `/mcp`, `/health`, `/metrics`) at `https://<TS_HOSTNAME>.<tailnet>.ts.net`, with no public port. It can be used with or without `WEBHOOK_ALLOW_TAILNET`.
+
+- **HTTPS:** the tailnet must have MagicDNS and HTTPS certificates enabled (Tailscale admin console → DNS); otherwise `serve` exits at startup with a message saying so. Plain `http://` on the tailnet only redirects to the HTTPS name.
+- **Certificate:** `serve` requests the node's Let's Encrypt certificate in the background as soon as the node is up and logs `tailnet: https certificate ready`. Issuance can take 30 seconds or more; HTTPS requests that arrive before it finishes fail the TLS handshake. The certificate is stored in `TS_STATE_DIR`, so later restarts with the same state are immediate, and Tailscale renews it automatically as it nears expiry. Certificates are publicly logged (Certificate Transparency), so the node's full `*.ts.net` name becomes public, though it stays unreachable from outside the tailnet.
+- **Public DNS and outbound HTTPS:** issuing the certificate needs the host's normal DNS to resolve `acme-v02.api.letsencrypt.org` and outbound HTTPS to it. Containers and hosts without Tailscale installed have this already. If you run CronLite on a machine that also runs the Tailscale client, make sure that client has not taken over the system DNS without an upstream resolver for public names (`tailscale set --accept-dns=false`, or add global nameservers in the admin console). Otherwise the log shows `tailnet: https certificate not ready: ... server misbehaving`.
+- **Auth is unchanged:** tailnet requests go through the same API key, admin session and rate-limit middleware as public ones. Being on the tailnet grants nothing by itself. Limit who can reach the node with Tailscale ACLs.
+- **Public listener:** `HTTP_ADDR` keeps listening unless `TS_DISABLE_PUBLIC_LISTENER=true`. With it disabled, platform health checks that probe `HTTP_ADDR`/`PORT` (Railway, a Docker or Kubernetes probe on the container port) fail, so remove or replace them.
+- **Shutdown:** the tailnet listener drains together with the HTTP listener, first in the shutdown order. The node stops last, after the dispatcher.
+- **Status:** `/health?verbose=true` includes `"tailnet": "up"` or `"down"` whenever the node is enabled. It is informational and never turns the response into a 503, so a Tailscale outage does not take a healthy instance out of a load balancer. Alert on the `cronlite_tailnet_up` gauge (1 = connected) instead.
+- **Multiple instances:** each instance runs its own node. A second node with the same `TS_HOSTNAME` is renamed by Tailscale (`cronlite-1`, …), so a single tailnet URL reaches one instance; it is not load-balanced.
 
 ## MCP Transport
 
