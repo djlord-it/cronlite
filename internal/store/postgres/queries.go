@@ -332,17 +332,33 @@ VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 const queryGetKeyByTokenHash = `
-SELECT id, namespace, token_hash, label, enabled, created_at, last_used_at
+SELECT id, namespace, token_hash, label, enabled, created_at, last_used_at, COALESCE(tailnet_login, '')
 FROM api_keys
 WHERE token_hash = $1 AND enabled = true
 `
 
 const queryListKeys = `
-SELECT id, namespace, token_hash, label, enabled, created_at, last_used_at
+SELECT id, namespace, token_hash, label, enabled, created_at, last_used_at, COALESCE(tailnet_login, '')
 FROM api_keys
 WHERE namespace = $1
 ORDER BY created_at DESC
 LIMIT $2 OFFSET $3
+`
+
+// queryGetOrCreateTailnetKey inserts the key for ($2, $7) unless one exists,
+// and returns whichever row is stored.
+const queryGetOrCreateTailnetKey = `
+WITH ins AS (
+    INSERT INTO api_keys (id, namespace, token_hash, label, enabled, created_at, tailnet_login)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    ON CONFLICT (namespace, tailnet_login) WHERE tailnet_login IS NOT NULL DO NOTHING
+    RETURNING id, namespace, token_hash, label, enabled, created_at, last_used_at, tailnet_login
+)
+SELECT * FROM ins
+UNION ALL
+SELECT id, namespace, token_hash, label, enabled, created_at, last_used_at, tailnet_login
+FROM api_keys WHERE namespace = $2 AND tailnet_login = $7
+LIMIT 1
 `
 
 const queryDeleteKey = `
@@ -373,7 +389,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 const queryGetAdminSession = `
 SELECT
     s.token_hash, s.api_key_id, s.csrf_token, s.created_at, s.last_seen_at, s.expires_at, s.absolute_expires_at,
-    k.id, k.namespace, k.token_hash, k.label, k.enabled, k.created_at, k.last_used_at
+    k.id, k.namespace, k.token_hash, k.label, k.enabled, k.created_at, k.last_used_at, COALESCE(k.tailnet_login, '')
 FROM admin_sessions s
 JOIN api_keys k ON k.id = s.api_key_id
 WHERE s.token_hash = $1

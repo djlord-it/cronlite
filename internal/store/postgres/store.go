@@ -1050,6 +1050,7 @@ func (s *Store) GetKeyByTokenHash(ctx context.Context, tokenHash string) (domain
 		&key.Enabled,
 		&key.CreatedAt,
 		&key.LastUsedAt,
+		&key.TailnetLogin,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1058,6 +1059,37 @@ func (s *Store) GetKeyByTokenHash(ctx context.Context, tokenHash string) (domain
 		return domain.APIKey{}, err
 	}
 	return key, nil
+}
+
+// GetOrCreateTailnetKey returns the key for (key.Namespace, key.TailnetLogin),
+// inserting key when there is none. A concurrent insert of the same pair
+// can leave the statement's snapshot without either row; it is retried once.
+func (s *Store) GetOrCreateTailnetKey(ctx context.Context, key domain.APIKey) (domain.APIKey, error) {
+	if key.TailnetLogin == "" {
+		return domain.APIKey{}, errors.New("get or create tailnet key: empty login")
+	}
+	ctx, cancel := s.withTimeout(ctx)
+	defer cancel()
+
+	for attempt := 0; ; attempt++ {
+		var got domain.APIKey
+		err := s.db.QueryRowContext(ctx, queryGetOrCreateTailnetKey,
+			key.ID, string(key.Namespace), key.TokenHash, key.Label, key.Enabled, key.CreatedAt, key.TailnetLogin,
+		).Scan(
+			&got.ID,
+			&got.Namespace,
+			&got.TokenHash,
+			&got.Label,
+			&got.Enabled,
+			&got.CreatedAt,
+			&got.LastUsedAt,
+			&got.TailnetLogin,
+		)
+		if errors.Is(err, sql.ErrNoRows) && attempt == 0 {
+			continue
+		}
+		return got, err
+	}
 }
 
 // ListKeys returns API keys for a namespace, paginated.
@@ -1084,6 +1116,7 @@ func (s *Store) ListKeys(ctx context.Context, ns domain.Namespace, params domain
 			&key.Enabled,
 			&key.CreatedAt,
 			&key.LastUsedAt,
+			&key.TailnetLogin,
 		)
 		if err != nil {
 			return nil, err
@@ -1177,6 +1210,7 @@ func (s *Store) GetAdminSession(ctx context.Context, tokenHash string, now time.
 		&key.Enabled,
 		&key.CreatedAt,
 		&key.LastUsedAt,
+		&key.TailnetLogin,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.AdminSession{}, domain.APIKey{}, domain.ErrAdminSessionNotFound

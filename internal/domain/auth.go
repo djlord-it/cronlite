@@ -36,4 +36,7 @@ type APIKey struct {
 	Enabled    bool
 	CreatedAt  time.Time
 	LastUsedAt *time.Time
+	// TailnetLogin is the Tailscale login this key was created for by
+	// identity sign-in to the admin UI; empty for ordinary API keys.
+	TailnetLogin string
 }

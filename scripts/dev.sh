@@ -126,6 +126,7 @@ db_psql < schema/010_job_control_center.sql
 # Ownership cutover requires all old CronLite writers to be stopped; the port
 # check above guarantees no local server is running.
 db_psql < schema/011_execution_ownership.sql
+db_psql < schema/012_api_key_tailnet_login.sql
 
 # Reuse the saved key while it is still enabled in this database; otherwise
 # (first run, --reset, or a revoked key) create one and save it.

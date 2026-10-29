@@ -73,6 +73,36 @@ func (s *JobService) BootstrapFirstAPIKey(ctx context.Context, namespace, label 
 	return result, nil
 }
 
+type tailnetKeyRepository interface {
+	GetOrCreateTailnetKey(ctx context.Context, key domain.APIKey) (domain.APIKey, error)
+}
+
+// TailnetKey returns the API key that backs admin sessions for a Tailscale
+// login in namespace, creating it on first use. Its token is discarded, so
+// the key cannot be used with the API.
+func (s *JobService) TailnetKey(ctx context.Context, namespace domain.Namespace, login string) (domain.APIKey, error) {
+	if namespace.IsZero() {
+		return domain.APIKey{}, domain.ErrNamespaceRequired
+	}
+	if login == "" {
+		return domain.APIKey{}, errors.New("tailnet key: empty login")
+	}
+	repo, ok := s.apiKeys.(tailnetKeyRepository)
+	if !ok {
+		return domain.APIKey{}, errors.New("api key repository does not support tailnet keys")
+	}
+	result, err := newAPIKey(namespace, "tailscale: "+login)
+	if err != nil {
+		return domain.APIKey{}, err
+	}
+	result.Key.TailnetLogin = login
+	key, err := repo.GetOrCreateTailnetKey(ctx, result.Key)
+	if err != nil {
+		return domain.APIKey{}, fmt.Errorf("get or create tailnet key: %w", err)
+	}
+	return key, nil
+}
+
 // HasAnyAPIKeys reports whether bootstrap has already been completed.
 func (s *JobService) HasAnyAPIKeys(ctx context.Context) (bool, error) {
 	repo, ok := s.apiKeys.(apiKeyBootstrapRepository)

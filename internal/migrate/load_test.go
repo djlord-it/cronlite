@@ -16,8 +16,8 @@ func TestLoadEmbeddedSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(migs) != 11 {
-		t.Fatalf("got %d migrations, want 11", len(migs))
+	if len(migs) != 12 {
+		t.Fatalf("got %d migrations, want 12", len(migs))
 	}
 	for i, m := range migs {
 		if m.Version != i+1 {

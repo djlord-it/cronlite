@@ -6,13 +6,31 @@
     <h1>Sign in</h1>
     <p class="lede">Sign in with your existing API key.</p>
     {{template "messages" .}}
+    {{template "tailnet_signin" .}}
     <form method="post" action="/admin/login">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <div class="field"><label for="api_key">API key</label>
-      <input id="api_key" name="api_key" type="password" autocomplete="off" aria-describedby="api_key_help" required autofocus>
+      <input id="api_key" name="api_key" type="password" autocomplete="off" aria-describedby="api_key_help" required{{if not .TailnetSignIn.Namespaces}} autofocus{{end}}>
       <p class="help" id="api_key_help">Use any enabled key in your workspace. It starts with <code>ec_</code>.</p></div>
       <button class="btn btn-primary full-width" type="submit">Sign in</button>
     </form>
   </div></section>
 {{template "public_foot" .}}
 {{end}}
+
+{{define "tailnet_signin"}}{{with .TailnetSignIn}}{{if .Offered}}
+    {{if .Namespaces}}
+    <form method="post" action="/admin/login/tailscale">
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      {{if eq (len .Namespaces) 1}}<input type="hidden" name="namespace" value="{{index .Namespaces 0}}">
+      {{else}}<div class="field"><label for="ts_namespace">Namespace</label>
+      <select id="ts_namespace" name="namespace">{{range .Namespaces}}<option>{{.}}</option>{{end}}</select></div>{{end}}
+      <button class="btn btn-primary full-width" type="submit">Continue as {{.Login}}</button>
+      <p class="help">Signed in to the tailnet as {{if .DisplayName}}{{.DisplayName}}, {{end}}<code>{{.Login}}</code>{{if eq (len .Namespaces) 1}}. Namespace <code>{{index .Namespaces 0}}</code>{{end}}.</p>
+    </form>
+    {{else if .Tagged}}<p class="help">This device is tagged, so it cannot sign in with a Tailscale identity.</p>
+    {{else if .Unavailable}}<p class="help">Your Tailscale identity could not be checked. Try again, or use an API key.</p>
+    {{else if .BadGrant}}<p class="help">The tailnet policy grants <code>{{.Capability}}</code> to <code>{{.Login}}</code>, but the grant is invalid. The server log says why.</p>
+    {{else}}<p class="help">You are signed in to the tailnet as <code>{{.Login}}</code>, with no CronLite namespace. An operator can grant one in the tailnet policy with the <code>{{.Capability}}</code> app capability.</p>{{end}}
+    <p class="or">or</p>
+{{end}}{{end}}{{end}}

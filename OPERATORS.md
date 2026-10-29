@@ -119,6 +119,7 @@ HTTP and channel-dispatch drain budgets total `DISPATCHER_DRAIN_TIMEOUT` + `HTTP
 | `WEBHOOK_TAILNET_HOSTS` | *(empty)* | Which tailnet hosts each namespace may call, e.g. `billing=invoices;ops=*`. Required with `WEBHOOK_ALLOW_TAILNET=true`, rejected otherwise. Hosts are single names without the tailnet suffix; `*` allows all hosts or all namespaces. A namespace may call its own hosts plus the hosts of the `*` entry, so a `*` entry grants those hosts to every namespace. Namespace names are matched exactly (case-sensitive), host names case-insensitively. A namespace not listed can reach no tailnet host. See [Tailnet delivery](#tailnet-delivery) |
 | `TS_LISTEN` | `false` | Also serve the API, admin UI and MCP endpoint at `https://<TS_HOSTNAME>.<tailnet>.ts.net`; needs a `-tags tailscale` build. See [Tailnet access](#tailnet-access) |
 | `TS_DISABLE_PUBLIC_LISTENER` | `false` | Skip the `HTTP_ADDR` listener so CronLite is reachable only over the tailnet; requires `TS_LISTEN=true` |
+| `TS_IDENTITY_LOGIN` | `false` | Let people on the tailnet sign in to the admin UI as their Tailscale identity, for the namespaces the tailnet policy grants them; requires `TS_LISTEN=true` and `ADMIN_ENABLED=true`. See [Identity sign-in](#identity-sign-in) |
 | `TS_AUTHKEY` | *(empty)* | Tailscale auth key for the embedded node. Never logged or printed by `cronlite config`. Optional once `TS_STATE_DIR` holds a logged-in node |
 | `TS_HOSTNAME` | `cronlite` | Node name on the tailnet (a single DNS label) |
 | `TS_STATE_DIR` | *(empty)* | Directory for the node's identity and keys (and its HTTPS certificate); required with `WEBHOOK_ALLOW_TAILNET` or `TS_LISTEN`. Use a persistent volume |
@@ -205,13 +206,14 @@ Current migrations:
 | `009_emitted_claim_index.sql` | Partial queue-claim index for DB dispatch |
 | `010_job_control_center.sql` | Admin saved views and bulk audit |
 | `011_execution_ownership.sql` | Generation fencing and renewable leases in both modes |
+| `012_api_key_tailnet_login.sql` | Keys for Tailscale identity sign-in to the admin UI |
 
 Migration 009 builds an index and drops the previous broad status index. Apply
 it during a maintenance window on large existing databases because a regular
 index build can briefly block writes. Fresh Compose databases apply it during
 initialization.
 
-Current releases require all migrations through 011. Skipping migrations may cause auth failures, missing columns, or degraded DB dispatch and reconciler performance.
+Current releases require all migrations through 012. Skipping migrations may cause auth failures, missing columns, or degraded DB dispatch and reconciler performance.
 
 ## Admin UI Operations
 
@@ -221,7 +223,7 @@ The UI supports the complete namespace administration API: job configuration and
 
 For a fresh database:
 
-1. Stop/drain old writers and apply migrations through `011_execution_ownership.sql`.
+1. Stop/drain old writers and apply migrations through `012_api_key_tailnet_login.sql`.
 2. Set a long random `ADMIN_BOOTSTRAP_TOKEN`.
 3. Start CronLite and open `/admin/setup`.
 4. Enter the installation token, namespace, and first key label.
@@ -396,11 +398,22 @@ With `TS_LISTEN=true`, the same embedded node also serves everything the HTTP li
 - **HTTPS:** the tailnet must have MagicDNS and HTTPS certificates enabled (Tailscale admin console → DNS); otherwise `serve` exits at startup with a message saying so. Plain `http://` on the tailnet only redirects to the HTTPS name.
 - **Certificate:** `serve` requests the node's Let's Encrypt certificate in the background as soon as the node is up and logs `tailnet: https certificate ready`. Issuance can take 30 seconds or more; HTTPS requests that arrive before it finishes fail the TLS handshake. The certificate is stored in `TS_STATE_DIR`, so later restarts with the same state are immediate, and Tailscale renews it automatically as it nears expiry. Certificates are publicly logged (Certificate Transparency), so the node's full `*.ts.net` name becomes public, though it stays unreachable from outside the tailnet.
 - **Public DNS and outbound HTTPS:** issuing the certificate needs the host's normal DNS to resolve `acme-v02.api.letsencrypt.org` and outbound HTTPS to it. Containers and hosts without Tailscale installed have this already. If you run CronLite on a machine that also runs the Tailscale client, make sure that client has not taken over the system DNS without an upstream resolver for public names (`tailscale set --accept-dns=false`, or add global nameservers in the admin console). Otherwise the log shows `tailnet: https certificate not ready: ... server misbehaving`.
-- **Auth is unchanged:** tailnet requests go through the same API key, admin session and rate-limit middleware as public ones. Being on the tailnet grants nothing by itself. Limit who can reach the node with Tailscale ACLs.
+- **Auth is unchanged:** tailnet requests go through the same API key, admin session and rate-limit middleware as public ones. Being on the tailnet grants nothing by itself, unless you turn on [identity sign-in](#identity-sign-in) and grant the capability. Limit who can reach the node with Tailscale ACLs.
 - **Public listener:** `HTTP_ADDR` keeps listening unless `TS_DISABLE_PUBLIC_LISTENER=true`. With it disabled, platform health checks that probe `HTTP_ADDR`/`PORT` (Railway, a Docker or Kubernetes probe on the container port) fail, so remove or replace them.
 - **Shutdown:** the tailnet listener drains together with the HTTP listener, first in the shutdown order. The node stops last, after the dispatcher.
 - **Status:** `/health?verbose=true` includes `"tailnet": "up"` or `"down"` whenever the node is enabled. It is informational and never turns the response into a 503, so a Tailscale outage does not take a healthy instance out of a load balancer. Alert on the `cronlite_tailnet_up` gauge (1 = connected) instead. The admin UI's **Workspace → Tailscale** page shows the node's state, login, addresses and key expiry, and warns when the key expires within 14 days. A default build shows "Tailscale is not built into this binary" there.
 - **Multiple instances:** each instance runs its own node. A second node with the same `TS_HOSTNAME` is renamed by Tailscale (`cronlite-1`, …), so a single tailnet URL reaches one instance; it is not load-balanced.
+
+### Identity sign-in
+
+With `TS_IDENTITY_LOGIN=true` (and `TS_LISTEN=true`, `ADMIN_ENABLED=true`), the admin sign-in page served on the tailnet offers **Continue as `<login>`** to people whose Tailscale identity is granted a namespace. No API key is needed. The REST API and MCP still require API keys.
+
+- **Grant:** access comes from the `github.com/djlord-it/cronlite/cap/admin` app capability in the tailnet policy file. Each value is `{"namespaces": ["billing", …]}`; values from several grants are merged. A granted namespace is full admin of that namespace, the same as an API key for it. The `*` wildcard, an empty name or a malformed value is an error that gives no access and is logged as `event=tailnet_grant_invalid`.
+- **Who:** the visitor is identified with WhoIs on the connection's address, and only for requests accepted on the tailnet listener. Headers are never used. Tagged devices are refused: identity sign-in is for people.
+- **Keys:** a person's first sign-in to a namespace creates an API key labelled `tailscale: <login>`, marked **Tailscale** on the API keys page. Later sign-ins reuse it. Its token is never shown, so it cannot be used with the API. Revoking it ends the person's sessions, but they can sign in again while the grant remains.
+- **Revocation:** every request on an identity session repeats the check. Removing the grant, tagging the device, signing a different person in to it, a WhoIs failure, or turning `TS_IDENTITY_LOGIN` off ends the session at the next request (`event=tailnet_session_ended reason=…`).
+- **Fresh installs:** a granted person can sign in before any API key exists; `/admin/setup` offers the same button. That sign-in counts as setup, so `ADMIN_BOOTSTRAP_TOKEN` is then no longer needed.
+- **Logs:** `event=tailnet_login login=… namespace=…` on each sign-in. Logins are email-like identifiers; treat these logs accordingly.
 
 ## MCP Transport
 

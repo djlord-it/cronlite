@@ -1,11 +1,12 @@
 # Running CronLite on Tailscale
 
-CronLite can join your [Tailscale](https://tailscale.com) tailnet with an embedded node. No Tailscale app or sidecar is needed. This gives you two features, each opt-in:
+CronLite can join your [Tailscale](https://tailscale.com) tailnet with an embedded node. No Tailscale app or sidecar is needed. This gives you these features, each opt-in:
 
 - **Tailnet delivery** (`WEBHOOK_ALLOW_TAILNET=true`): jobs can call services on your tailnet that have no public address, e.g. `https://invoices.<tailnet>.ts.net/hooks/invoice`.
 - **Tailnet access** (`TS_LISTEN=true`): the API, admin UI and MCP endpoint are served at `https://cronlite.<tailnet>.ts.net`. With `TS_DISABLE_PUBLIC_LISTENER=true`, CronLite has no public port at all.
+- **Identity sign-in** (`TS_IDENTITY_LOGIN=true`, with tailnet access): people on the tailnet sign in to the admin UI as their Tailscale identity, for the namespaces your tailnet policy grants them.
 
-This guide takes you from an empty tailnet to both features working. Every setting is described in the [Operator Guide](OPERATORS.md#tailscale).
+This guide takes you from an empty tailnet to all three working. Every setting is described in the [Operator Guide](OPERATORS.md#tailscale).
 
 ## What you need
 
@@ -135,6 +136,42 @@ docker run -d --name cronlite \
 
 5. **Admin UI:** **Workspace → Tailscale** shows the node's status, MagicDNS name, addresses, tags and key expiry, whether you reached the page over the tailnet, and the tailnet hosts your namespace may call. It also lists the namespace's jobs that call tailnet hosts, marked allowed or blocked. Jobs and the job form carry the same marks. The page is read-only: settings still come from the environment. A namespace sees only its own `WEBHOOK_TAILNET_HOSTS` entries and the `*` entry, never another namespace's.
 
+## Sign in with your Tailscale identity
+
+With tailnet access working, people on the tailnet can sign in to the admin UI as themselves, without an API key. You choose who reaches which namespace in the tailnet policy file.
+
+1. **Grant the capability.** Add an `app` entry to the grant that lets people reach CronLite:
+
+   ```json
+   "grants": [
+     {
+       "src": ["group:billing-team"],
+       "dst": ["tag:cronlite"],
+       "ip":  ["tcp:443", "tcp:80"],
+       "app": {
+         "github.com/djlord-it/cronlite/cap/admin": [ { "namespaces": ["billing"] } ]
+       }
+     },
+     {
+       "src": ["autogroup:admin"],
+       "dst": ["tag:cronlite"],
+       "app": {
+         "github.com/djlord-it/cronlite/cap/admin": [ { "namespaces": ["billing", "ops"] } ]
+       }
+     }
+   ]
+   ```
+
+   List namespaces by name; `*` is not accepted. Someone matched by several grants gets all their namespaces. The tailnet's network rules still decide who can reach port 443.
+
+2. **Turn it on.** Add `-e TS_IDENTITY_LOGIN=true` to the `docker run` in section 3. It needs `TS_LISTEN=true` and `ADMIN_ENABLED=true`.
+
+3. **Sign in.** Open `https://cronlite.tail1234.ts.net/admin` from a device signed in to the tailnet. The page shows **Continue as alice@example.com**, with a namespace picker if you have more than one. The API key form stays below it. On the public listener, the page is unchanged.
+
+Your first sign-in to a namespace creates an API key labelled `tailscale: alice@example.com`, marked **Tailscale** under **API keys**. It only backs your admin sessions; its secret is never shown. CronLite checks your identity and grant again on every request, so removing someone from the grant signs them out on their next click.
+
+On a fresh install, a granted person can sign in from `/admin/setup` instead of using `ADMIN_BOOTSTRAP_TOKEN`.
+
 ## Tailnet-only mode
 
 Once tailnet access works, add `-e TS_DISABLE_PUBLIC_LISTENER=true` and drop `-p 8080:8080`. CronLite then only answers on the tailnet. Anything that probes the container port, such as a Railway, Docker or Kubernetes health check, will fail, so remove those probes. To monitor the instance, scrape `/metrics` over the tailnet instead.
@@ -158,6 +195,12 @@ Once tailnet access works, add `-e TS_DISABLE_PUBLIC_LISTENER=true` and drop `-p
 | Creating a job gives 422 `webhook_host_not_allowed`, or a delivery fails with `tailnet host not allowed for namespace` | The job's namespace is not allowed to call that host. Add the host to that namespace in `WEBHOOK_TAILNET_HOSTS` and restart. The admin UI says "This namespace may not call that tailnet host. Ask an operator to add it to WEBHOOK_TAILNET_HOSTS." and MCP names `WEBHOOK_TAILNET_HOSTS` in its error. If a host is removed later, existing jobs can still be edited when their URL is unchanged, but their deliveries are blocked and not retried. |
 | Webhook times out or is refused | No grant from `tag:cronlite` to that service and port, or the service isn't listening on it. |
 | The node shows up as `cronlite-1` | Another machine is already named `cronlite`, or the state directory was lost and the node registered again. Delete the stale machine and keep the state volume. |
+| `TS_IDENTITY_LOGIN: requires TS_LISTEN=true and ADMIN_ENABLED=true` | Set both, or turn identity sign-in off. |
+| The sign-in page has no "Continue as" button | Identity sign-in only appears on the tailnet URL, with `TS_IDENTITY_LOGIN=true`. Check that you opened `https://cronlite.<tailnet>.ts.net/admin`, not the public address. |
+| "with no CronLite namespace" on the sign-in page | No grant gives your identity the `github.com/djlord-it/cronlite/cap/admin` capability on `tag:cronlite`. Add one (section "Sign in with your Tailscale identity"). Policy changes reach the node within seconds. |
+| "the grant is invalid" on the sign-in page | A capability value is malformed, uses `*`, or has an empty namespace. The log line `event=tailnet_grant_invalid` gives the reason. |
+| "This device is tagged" | Tagged devices belong to no person and cannot use identity sign-in. Sign in from an untagged device, or use an API key. |
+| Signed out on every click | The grant no longer includes the namespace, or WhoIs fails. The log line `event=tailnet_session_ended` gives the reason. |
 | The admin UI is unreachable from your laptop | The laptop isn't signed in to this tailnet, is tagged (and so outside `autogroup:member`), or no grant allows it to reach `tag:cronlite:443`. |
 
 ## Security notes
@@ -165,5 +208,5 @@ Once tailnet access works, add `-e TS_DISABLE_PUBLIC_LISTENER=true` and drop `-p
 - **Off by default.** Without `WEBHOOK_ALLOW_TAILNET` and `TS_LISTEN`, nothing Tailscale-related runs. Without the build tag, the code isn't even in the binary.
 - **The SSRF guard is unchanged for everything else.** Only subdomains of your own tailnet take the tailnet path. IP literals, other tailnets' hosts and look-alike domains go through the normal guard, which still blocks `100.64.0.0/10`. Every redirect hop is checked again.
 - **Each namespace reaches only the hosts listed for it in `WEBHOOK_TAILNET_HOSTS`;** keep Tailscale grants to the services and ports CronLite needs.
-- **The tailnet grants no extra trust.** Requests over the tailnet go through the same API key, admin session and rate-limit checks as public ones.
+- **The tailnet grants no extra trust by itself.** Requests over the tailnet go through the same API key, admin session and rate-limit checks as public ones. Identity sign-in is off by default; with it on, only the namespaces named in the `github.com/djlord-it/cronlite/cap/admin` capability are reachable, only on the tailnet listener, and the grant is checked again on every request.
 - **The auth key is never logged** and never printed by `cronlite config`.

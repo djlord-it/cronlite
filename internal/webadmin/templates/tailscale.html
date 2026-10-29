@@ -36,6 +36,7 @@ go build -tags tailscale -o cronlite ./cmd/cronlite</code></pre>
       <div class="card-body"><dl class="kv stacked">
         <dt>This page</dt><dd>{{if .ViaTailnet}}<span class="badge ok">Over the tailnet</span>{{else}}<span class="badge">Over the public listener</span>{{end}}</dd>
         <dt>Tailnet access</dt><dd>{{if .Listen}}On{{else}}Off{{end}} <small class="sub muted mono">TS_LISTEN</small></dd>
+        <dt>Identity sign-in</dt><dd>{{if .IdentityLogin}}On{{else}}Off{{end}} <small class="sub muted mono">TS_IDENTITY_LOGIN</small></dd>
         {{if .Listen}}<dt>Tailnet URL</dt><dd>{{if .CertDomain}}<code>https://{{.CertDomain}}</code>{{else}}HTTPS certificates are disabled on this tailnet{{end}}</dd>{{end}}
         <dt>Public listener</dt><dd>{{if .DisablePublicListener}}Disabled{{else}}On <code>{{.PublicAddr}}</code>{{end}} <small class="sub muted mono">TS_DISABLE_PUBLIC_LISTENER={{.DisablePublicListener}}</small></dd>
       </dl></div></section>

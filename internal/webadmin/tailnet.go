@@ -2,7 +2,6 @@ package webadmin
 
 import (
 	"context"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -29,6 +28,7 @@ type TailnetNode interface {
 	webhookurl.Tailnet
 	CertDomain() string
 	Info(ctx context.Context) (tailnet.Info, error)
+	WhoIs(ctx context.Context, remoteAddr string) (tailnet.Identity, error)
 }
 
 // TailnetConfig describes the Tailscale integration. The zero value is a
@@ -42,6 +42,8 @@ type TailnetConfig struct {
 	Listen bool
 	// DisablePublicListener mirrors TS_DISABLE_PUBLIC_LISTENER.
 	DisablePublicListener bool
+	// IdentityLogin mirrors TS_IDENTITY_LOGIN.
+	IdentityLogin bool
 	// Hostname is TS_HOSTNAME.
 	Hostname string
 	// PublicAddr is HTTP_ADDR.
@@ -153,7 +155,7 @@ func (h *Handler) tailnetPage(w http.ResponseWriter, r *http.Request) {
 		view.Running = err == nil && info.BackendState == "Running"
 		view.Suffix, view.Addrs, view.CertDomain = node.Suffix(), node.SelfAddrs(), node.CertDomain()
 		view.KeyExpiresSoon = !info.KeyExpiry.IsZero() && info.KeyExpiry.Sub(h.now()) < keyExpiryWarning
-		view.ViaTailnet = servedVia(r, view.Addrs)
+		view.ViaTailnet = tailnet.ViaTailnet(r.Context())
 
 		jobs, limited, err := h.tailnetJobs(r.Context(), auth.Key.Namespace)
 		if err != nil {
@@ -190,23 +192,4 @@ func (h *Handler) tailnetJobs(ctx context.Context, ns domain.Namespace) ([]tailn
 		}
 	}
 	return out, true, nil
-}
-
-// servedVia reports whether r arrived on one of the node's own tailnet
-// addresses, i.e. through the tailnet listener.
-func servedVia(r *http.Request, self []netip.Addr) bool {
-	local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr)
-	if !ok || local == nil {
-		return false
-	}
-	ap, err := netip.ParseAddrPort(local.String())
-	if err != nil {
-		return false
-	}
-	for _, s := range self {
-		if s.Unmap() == ap.Addr().Unmap() {
-			return true
-		}
-	}
-	return false
 }

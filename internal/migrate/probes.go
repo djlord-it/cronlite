@@ -52,7 +52,7 @@ func columnDropped(table, column string) probe {
 	}
 }
 
-// probes maps migrations 1–11 to the check that detects them.
+// probes maps migrations 1–12 to the check that detects them.
 var probes = map[int]probe{
 	1:  relationExists("jobs"),
 	2:  relationExists("idx_jobs_enabled"),
@@ -65,6 +65,7 @@ var probes = map[int]probe{
 	9:  relationExists("idx_executions_emitted_created_at"),
 	10: relationExists("admin_bulk_batches"),
 	11: columnExists("executions", "claim_generation"),
+	12: columnExists("api_keys", "tailnet_login"),
 }
 
 // runProbe runs the probe for version; ok is false when no probe exists.

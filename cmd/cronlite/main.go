@@ -141,6 +141,8 @@ Environment Variables:
   TS_LISTEN                 Also serve the API, admin UI and MCP at https://<TS_HOSTNAME>.<tailnet>.ts.net
                             (default: "false"; needs a -tags tailscale build and tailnet HTTPS certificates)
   TS_DISABLE_PUBLIC_LISTENER Skip the HTTP_ADDR listener and serve on the tailnet only (default: "false")
+  TS_IDENTITY_LOGIN         Let people on the tailnet sign in to the admin UI as their Tailscale identity
+                            (default: "false"; needs TS_LISTEN and ADMIN_ENABLED)
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
   DB_MAX_OPEN_CONNS         Max open database connections (default: "25")
@@ -256,6 +258,7 @@ func newWebAdminTailnet(cfg config.Config, node *tailnet.Node, policy *webhookur
 		Delivery:              cfg.WebhookAllowTailnet,
 		Listen:                cfg.TSListen,
 		DisablePublicListener: cfg.TSDisablePublicListener,
+		IdentityLogin:         cfg.TSIdentityLogin,
 		Hostname:              cfg.TSHostname,
 		PublicAddr:            cfg.HTTPAddr,
 		Policy:                policy,
@@ -587,6 +590,8 @@ func runServe() int {
 	httpCtx, cancelHTTP := context.WithCancel(context.Background())
 	defer cancelHTTP()
 	httpServer.BaseContext = func(net.Listener) context.Context { return httpCtx }
+	// Marks requests from the tailnet listener for the admin UI's WhoIs checks.
+	httpServer.ConnContext = tailnet.ConnContext
 	// The public HTTP_ADDR listener (unless TS_DISABLE_PUBLIC_LISTENER) and,
 	// with TS_LISTEN, the tailnet HTTPS listener both serve httpMux through
 	// httpServer, so one Shutdown drains them together. Plain HTTP on the

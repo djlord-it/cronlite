@@ -170,8 +170,9 @@ docker run -d --env-file cronlite-ts.env \
 
 - **Tailnet delivery** (`WEBHOOK_ALLOW_TAILNET`): a job can target `https://invoices.<tailnet>.ts.net/hook`. `WEBHOOK_TAILNET_HOSTS` sets which hosts each namespace may call; `billing=invoices` lets namespace `billing` call `invoices`. Only your own tailnet's MagicDNS names take this path; every other URL goes through the usual SSRF guard.
 - **Tailnet access** (`TS_LISTEN`): the API, admin UI and MCP endpoint are served at `https://cronlite.<tailnet>.ts.net`. Add `TS_DISABLE_PUBLIC_LISTENER=true` to serve on the tailnet only.
+- **Identity sign-in** (`TS_IDENTITY_LOGIN`): with `ADMIN_ENABLED=true`, people on the tailnet sign in to the admin UI as their Tailscale identity. Your tailnet policy grants each person their namespaces with the `github.com/djlord-it/cronlite/cap/admin` app capability.
 
-Both are off by default, and the Tailscale code is only compiled in with `-tags tailscale`. See the [Tailscale guide](TAILSCALE.md) for the full setup, including tailnet ACLs, the auth key and troubleshooting.
+All are off by default, and the Tailscale code is only compiled in with `-tags tailscale`. See the [Tailscale guide](TAILSCALE.md) for the full setup, including tailnet ACLs, the auth key and troubleshooting.
 
 ## Horizontal Scaling
 

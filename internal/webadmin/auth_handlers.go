@@ -24,17 +24,17 @@ func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/jobs", http.StatusSeeOther)
 		return
 	}
-	h.renderPublicForm(w, r, "login", pageData{Title: "Sign in"})
+	h.renderPublicForm(w, r, "login", pageData{Title: "Sign in", TailnetSignIn: h.tailnetSignIn(r)})
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	if !h.validPublicCSRF(r) {
-		h.renderStatus(w, "login", pageData{Title: "Sign in", Error: "The form expired. Please try again.", CSRFToken: h.issuePublicCSRF(w)}, http.StatusForbidden)
+		h.renderLogin(w, r, h.tailnetSignIn(r), "The form expired. Please try again.", http.StatusForbidden)
 		return
 	}
 	if _, err := h.sessions.login(r.Context(), w, r, r.FormValue("api_key")); err != nil {
 		if errors.Is(err, errUnauthenticated) {
-			h.renderStatus(w, "login", pageData{Title: "Sign in", Error: "Invalid API key.", CSRFToken: h.issuePublicCSRF(w)}, http.StatusUnauthorized)
+			h.renderLogin(w, r, h.tailnetSignIn(r), "Invalid API key.", http.StatusUnauthorized)
 			return
 		}
 		h.internalError(w, r, err)
@@ -54,8 +54,10 @@ func (h *Handler) setupPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 		return
 	}
-	data := pageData{Title: "Set up CronLite"}
-	if h.bootstrapToken == "" {
+	data := pageData{Title: "Set up CronLite", TailnetSignIn: h.tailnetSignIn(r)}
+	// Tailscale sign-in needs no installation token, so the missing token is
+	// only worth an error when that button is not on the page.
+	if h.bootstrapToken == "" && len(data.TailnetSignIn.Namespaces) == 0 {
 		data.Error = "Set ADMIN_BOOTSTRAP_TOKEN and restart CronLite before continuing."
 	}
 	h.renderPublicForm(w, r, "setup", data)

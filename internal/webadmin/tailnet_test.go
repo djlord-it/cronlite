@@ -24,8 +24,11 @@ const testSuffix = "example-tailnet.ts.net"
 var testSelf = netip.MustParseAddr("100.64.0.7")
 
 type fakeTailnetNode struct {
-	info    tailnet.Info
-	infoErr error
+	info     tailnet.Info
+	infoErr  error
+	id       tailnet.Identity
+	whoisErr error
+	whoisArg string
 }
 
 func (*fakeTailnetNode) Suffix() string          { return testSuffix }
@@ -38,6 +41,10 @@ func (*fakeTailnetNode) Dial(context.Context, string, string) (net.Conn, error) 
 	return nil, errors.New("not used")
 }
 func (n *fakeTailnetNode) Info(context.Context) (tailnet.Info, error) { return n.info, n.infoErr }
+func (n *fakeTailnetNode) WhoIs(_ context.Context, remoteAddr string) (tailnet.Identity, error) {
+	n.whoisArg = remoteAddr
+	return n.id, n.whoisErr
+}
 
 func runningNode() *fakeTailnetNode {
 	return &fakeTailnetNode{info: tailnet.Info{
@@ -182,7 +189,7 @@ func TestTailscalePageNodeProblems(t *testing.T) {
 }
 
 func TestTailscalePageDeliveryOffAndTailnetOnly(t *testing.T) {
-	ctx := context.WithValue(context.Background(), http.LocalAddrContextKey, &net.TCPAddr{IP: net.IP(testSelf.AsSlice()), Port: 443})
+	ctx := tailnet.WithViaTailnet(context.Background())
 	tc := TailnetConfig{Built: true, Listen: true, DisablePublicListener: true, Node: runningNode()}
 	body := getTailnet(t, "/admin/tailscale", nil, tc, ctx)
 	assertContains(t, body, "Over the tailnet", "Disabled <small", "TS_DISABLE_PUBLIC_LISTENER=true", "Off: tailnet hosts are not reachable")
@@ -280,31 +287,6 @@ func TestJobFormTailnetHint(t *testing.T) {
 			body := getTailnet(t, "/admin/jobs/new", nil, tt.tc, nil)
 			assertContains(t, body, tt.want...)
 			assertNotContains(t, body, tt.unwanted...)
-		})
-	}
-}
-
-func TestServedVia(t *testing.T) {
-	self := []netip.Addr{testSelf, netip.MustParseAddr("fd7a:115c:a1e0::7")}
-	tests := []struct {
-		name  string
-		local net.Addr
-		want  bool
-	}{
-		{"tailnet v4", &net.TCPAddr{IP: net.ParseIP("100.64.0.7"), Port: 443}, true},
-		{"tailnet v6", &net.TCPAddr{IP: net.ParseIP("fd7a:115c:a1e0::7"), Port: 443}, true},
-		{"public", &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080}, false},
-		{"none", nil, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/admin/tailscale", nil)
-			if tt.local != nil {
-				r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, tt.local))
-			}
-			if got := servedVia(r, self); got != tt.want {
-				t.Fatalf("servedVia = %v, want %v", got, tt.want)
-			}
 		})
 	}
 }

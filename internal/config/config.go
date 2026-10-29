@@ -120,10 +120,14 @@ type Config struct {
 	TSListen bool `json:"ts_listen"`
 	// TSDisablePublicListener skips the HTTP_ADDR listener, leaving only the
 	// tailnet one. Requires TSListen.
-	TSDisablePublicListener bool   `json:"ts_disable_public_listener"`
-	TSAuthKey               string `json:"-"` // never serialized, not even masked
-	TSHostname              string `json:"ts_hostname"`
-	TSStateDir              string `json:"ts_state_dir,omitempty"`
+	TSDisablePublicListener bool `json:"ts_disable_public_listener"`
+	// TSIdentityLogin lets people on the tailnet sign in to the admin UI with
+	// their Tailscale identity, for the namespaces the tailnet policy grants
+	// them. Requires TSListen and AdminEnabled.
+	TSIdentityLogin bool   `json:"ts_identity_login"`
+	TSAuthKey       string `json:"-"` // never serialized, not even masked
+	TSHostname      string `json:"ts_hostname"`
+	TSStateDir      string `json:"ts_state_dir,omitempty"`
 }
 
 // TailnetEnabled reports whether serve needs the embedded Tailscale node.
@@ -171,6 +175,7 @@ func Load() Config {
 		WebhookTailnetHosts:          strings.TrimSpace(os.Getenv("WEBHOOK_TAILNET_HOSTS")),
 		TSListen:                     os.Getenv("TS_LISTEN") == "true",
 		TSDisablePublicListener:      os.Getenv("TS_DISABLE_PUBLIC_LISTENER") == "true",
+		TSIdentityLogin:              os.Getenv("TS_IDENTITY_LOGIN") == "true",
 		TSAuthKey:                    os.Getenv("TS_AUTHKEY"),
 		TSHostname:                   os.Getenv("TS_HOSTNAME"),
 		TSStateDir:                   os.Getenv("TS_STATE_DIR"),
