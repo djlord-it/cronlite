@@ -24,6 +24,7 @@ func (*Node) LookupIPAddr(context.Context, string) ([]net.IPAddr, error) { retur
 func (*Node) Dial(context.Context, string, string) (net.Conn, error)     { return nil, ErrUnsupported }
 func (*Node) Running(context.Context) bool                               { return false }
 func (*Node) Info(context.Context) (Info, error)                         { return Info{}, ErrUnsupported }
+func (*Node) WhoIs(context.Context, string) (Identity, error)            { return Identity{}, ErrUnsupported }
 func (*Node) CertDomain() string                                         { return "" }
 func (*Node) ListenTLS() (net.Listener, error)                           { return nil, ErrUnsupported }
 func (*Node) ListenHTTP() (net.Listener, error)                          { return nil, ErrUnsupported }

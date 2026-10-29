@@ -4,6 +4,7 @@ package tailnet
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
+	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 )
 
@@ -130,6 +132,27 @@ func (n *Node) Info(ctx context.Context) (Info, error) {
 		}
 	}
 	return info, nil
+}
+
+// WhoIs reports who is behind remoteAddr, the IP:port of a connection
+// accepted on one of the node's tailnet listeners.
+func (n *Node) WhoIs(ctx context.Context, remoteAddr string) (Identity, error) {
+	w, err := n.lc.WhoIs(ctx, remoteAddr)
+	if err != nil {
+		return Identity{}, fmt.Errorf("tailnet: whois %s: %w", remoteAddr, err)
+	}
+	var id Identity
+	if w.Node != nil {
+		id.NodeName = strings.TrimSuffix(w.Node.Name, ".")
+		id.Tagged = w.Node.IsTagged()
+	}
+	if w.UserProfile != nil && !id.Tagged {
+		id.LoginName, id.DisplayName = w.UserProfile.LoginName, w.UserProfile.DisplayName
+	}
+	for _, v := range w.CapMap[tailcfg.PeerCapability(AdminCapability)] {
+		id.AdminCaps = append(id.AdminCaps, json.RawMessage(v))
+	}
+	return id, nil
 }
 
 // CertDomain returns the node's HTTPS name, e.g.

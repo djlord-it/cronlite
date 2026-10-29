@@ -9,10 +9,13 @@
 package tailnet
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -54,6 +57,56 @@ type Info struct {
 	KeyExpiry time.Time
 	// Health lists the backend's current health warnings.
 	Health []string
+}
+
+// AdminCapability is the app capability, granted in the tailnet policy file,
+// that lets a person sign in to the admin UI with their Tailscale identity.
+// Each value is an object {"namespaces": ["billing", ...]}.
+const AdminCapability = "github.com/djlord-it/cronlite/cap/admin"
+
+// Identity is the peer behind a tailnet connection, as reported by WhoIs.
+type Identity struct {
+	// LoginName is the user's login, e.g. "alice@example.com". It is empty
+	// for tagged nodes, which belong to no user.
+	LoginName string
+	// DisplayName is the user's display name, possibly empty.
+	DisplayName string
+	// NodeName is the peer's MagicDNS name, without the trailing dot.
+	NodeName string
+	// Tagged reports whether the peer is a tagged node.
+	Tagged bool
+	// AdminCaps holds the raw values of AdminCapability granted to the peer.
+	AdminCaps []json.RawMessage
+}
+
+// adminCapValue is one value of AdminCapability.
+type adminCapValue struct {
+	Namespaces []string `json:"namespaces"`
+}
+
+// AdminNamespaces returns the sorted, de-duplicated namespaces that
+// AdminCapability grants. A malformed value, an empty name or the "*"
+// wildcard is an error, so a mistyped grant gives no access rather than an
+// unexpected one.
+func (id Identity) AdminNamespaces() ([]string, error) {
+	var out []string
+	for _, raw := range id.AdminCaps {
+		var v adminCapValue
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return nil, fmt.Errorf("tailnet: %s: malformed value %s: %w", AdminCapability, raw, err)
+		}
+		for _, ns := range v.Namespaces {
+			switch {
+			case strings.TrimSpace(ns) != ns || ns == "":
+				return nil, fmt.Errorf("tailnet: %s: invalid namespace %q", AdminCapability, ns)
+			case ns == "*":
+				return nil, fmt.Errorf("tailnet: %s: the \"*\" wildcard is not supported; list namespaces explicitly", AdminCapability)
+			}
+			out = append(out, ns)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
 }
 
 // ErrUnsupported is returned by Start in binaries built without the

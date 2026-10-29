@@ -1,10 +1,12 @@
 package tailnet
 
 import (
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -99,5 +101,42 @@ func TestRedirectHandler(t *testing.T) {
 		if got := rec.Header().Get("Location"); got != want {
 			t.Errorf("%s: Location = %q, want %q", target, got, want)
 		}
+	}
+}
+
+func TestIdentityAdminNamespaces(t *testing.T) {
+	caps := func(vals ...string) Identity {
+		var id Identity
+		for _, v := range vals {
+			id.AdminCaps = append(id.AdminCaps, json.RawMessage(v))
+		}
+		return id
+	}
+	tests := []struct {
+		name    string
+		id      Identity
+		want    []string
+		wantErr bool
+	}{
+		{name: "no grant", id: Identity{}, want: nil},
+		{name: "one value", id: caps(`{"namespaces":["ops","billing"]}`), want: []string{"billing", "ops"}},
+		{name: "merged and deduplicated", id: caps(`{"namespaces":["ops"]}`, `{"namespaces":["billing","ops"]}`), want: []string{"billing", "ops"}},
+		{name: "unknown fields ignored", id: caps(`{"namespaces":["ops"],"role":"viewer"}`), want: []string{"ops"}},
+		{name: "no namespaces key", id: caps(`{}`), want: nil},
+		{name: "malformed", id: caps(`["ops"]`), wantErr: true},
+		{name: "wildcard", id: caps(`{"namespaces":["*"]}`), wantErr: true},
+		{name: "empty name", id: caps(`{"namespaces":[""]}`), wantErr: true},
+		{name: "padded name", id: caps(`{"namespaces":[" ops"]}`), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.id.AdminNamespaces()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
