@@ -205,13 +205,14 @@ Current migrations:
 | `009_emitted_claim_index.sql` | Partial queue-claim index for DB dispatch |
 | `010_job_control_center.sql` | Admin saved views and bulk audit |
 | `011_execution_ownership.sql` | Generation fencing and renewable leases in both modes |
+| `012_api_key_tailnet_login.sql` | Keys for Tailscale identity sign-in to the admin UI |
 
 Migration 009 builds an index and drops the previous broad status index. Apply
 it during a maintenance window on large existing databases because a regular
 index build can briefly block writes. Fresh Compose databases apply it during
 initialization.
 
-Current releases require all migrations through 011. Skipping migrations may cause auth failures, missing columns, or degraded DB dispatch and reconciler performance.
+Current releases require all migrations through 012. Skipping migrations may cause auth failures, missing columns, or degraded DB dispatch and reconciler performance.
 
 ## Admin UI Operations
 
@@ -221,7 +222,7 @@ The UI supports the complete namespace administration API: job configuration and
 
 For a fresh database:
 
-1. Stop/drain old writers and apply migrations through `011_execution_ownership.sql`.
+1. Stop/drain old writers and apply migrations through `012_api_key_tailnet_login.sql`.
 2. Set a long random `ADMIN_BOOTSTRAP_TOKEN`.
 3. Start CronLite and open `/admin/setup`.
 4. Enter the installation token, namespace, and first key label.

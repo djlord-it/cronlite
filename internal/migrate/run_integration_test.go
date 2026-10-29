@@ -23,7 +23,7 @@ import (
 )
 
 // initdbOrder is the docker-compose.yml /docker-entrypoint-initdb.d mount order.
-var initdbOrder = []int{1, 2, 3, 4, 5, 6, 11, 7, 8, 9, 10}
+var initdbOrder = []int{1, 2, 3, 4, 5, 6, 11, 7, 8, 9, 10, 12}
 
 // newTestDB creates a fresh database for one test and returns its URL.
 func newTestDB(t *testing.T) string {
@@ -168,15 +168,15 @@ func TestRunEmptyDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !reflect.DeepEqual(res.Applied, seq(1, 11)) {
-		t.Fatalf("Applied = %v, want 1..11", res.Applied)
+	if !reflect.DeepEqual(res.Applied, seq(1, 12)) {
+		t.Fatalf("Applied = %v, want 1..12", res.Applied)
 	}
 	if !emptyInts(res.Baselined) {
 		t.Fatalf("Baselined = %v, want empty", res.Baselined)
 	}
 	rows := trackingRows(t, db)
-	if len(rows) != 11 {
-		t.Fatalf("tracking rows = %d, want 11", len(rows))
+	if len(rows) != 12 {
+		t.Fatalf("tracking rows = %d, want 12", len(rows))
 	}
 	bv := byVersion(ms)
 	for _, r := range rows {
@@ -227,8 +227,8 @@ func TestRunConcurrent(t *testing.T) {
 	}
 	union := append(append([]int{}, results[0].Applied...), results[1].Applied...)
 	sort.Ints(union)
-	if !reflect.DeepEqual(union, seq(1, 11)) {
-		t.Fatalf("union of Applied = %v (a=%v b=%v), want exactly 1..11", union, results[0].Applied, results[1].Applied)
+	if !reflect.DeepEqual(union, seq(1, 12)) {
+		t.Fatalf("union of Applied = %v (a=%v b=%v), want exactly 1..12", union, results[0].Applied, results[1].Applied)
 	}
 }
 
@@ -241,8 +241,8 @@ func TestRunBaselinesInitdbDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !reflect.DeepEqual(res.Baselined, seq(1, 11)) {
-		t.Fatalf("Baselined = %v, want 1..11", res.Baselined)
+	if !reflect.DeepEqual(res.Baselined, seq(1, 12)) {
+		t.Fatalf("Baselined = %v, want 1..12", res.Baselined)
 	}
 	if !emptyInts(res.Applied) {
 		t.Fatalf("Applied = %v, want empty", res.Applied)
@@ -339,8 +339,8 @@ func TestRunBaselinesHandAppliedAfterRefusal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run after hand-applying 8..11: %v", err)
 	}
-	if !emptyInts(res.Applied) {
-		t.Fatalf("Applied = %v, want empty", res.Applied)
+	if !reflect.DeepEqual(res.Applied, []int{12}) {
+		t.Fatalf("Applied = %v, want [12]", res.Applied)
 	}
 	if !reflect.DeepEqual(res.Baselined, seq(8, 11)) {
 		t.Fatalf("Baselined = %v, want 8..11", res.Baselined)
@@ -380,8 +380,8 @@ func TestRunResumesFreshPartial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("full Run: %v", err)
 	}
-	if !reflect.DeepEqual(res.Applied, seq(6, 11)) {
-		t.Fatalf("Applied = %v, want 6..11", res.Applied)
+	if !reflect.DeepEqual(res.Applied, seq(6, 12)) {
+		t.Fatalf("Applied = %v, want 6..12", res.Applied)
 	}
 }
 
@@ -406,7 +406,7 @@ func TestRunBrokenMigrationRollsBack(t *testing.T) {
 	if got[99] {
 		t.Fatal("tracking row 99 exists")
 	}
-	for _, v := range seq(1, 11) {
+	for _, v := range seq(1, 12) {
 		if !got[v] {
 			t.Errorf("tracking row %d missing", v)
 		}
@@ -479,8 +479,8 @@ func TestStatusOf(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StatusOf: %v", err)
 	}
-	if len(st) != 11 {
-		t.Fatalf("len(StatusOf) = %d, want 11", len(st))
+	if len(st) != 12 {
+		t.Fatalf("len(StatusOf) = %d, want 12", len(st))
 	}
 	for _, s := range st {
 		want := StatePending

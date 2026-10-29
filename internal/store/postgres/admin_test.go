@@ -128,10 +128,10 @@ func TestAdminSessionLifecycle(t *testing.T) {
 		WithArgs(session.TokenHash, now).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"token_hash", "api_key_id", "csrf_token", "created_at", "last_seen_at", "expires_at", "absolute_expires_at",
-			"id", "namespace", "token_hash", "label", "enabled", "created_at", "last_used_at",
+			"id", "namespace", "token_hash", "label", "enabled", "created_at", "last_used_at", "tailnet_login",
 		}).AddRow(
 			session.TokenHash, keyID, session.CSRFToken, session.CreatedAt, session.LastSeenAt, session.ExpiresAt, session.AbsoluteExpiresAt,
-			keyID, "first-team", "api-hash", "owner", true, now, nil,
+			keyID, "first-team", "api-hash", "owner", true, now, nil, "",
 		))
 
 	gotSession, gotKey, err := store.GetAdminSession(context.Background(), session.TokenHash, now)

@@ -74,6 +74,8 @@ Records each webhook delivery attempt for an execution. Includes HTTP status cod
 
 Stores opaque, revocable browser sessions for the optional `/admin` UI. Sessions have idle and absolute expiry timestamps, and rows are deleted automatically when their API key is revoked.
 
+Migration 012 adds `api_keys.tailnet_login`. A key with a login is created on a person's first Tailscale identity sign-in to a namespace (`TS_IDENTITY_LOGIN`) and reused afterwards; its token is never shown, so it only backs admin sessions. `(namespace, tailnet_login)` is unique.
+
 ## Constraints
 
 - `executions.UNIQUE(job_id, scheduled_at)`: Enforces execution idempotency
