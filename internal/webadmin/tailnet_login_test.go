@@ -277,3 +277,22 @@ func TestKeysPageMarksTailnetKeys(t *testing.T) {
 		t.Fatalf("Tailscale badge shown %d times, want 1", n)
 	}
 }
+
+func TestSetupPageWithoutBootstrapToken(t *testing.T) {
+	const missing = "Set ADMIN_BOOTSTRAP_TOKEN and restart CronLite before continuing."
+	get := func(node *fakeTailnetNode) string {
+		h := newTailnetTestHandler(t, &fakeAdminService{hasKeys: false}, &fakeAdminSessionStore{}, identityConfig(node))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, overTailnet(httptest.NewRequest(http.MethodGet, "/admin/setup", nil)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /admin/setup status = %d", rec.Code)
+		}
+		return rec.Body.String()
+	}
+
+	body := get(&fakeTailnetNode{id: alice("billing")})
+	assertContains(t, body, "Continue as alice@example.com")
+	assertNotContains(t, body, missing)
+
+	assertContains(t, get(&fakeTailnetNode{id: alice()}), missing)
+}

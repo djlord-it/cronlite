@@ -55,7 +55,9 @@ func (h *Handler) setupPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := pageData{Title: "Set up CronLite", TailnetSignIn: h.tailnetSignIn(r)}
-	if h.bootstrapToken == "" {
+	// Tailscale sign-in needs no installation token, so the missing token is
+	// only worth an error when that button is not on the page.
+	if h.bootstrapToken == "" && len(data.TailnetSignIn.Namespaces) == 0 {
 		data.Error = "Set ADMIN_BOOTSTRAP_TOKEN and restart CronLite before continuing."
 	}
 	h.renderPublicForm(w, r, "setup", data)
