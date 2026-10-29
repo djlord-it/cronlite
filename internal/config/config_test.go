@@ -729,6 +729,43 @@ func TestValidateDisablePublicListenerNeedsTSListen(t *testing.T) {
 	t.Fatalf("no TS_DISABLE_PUBLIC_LISTENER error in %v", errs)
 }
 
+func TestLoadTailnetIdentityLogin(t *testing.T) {
+	t.Setenv("TS_IDENTITY_LOGIN", "true")
+	if !Load().TSIdentityLogin {
+		t.Fatal("TS_IDENTITY_LOGIN=true not loaded")
+	}
+}
+
+func TestValidateIdentityLoginNeedsListenAndAdmin(t *testing.T) {
+	base := Config{DatabaseURL: "postgres://x", TickIntervalStr: "30s", TSIdentityLogin: true, TSHostname: "cronlite", TSStateDir: "/tmp/ts"}
+	tests := []struct {
+		name    string
+		listen  bool
+		admin   bool
+		wantErr bool
+	}{
+		{"neither", false, false, true},
+		{"listen only", true, false, true},
+		{"admin only", false, true, true},
+		{"both", true, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := base
+			cfg.TSListen, cfg.AdminEnabled = tt.listen, tt.admin
+			var errs ValidationErrors
+			errors.As(Validate(cfg), &errs)
+			got := false
+			for _, e := range errs {
+				got = got || e.Field == "TS_IDENTITY_LOGIN"
+			}
+			if got != tt.wantErr {
+				t.Fatalf("TS_IDENTITY_LOGIN error = %v, want %v (all: %v)", got, tt.wantErr, errs)
+			}
+		})
+	}
+}
+
 func TestLoadWebhookTailnetHosts(t *testing.T) {
 	t.Setenv("WEBHOOK_TAILNET_HOSTS", "  billing=invoices  ")
 	if got := Load().WebhookTailnetHosts; got != "billing=invoices" {

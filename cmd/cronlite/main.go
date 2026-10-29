@@ -141,6 +141,8 @@ Environment Variables:
   TS_LISTEN                 Also serve the API, admin UI and MCP at https://<TS_HOSTNAME>.<tailnet>.ts.net
                             (default: "false"; needs a -tags tailscale build and tailnet HTTPS certificates)
   TS_DISABLE_PUBLIC_LISTENER Skip the HTTP_ADDR listener and serve on the tailnet only (default: "false")
+  TS_IDENTITY_LOGIN         Let people on the tailnet sign in to the admin UI as their Tailscale identity
+                            (default: "false"; needs TS_LISTEN and ADMIN_ENABLED)
 
   DB_OP_TIMEOUT             Database operation timeout (default: "5s")
   DB_MAX_OPEN_CONNS         Max open database connections (default: "25")

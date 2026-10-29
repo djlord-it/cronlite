@@ -141,6 +141,12 @@ func Validate(cfg Config) error {
 			Message: "requires TS_LISTEN=true; otherwise no HTTP listener would remain",
 		})
 	}
+	if cfg.TSIdentityLogin && (!cfg.TSListen || !cfg.AdminEnabled) {
+		errs = append(errs, ValidationError{
+			Field:   "TS_IDENTITY_LOGIN",
+			Message: "requires TS_LISTEN=true and ADMIN_ENABLED=true; identity sign-in is only offered on the tailnet listener",
+		})
+	}
 
 	// Reconciler parameters (when enabled)
 	if cfg.ReconcileEnabled {
