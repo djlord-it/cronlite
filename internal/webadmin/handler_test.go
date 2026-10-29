@@ -56,6 +56,9 @@ type fakeAdminService struct {
 	bulkAction            string
 	savedName, savedQuery string
 	confirmed             bool
+	tailnetKeyNS          domain.Namespace
+	tailnetKeyLogin       string
+	tailnetKey            domain.APIKey
 }
 
 func (f *fakeAdminService) HasAnyAPIKeys(context.Context) (bool, error) {
@@ -889,4 +892,16 @@ func extractHiddenCSRF(t *testing.T, body string) string {
 		t.Fatalf("CSRF value malformed: %s", body)
 	}
 	return body[start : start+end]
+}
+
+func (f *fakeAdminService) TailnetKey(_ context.Context, ns domain.Namespace, login string) (domain.APIKey, error) {
+	f.tailnetKeyNS, f.tailnetKeyLogin = ns, login
+	if f.err != nil {
+		return domain.APIKey{}, f.err
+	}
+	key := f.tailnetKey
+	if key.ID == uuid.Nil {
+		key = domain.APIKey{ID: uuid.New(), Namespace: ns, Label: "tailscale: " + login, Enabled: true, TailnetLogin: login}
+	}
+	return key, nil
 }

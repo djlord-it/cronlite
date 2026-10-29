@@ -89,10 +89,15 @@ type AdminKeyService interface {
 	DeleteAPIKey(context.Context, uuid.UUID) error
 }
 
+type AdminTailnetKeyService interface {
+	TailnetKey(context.Context, domain.Namespace, string) (domain.APIKey, error)
+}
+
 type RuntimeSetting struct{ Name, Value string }
 
 type AdminService interface {
 	AdminKeyService
+	AdminTailnetKeyService
 	ListPendingAck(context.Context, *uuid.UUID, int) ([]domain.Execution, error)
 	AckExecution(context.Context, uuid.UUID) error
 	ResolveSchedule(context.Context, string, string) (service.ResolveResult, error)
@@ -189,6 +194,7 @@ type pageData struct {
 	Batches                         []domain.BulkBatch
 	Applied, Unchanged, Failed      int
 	Tailnet                         tailnetView
+	TailnetSignIn                   tailnetSignIn
 	Theme                           string
 }
 
@@ -264,6 +270,7 @@ func NewHandler(cfg Config) (http.Handler, error) {
 		logger:          cfg.Logger,
 		mux:             http.NewServeMux(),
 	}
+	h.sessions.verifyIdentity = h.verifyTailnetSession
 	h.routes()
 	crossOrigin := http.NewCrossOriginProtection()
 	return SecurityHeaders(crossOrigin.Handler(limitAdminFormBodies(h.mux)), cfg.CookieSecure), nil
@@ -288,6 +295,7 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("POST /admin/executions/{id}/ack", h.ackExecution)
 	h.mux.HandleFunc("GET /admin/login", h.loginPage)
 	h.mux.HandleFunc("POST /admin/login", h.login)
+	h.mux.HandleFunc("POST /admin/login/tailscale", h.tailnetLogin)
 	h.mux.HandleFunc("GET /admin/setup", h.setupPage)
 	h.mux.HandleFunc("POST /admin/setup", h.setup)
 	h.mux.HandleFunc("POST /admin/logout", h.logout)

@@ -258,6 +258,7 @@ func newWebAdminTailnet(cfg config.Config, node *tailnet.Node, policy *webhookur
 		Delivery:              cfg.WebhookAllowTailnet,
 		Listen:                cfg.TSListen,
 		DisablePublicListener: cfg.TSDisablePublicListener,
+		IdentityLogin:         cfg.TSIdentityLogin,
 		Hostname:              cfg.TSHostname,
 		PublicAddr:            cfg.HTTPAddr,
 		Policy:                policy,

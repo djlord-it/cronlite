@@ -28,6 +28,7 @@ type TailnetNode interface {
 	webhookurl.Tailnet
 	CertDomain() string
 	Info(ctx context.Context) (tailnet.Info, error)
+	WhoIs(ctx context.Context, remoteAddr string) (tailnet.Identity, error)
 }
 
 // TailnetConfig describes the Tailscale integration. The zero value is a
@@ -41,6 +42,8 @@ type TailnetConfig struct {
 	Listen bool
 	// DisablePublicListener mirrors TS_DISABLE_PUBLIC_LISTENER.
 	DisablePublicListener bool
+	// IdentityLogin mirrors TS_IDENTITY_LOGIN.
+	IdentityLogin bool
 	// Hostname is TS_HOSTNAME.
 	Hostname string
 	// PublicAddr is HTTP_ADDR.

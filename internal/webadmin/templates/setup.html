@@ -6,6 +6,7 @@
     <h1>Set up CronLite</h1>
     <p class="lede">Create a workspace and its first API key.</p>
     {{template "messages" .}}
+    {{template "tailnet_signin" .}}
     <form method="post" action="/admin/setup">
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
       <div class="field"><label for="bootstrap_token">Installation token</label>

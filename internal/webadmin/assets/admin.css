@@ -289,6 +289,8 @@ th.check-col, td.check-col { width: 44px; padding-right: 0; }
 .auth h1 { font-size: 1.35rem; text-align: center; }
 .auth .lede { text-align: center; color: var(--text-2); margin: 6px 0 22px; }
 .auth form { display: grid; gap: 16px; }
+.auth .or { display: flex; align-items: center; gap: 10px; margin: 20px 0; color: var(--text-2); font-size: .84rem; }
+.auth .or::before, .auth .or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
 .auth .theme-float { position: fixed; right: 16px; top: 16px; width: 210px; }
 
 

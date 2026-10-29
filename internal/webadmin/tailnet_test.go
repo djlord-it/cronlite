@@ -24,8 +24,11 @@ const testSuffix = "example-tailnet.ts.net"
 var testSelf = netip.MustParseAddr("100.64.0.7")
 
 type fakeTailnetNode struct {
-	info    tailnet.Info
-	infoErr error
+	info     tailnet.Info
+	infoErr  error
+	id       tailnet.Identity
+	whoisErr error
+	whoisArg string
 }
 
 func (*fakeTailnetNode) Suffix() string          { return testSuffix }
@@ -38,6 +41,10 @@ func (*fakeTailnetNode) Dial(context.Context, string, string) (net.Conn, error) 
 	return nil, errors.New("not used")
 }
 func (n *fakeTailnetNode) Info(context.Context) (tailnet.Info, error) { return n.info, n.infoErr }
+func (n *fakeTailnetNode) WhoIs(_ context.Context, remoteAddr string) (tailnet.Identity, error) {
+	n.whoisArg = remoteAddr
+	return n.id, n.whoisErr
+}
 
 func runningNode() *fakeTailnetNode {
 	return &fakeTailnetNode{info: tailnet.Info{
