@@ -587,6 +587,8 @@ func runServe() int {
 	httpCtx, cancelHTTP := context.WithCancel(context.Background())
 	defer cancelHTTP()
 	httpServer.BaseContext = func(net.Listener) context.Context { return httpCtx }
+	// Marks requests from the tailnet listener for the admin UI's WhoIs checks.
+	httpServer.ConnContext = tailnet.ConnContext
 	// The public HTTP_ADDR listener (unless TS_DISABLE_PUBLIC_LISTENER) and,
 	// with TS_LISTEN, the tailnet HTTPS listener both serve httpMux through
 	// httpServer, so one Shutdown drains them together. Plain HTTP on the
