@@ -15,14 +15,15 @@ func TestConnContext(t *testing.T) {
 	defer ln.Close()
 	marked := tailnetListener{ln}
 
-	go func() {
-		for range 2 {
-			c, err := net.Dial("tcp", ln.Addr().String())
-			if err == nil {
-				defer c.Close()
-			}
+	dial := func() {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
 		}
-	}()
+		t.Cleanup(func() { _ = c.Close() })
+	}
+	dial()
+	dial()
 	c, err := marked.Accept()
 	if err != nil {
 		t.Fatal(err)

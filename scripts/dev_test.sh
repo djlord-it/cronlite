@@ -63,7 +63,8 @@ run_launcher() {
   mkdir -p "$project_dir/scripts" "$project_dir/schema" "$fake_bin"
   cp "$LAUNCHER" "$project_dir/scripts/dev.sh"
   for migration in 007_admin_sessions 008_admin_session_absolute_expiry \
-    009_emitted_claim_index 010_job_control_center 011_execution_ownership; do
+    009_emitted_claim_index 010_job_control_center 011_execution_ownership \
+    012_api_key_tailnet_login; do
     cp "$ROOT/schema/$migration.sql" "$project_dir/schema/$migration.sql"
   done
   touch "$project_dir/docker-compose.yml"
@@ -141,6 +142,8 @@ case "$*" in
       printf 'migration-010-input\n' >> "$FAKE_DOCKER_CALLS"
     elif [[ "$migration_input" == *"claim_generation"* ]]; then
       printf 'migration-011-input\n' >> "$FAKE_DOCKER_CALLS"
+    elif [[ "$migration_input" == *"tailnet_login"* ]]; then
+      printf 'migration-012-input\n' >> "$FAKE_DOCKER_CALLS"
     else
       printf 'unknown-migration-input\n' >> "$FAKE_DOCKER_CALLS"
     fi
@@ -289,6 +292,7 @@ test_existing_absolute_column_skips_008() {
   assert_contains "$calls" "migration-007-input"
   assert_not_contains "$calls" "migration-008-input"
   assert_contains "$calls" "migration-011-input"
+  assert_contains "$calls" "migration-012-input"
 
   printf 'PASS: migration 008 is skipped when already applied\n'
 }
