@@ -29,6 +29,9 @@ type sessionManager struct {
 	absoluteTTL  time.Duration
 	cookieSecure bool
 	now          func() time.Time
+	// verifyIdentity re-checks, on every request, a session whose key was
+	// created by Tailscale identity sign-in. Nil rejects such sessions.
+	verifyIdentity func(r *http.Request, key domain.APIKey) error
 }
 
 type authState struct {
@@ -62,26 +65,33 @@ func (m *sessionManager) login(
 	plaintextAPIKey string,
 ) (domain.APIKey, error) {
 	key, err := m.keys.GetKeyByTokenHash(ctx, service.HashToken(plaintextAPIKey))
-	if errors.Is(err, domain.ErrAPIKeyNotFound) || (err == nil && !key.Enabled) {
+	if errors.Is(err, domain.ErrAPIKeyNotFound) || (err == nil && (!key.Enabled || key.TailnetLogin != "")) {
 		return domain.APIKey{}, errUnauthenticated
 	}
 	if err != nil {
 		return domain.APIKey{}, err
 	}
+	if err := m.startSession(ctx, w, r, key); err != nil {
+		return domain.APIKey{}, err
+	}
+	return key, nil
+}
 
+// startSession replaces the request's session, if any, with a new one for key.
+func (m *sessionManager) startSession(ctx context.Context, w http.ResponseWriter, r *http.Request, key domain.APIKey) error {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
 		if err := m.store.DeleteAdminSession(ctx, service.HashToken(cookie.Value)); err != nil {
-			return domain.APIKey{}, err
+			return err
 		}
 	}
 
 	rawSession, err := randomToken()
 	if err != nil {
-		return domain.APIKey{}, err
+		return err
 	}
 	csrfToken, err := randomToken()
 	if err != nil {
-		return domain.APIKey{}, err
+		return err
 	}
 
 	now := m.now().UTC()
@@ -96,11 +106,11 @@ func (m *sessionManager) login(
 		AbsoluteExpiresAt: now.Add(m.absoluteTTL),
 	}
 	if err := m.store.CreateAdminSession(ctx, session); err != nil {
-		return domain.APIKey{}, err
+		return err
 	}
 
 	http.SetCookie(w, newSessionCookie(rawSession, now, expiresAt, m.cookieSecure))
-	return key, nil
+	return nil
 }
 
 func (m *sessionManager) authenticate(w http.ResponseWriter, r *http.Request) (authState, error) {
@@ -118,6 +128,13 @@ func (m *sessionManager) authenticate(w http.ResponseWriter, r *http.Request) (a
 	}
 	if err != nil {
 		return authState{}, err
+	}
+	if key.TailnetLogin != "" && (m.verifyIdentity == nil || m.verifyIdentity(r, key) != nil) {
+		if err := m.store.DeleteAdminSession(r.Context(), tokenHash); err != nil {
+			return authState{}, err
+		}
+		clearSessionCookie(w, m.cookieSecure)
+		return authState{}, errUnauthenticated
 	}
 
 	if session.ExpiresAt.Sub(now) <= m.idleTTL/2 {
