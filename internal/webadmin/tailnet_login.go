@@ -73,6 +73,8 @@ func (h *Handler) verifyTailnetSession(r *http.Request, key domain.APIKey) error
 	si := h.tailnetSignIn(r)
 	var reason string
 	switch {
+	case !h.tailnet.IdentityLogin:
+		reason = "identity_login_off"
 	case !si.Offered:
 		reason = "not_on_tailnet_listener"
 	case si.Unavailable:
