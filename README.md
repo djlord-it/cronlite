@@ -18,7 +18,7 @@ CronLite is a self-hosted cron-as-a-service with namespace-scoped API keys and M
 
 ## Quick Start
 
-Requires Docker and Go 1.25+.
+Requires Docker and Go 1.27+.
 
 ```bash
 git clone https://github.com/djlord-it/cronlite.git

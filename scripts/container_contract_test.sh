@@ -25,7 +25,7 @@ assert_not_contains() {
 }
 
 assert_contains Dockerfile \
-  'FROM golang:1.26.10-alpine3.23@sha256:0525c952defebc693cdaf62cdf43afa32be5a7f377e99260642ea19c240c708e AS builder'
+  'FROM golang:1.27.3-alpine3.23@sha256:8a5046497cda39860b832ffdbe8dd66018a0f05bb01352f533a36e7e2ced66a0 AS builder'
 assert_contains Dockerfile \
   'FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0'
 assert_contains Dockerfile 'git=2.52.0-r0'
