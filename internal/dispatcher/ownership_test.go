@@ -115,8 +115,8 @@ func TestOwnershipBlockedRenewalCancelsHTTPAndRetainsSlot(t *testing.T) {
 	ownershipWait(t, blocked)
 	ownershipWait(t, cancelled)
 	select {
-	case <-done:
-		t.Fatal("slot freed while renewal still blocked")
+	case err := <-done:
+		t.Fatalf("slot freed while renewal still blocked: %v", err)
 	default:
 	}
 	close(release)

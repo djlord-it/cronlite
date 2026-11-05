@@ -193,7 +193,7 @@ fi
 printf "\n  ${B}Reliability${R}\n"
 
 check "Error handling (unchecked errors)"
-if need_tool golangci-lint "go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; then
+if need_tool golangci-lint "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"; then
   errcheck_out=$(golangci-lint run --no-config --enable-only errcheck --timeout 120s ./... 2>&1 || true)
   errcount=$(echo "$errcheck_out" | grep -c ':' 2>/dev/null) || errcount=0
   if [ "$errcount" -le 0 ]; then
@@ -227,7 +227,7 @@ fi
 
 check "Circular dependencies"
 if need_tool golangci-lint ""; then
-  circ=$(golangci-lint run --enable depguard --disable-all --timeout 120s ./... 2>&1 | grep -i 'cycle\|circular' || true)
+  circ=$(golangci-lint run --default=none --enable depguard --timeout 120s ./... 2>&1 | grep -i 'cycle\|circular' || true)
   if [ -z "$circ" ]; then
     pass "no cycles detected"
   else
