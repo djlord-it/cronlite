@@ -18,7 +18,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7.0.0
         with:
-          go-version: "1.26.10"
+          go-version: "1.27.3"
 
       - name: Check go.mod is tidy
         run: |
@@ -35,7 +35,7 @@ jobs:
           git diff --exit-code internal/api/server.gen.go || (echo "Generated code is out of date. Run 'go generate ./internal/api/...' and commit." && exit 1)
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           install-mode: goinstall
@@ -76,13 +76,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7.0.0
         with:
-          go-version: "1.26.10"
+          go-version: "1.27.3"
 
       - name: Install quality tools
         run: |
           go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
           go install github.com/uudashr/gocognit/cmd/gocognit@latest
-          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
       - name: Run quality checks
         run: chmod +x scripts/quality.sh && ./scripts/quality.sh

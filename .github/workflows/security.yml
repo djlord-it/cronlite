@@ -19,12 +19,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7.0.0
         with:
-          go-version: "1.26.10"
+          go-version: "1.27.3"
 
       - name: Run govulncheck
         uses: golang/govulncheck-action@v1
         with:
-          go-version-input: "1.26.10"
+          go-version-input: "1.27.3"
           go-package: ./...
 
   trivy:

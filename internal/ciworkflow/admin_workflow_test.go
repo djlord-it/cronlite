@@ -347,8 +347,8 @@ func validateWorkflowRoot(v *contractViolations, workflow adminWorkflow) {
 	if !workflow.Concurrency.CancelInProgress {
 		v.addf("concurrency must cancel superseded runs")
 	}
-	if workflow.Env["GO_VERSION"] != "1.26.10" {
-		v.addf("GO_VERSION must be 1.26.10")
+	if workflow.Env["GO_VERSION"] != "1.27.3" {
+		v.addf("GO_VERSION must be 1.27.3")
 	}
 	if workflow.Defaults.Run.Shell != "bash" {
 		v.addf("default run shell must be bash")

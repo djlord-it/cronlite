@@ -27,7 +27,7 @@ git checkout -b feat/your-feature
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.27+
 - Docker & Docker Compose
 - PostgreSQL (handled by Docker Compose for local dev)
 

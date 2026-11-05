@@ -1,28 +1,41 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gosimple
     - gocritic
     - misspell
-
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-    disabled-checks:
-      - hugeParam
+  settings:
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+      disabled-checks:
+        - hugeParam
+    staticcheck:
+      # v2 merged gosimple and stylecheck into staticcheck. Keep the upstream
+      # default set; QF1001 only suggests an equivalent De Morgan rewrite.
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF1001
+  exclusions:
+    generated: strict
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - vendor
 
 issues:
-  exclude-dirs:
-    - vendor
-  exclude-generated: strict
   max-issues-per-linter: 50
   max-same-issues: 5

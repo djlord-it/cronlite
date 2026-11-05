@@ -167,7 +167,7 @@ func TestTailnetPolicyCheckIDNAFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Invalid non-ASCII input fails closed: its tailnet status is unknown.
-	if err := p.Check("ops", "a‍.example.com", suffix); !errors.Is(err, ErrDestinationBlocked) {
+	if err := p.Check("ops", "a\u200d.example.com", suffix); !errors.Is(err, ErrDestinationBlocked) {
 		t.Errorf("non-ASCII conversion failure: Check = %v, want ErrDestinationBlocked", err)
 	}
 	if err := p.Check("ops", "a\u200d.example-tailnet.ts.net", suffix); !errors.Is(err, ErrDestinationBlocked) {
