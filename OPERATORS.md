@@ -514,6 +514,13 @@ With these settings, worst-case failover is ~25 seconds (10 + 5×3).
 
 The `LEADER_HEARTBEAT_INTERVAL` (default 2s) detects local connection failures quickly, but cannot detect remote connection death — that depends entirely on TCP keepalive.
 
+Leader election uses a session advisory lock with no TTL. Suspending or pausing
+the leader process leaves its database session and lock alive while the OS can
+still answer TCP keepalive probes. Followers retry at `LEADER_RETRY_INTERVAL`
+but cannot take over until that session ends or the leader resumes and releases
+the lock. `LEADER_HEARTBEAT_INTERVAL` checks connection health; it does not
+renew a lease or make a paused leader's lock expire.
+
 ### HA Test Harness
 
 ```bash

@@ -46,8 +46,12 @@ func TestSteadyBound(t *testing.T) {
 }
 
 func TestLeaderlessBound(t *testing.T) {
-	if got := testChaosSettings().leaderlessBound().Value; got != 3500*time.Millisecond {
+	if got := testChaosSettings().leaderlessBound(0).Value; got != 3500*time.Millisecond {
 		t.Fatalf("leaderless bound = %s", got)
+	}
+	bound := testChaosSettings().leaderlessBound(19 * time.Second)
+	if bound.Value != 22500*time.Millisecond || bound.Formula != "D_remaining + L + H + ε" || bound.Plugged != "19s + 1s + 500ms + 2s = 22.5s" {
+		t.Fatalf("paused leader bound = %+v", bound)
 	}
 }
 
