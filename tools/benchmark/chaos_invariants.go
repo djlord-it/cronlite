@@ -429,7 +429,6 @@ func checkLeadership(in ChaosInputs) []Breach {
 		}
 	}
 
-	bound := in.Settings.leaderlessBound()
 	for index := 0; index < len(in.Timeline); index++ {
 		if in.Timeline[index].LeaderSum != 0 {
 			continue
@@ -442,6 +441,19 @@ func checkLeadership(in ChaosInputs) []Breach {
 		if index < len(in.Timeline) {
 			end = in.Timeline[index].At
 		}
+		// A paused leader retains its session advisory lock: there is no TTL,
+		// and TCP keepalive can still succeed while the process is frozen.
+		// Allow only the remaining pause, so recovery after unpause still has
+		// to meet the normal bound. Unrelated gaps keep the normal bound too.
+		var pausedFor time.Duration
+		for _, window := range in.Windows {
+			if window.Spec.Type == FaultProcPause && (window.Spec.Target == "leader" || window.Spec.Target == "all") &&
+				!window.AppliedAt.IsZero() && !start.Before(window.AppliedAt) && start.Before(window.ClearedAt) {
+				pausedFor = window.ClearedAt.Sub(start)
+				break
+			}
+		}
+		bound := in.Settings.leaderlessBound(pausedFor)
 		if gap := end.Sub(start); gap > bound.Value {
 			fault := in.attribute(start)
 			severity := SeverityWarning

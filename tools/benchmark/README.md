@@ -354,7 +354,7 @@ the final minute's fires to land.
 | I1 | Every expected recurring fire has an execution that was delivered or failed terminally | critical |
 | I2 | Repeated deliveries after a 2xx overlap a fault window (explained) | unexplained = critical |
 | I3 | Lateness stays under the bound for its window. A delivery belongs to the first fault its trigger-to-arrival interval overlaps | warning in a fault window; outside one, critical when p99 is over the bound, warning for a lone outlier |
-| I6 | No split brain: leader gauge sum > 1, or two instances triggering, in consecutive samples. Leaderless gaps stay under `L + H + ε` | split brain = critical, gap = warning |
+| I6 | No split brain: leader gauge sum > 1, or two instances triggering, in consecutive samples. Leaderless gaps stay under `L + H + ε`, plus the remaining pause for a gap starting during `proc-pause:leader` or `proc-pause:all` | split brain = critical, gap = warning |
 | I7 | After a fault clears: three consecutive samples with all instances ready, one leader, queue back to baseline, and manual lateness back under the steady bound | not recovered = warning |
 | I8 | No execution pending past its lease (`Q + RI + ε`) or the reconcile threshold | critical |
 | I10 | Every callback signature is valid | critical |
@@ -364,6 +364,15 @@ values plugged in: fault windows use `D + L + T + P + ε`
 (`D + DB_OP_TIMEOUT + T + ε` for `pg-pause`), and steady windows use
 `baseline p99 × 3 + ε`. `ε` is `--chaos-slack` (2s). The settings are copied
 from this directory's Compose file; keep them in sync.
+
+Leader election uses a session advisory lock with no TTL. A paused leader
+retains that lock while its database session stays alive; followers cannot
+take over, and the leader's heartbeat does not renew or expire the lock.
+For a leaderless gap starting during a leader/all process pause, I6 uses
+`D_remaining + L + H + ε`, where `D_remaining` is the time from the gap's
+first sample to the recorded unpause. Recovery after unpause still has only
+`L + H + ε`. Follower pauses and gaps starting outside the pause keep the
+normal bound; split-brain checks are unchanged.
 
 A breach outside every fault window is attributed to `unattributed`. Apart
 from a lone steady-window lateness outlier, it is critical. An invariant with

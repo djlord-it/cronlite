@@ -90,12 +90,16 @@ func (s ChaosSettings) steadyLatenessBound(baselineP99 time.Duration) Bound {
 	return bound
 }
 
-func (s ChaosSettings) leaderlessBound() Bound {
-	return sumBound(
+func (s ChaosSettings) leaderlessBound(pausedFor time.Duration) Bound {
+	var terms []boundTerm
+	if pausedFor > 0 {
+		terms = append(terms, boundTerm{"D_remaining", pausedFor, ""})
+	}
+	return sumBound(append(terms,
 		boundTerm{"L", s.LeaderRetry, "LEADER_RETRY_INTERVAL"},
 		boundTerm{"H", s.LeaderHeartbeat, "LEADER_HEARTBEAT_INTERVAL"},
 		s.slack(),
-	)
+	)...)
 }
 
 func (s ChaosSettings) stuckLeaseBound() Bound {

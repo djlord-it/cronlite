@@ -256,6 +256,46 @@ func TestLeaderlessGapWarns(t *testing.T) {
 	}
 }
 
+func TestLeaderlessGapDuringProcessPause(t *testing.T) {
+	for _, tt := range []struct {
+		name                string
+		kind                FaultType
+		target              string
+		start, cleared, end float64
+		wantBreach          bool
+		wantBound           time.Duration
+	}{
+		{"leader pause", FaultProcPause, "leader", 41, 60, 60, false, 0},
+		{"all paused", FaultProcPause, "all", 41, 60, 62, false, 0},
+		{"late unpause", FaultProcPause, "leader", 41, 65, 67, false, 0},
+		{"slow recovery", FaultProcPause, "leader", 41, 60, 64, true, 22500 * time.Millisecond},
+		{"late gap", FaultProcPause, "leader", 59, 60, 64, true, 4500 * time.Millisecond},
+		{"gap after unpause", FaultProcPause, "leader", 61, 60, 65, true, 3500 * time.Millisecond},
+		{"gap before pause", FaultProcPause, "leader", 39, 60, 60, true, 3500 * time.Millisecond},
+		{"follower pause", FaultProcPause, "follower", 41, 60, 60, true, 3500 * time.Millisecond},
+		{"stopped leader", FaultProcStop, "leader", 41, 60, 60, true, 3500 * time.Millisecond},
+		{"paused database", FaultPGPause, "postgres", 41, 60, 60, true, 3500 * time.Millisecond},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			in := baseInputs()
+			window := stopWindow(40, tt.cleared, nil)
+			window.Spec.Type, window.Spec.Target = tt.kind, tt.target
+			// The observed clear time, rather than the requested duration,
+			// determines when the paused leader can resume.
+			window.Spec.Duration = 20 * time.Second
+			in.Windows = []FaultWindow{window}
+			in.Timeline = []TimelineSample{sample(tt.start, 0), sample(tt.end, 1)}
+			breach := hasCode(checkLeadership(in), "chaos_leaderless_gap")
+			if (breach != nil) != tt.wantBreach {
+				t.Fatalf("leaderless breach = %+v, want breach %v", breach, tt.wantBreach)
+			}
+			if breach != nil && (breach.Bound == nil || breach.Bound.Value != tt.wantBound) {
+				t.Fatalf("bound = %+v, want %s", breach.Bound, tt.wantBound)
+			}
+		})
+	}
+}
+
 func TestRecoveryTime(t *testing.T) {
 	in := baseInputs()
 	in.Windows = []FaultWindow{stopWindow(40, 70, nil)}
