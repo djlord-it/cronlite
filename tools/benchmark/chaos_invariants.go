@@ -446,7 +446,8 @@ func checkLeadership(in ChaosInputs) []Breach {
 		// Allow only the remaining pause, so recovery after unpause still has
 		// to meet the normal bound. Unrelated gaps keep the normal bound too.
 		var pausedFor time.Duration
-		for _, window := range in.Windows {
+		for windowIndex := range in.Windows {
+			window := &in.Windows[windowIndex]
 			if window.Spec.Type == FaultProcPause && (window.Spec.Target == "leader" || window.Spec.Target == "all") &&
 				!window.AppliedAt.IsZero() && !start.Before(window.AppliedAt) && start.Before(window.ClearedAt) {
 				pausedFor = window.ClearedAt.Sub(start)
