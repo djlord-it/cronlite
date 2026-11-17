@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.27.3-alpine3.23@sha256:8a5046497cda39860b832ffdbe8dd66018a0f05bb01352f533a36e7e2ced66a0 AS builder
+FROM golang:1.27.4-alpine3.23@sha256:f70850ef6ce341e8b6427f677049145d63c0b7ce002d4d7e3d464828b1b96dcd AS builder
 
 ARG RACE_ENABLED=0
 
@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Install git for go mod download (some dependencies may need it)
 # Install gcc + musl-dev when race detection is enabled (requires CGO)
-RUN apk add --no-cache git=2.52.0-r0 && \
+RUN apk add --no-cache git=2.52.1-r0 && \
     if [ "$RACE_ENABLED" = "1" ]; then \
       apk add --no-cache gcc=15.2.0-r2 musl-dev=1.2.5-r24; \
     fi
@@ -43,7 +43,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /cronlite-mcp ./cmd/cronlite-mcp
 
 # Runtime stage
-FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
+FROM alpine:3.23@sha256:469c9ea410b9215eaee7976ba6c0639039b444be8e5d638f7abbada189971eb2
 
 # Install runtime dependencies at reviewed versions for reproducible builds.
 RUN apk add --no-cache ca-certificates=20261020-r0 tzdata=2026f-r0
