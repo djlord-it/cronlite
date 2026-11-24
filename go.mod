@@ -15,7 +15,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1
 	go.yaml.in/yaml/v2 v2.4.4
 	golang.org/x/net v0.63.0
-	tailscale.com v1.104.4
+	tailscale.com v1.104.7
 )
 
 require (
@@ -58,7 +58,7 @@ require (
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f // indirect
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc // indirect
 	github.com/tailscale/web-client-prebuilt v0.0.0-20260917222731-e0ed2d0d0fea // indirect
-	github.com/tailscale/wireguard-go v0.0.0-20260928213032-417aef361226 // indirect
+	github.com/tailscale/wireguard-go v0.0.0-20261106233718-9e0ab45c16ca // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.uber.org/atomic v1.12.0 // indirect
