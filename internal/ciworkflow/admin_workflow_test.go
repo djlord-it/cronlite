@@ -14,12 +14,7 @@ import (
 	"go.yaml.in/yaml/v2"
 )
 
-const (
-	checkoutAction = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-	setupGoAction  = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
-	uploadAction   = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
-	postgresImage  = "postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50"
-)
+const postgresImage = "postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50"
 
 type adminWorkflow struct {
 	Name        string            `yaml:"name"`
@@ -132,6 +127,17 @@ func TestAdminWorkflowContract(t *testing.T) {
 	data := readAdminWorkflow(t)
 	if err := validateAdminWorkflow(data); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestAdminWorkflowContractAcceptsActionPinUpdates(t *testing.T) {
+	data := readAdminWorkflow(t)
+	updated := regexp.MustCompile(`@[0-9a-f]{40}`).ReplaceAll(data, []byte("@"+strings.Repeat("a", 40)))
+	if bytes.Equal(data, updated) {
+		t.Fatal("no action pins updated")
+	}
+	if err := validateAdminWorkflow(updated); err != nil {
+		t.Fatalf("updating pinned actions must not require test edits: %v", err)
 	}
 }
 
@@ -264,19 +270,47 @@ func TestAdminWorkflowContractRejectsMutations(t *testing.T) {
 		{
 			name: "floating checkout action",
 			mutate: func(input []byte) []byte {
-				return replaceOnce(t, input, checkoutAction, "actions/checkout@v4")
+				return replaceActionReference(t, input, "actions/checkout", "actions/checkout@v4")
 			},
 			wantErr: "full commit SHA",
 		},
 		{
+			name: "floating setup-go action",
+			mutate: func(input []byte) []byte {
+				return replaceActionReference(t, input, "actions/setup-go", "actions/setup-go@v7")
+			},
+			wantErr: "full commit SHA",
+		},
+		{
+			name: "floating upload action",
+			mutate: func(input []byte) []byte {
+				return replaceActionReference(t, input, "actions/upload-artifact", "actions/upload-artifact@v7")
+			},
+			wantErr: "full commit SHA",
+		},
+		{
+			name: "foreign checkout action",
+			mutate: func(input []byte) []byte {
+				return replaceActionReference(t, input, "actions/checkout", "other/checkout@"+strings.Repeat("a", 40))
+			},
+			wantErr: "must have exactly one checkout action",
+		},
+		{
+			name: "persisted checkout credentials",
+			mutate: func(input []byte) []byte {
+				return replaceOnce(t, input, "persist-credentials: false", "persist-credentials: true")
+			},
+			wantErr: "persist-credentials must be false",
+		},
+		{
 			name: "missing checkout action",
 			mutate: func(input []byte) []byte {
-				return replaceOnce(
-					t,
-					input,
-					"      - name: Checkout\n        uses: "+checkoutAction+" # v7.0.1\n        with:\n          persist-credentials: false\n\n",
-					"",
-				)
+				pattern := regexp.MustCompile(`(?m)^      - name: Checkout\n        uses: actions/checkout@[^\n]+\n        with:\n          persist-credentials: false\n\n`)
+				output := pattern.ReplaceAll(input, nil)
+				if bytes.Equal(output, input) {
+					t.Fatal("checkout step to remove was not found")
+				}
+				return output
 			},
 			wantErr: "must have exactly one checkout action",
 		},
@@ -312,6 +346,16 @@ func replaceOnce(t *testing.T, input []byte, old, replacement string) []byte {
 		t.Fatalf("mutation target %q was not found", old)
 	}
 	return output
+}
+
+func replaceActionReference(t *testing.T, input []byte, action, replacement string) []byte {
+	t.Helper()
+	pattern := regexp.MustCompile(regexp.QuoteMeta(action) + `@[^\s]+`)
+	old := pattern.Find(input)
+	if old == nil {
+		t.Fatalf("action %s to mutate was not found", action)
+	}
+	return replaceOnce(t, input, string(old), replacement)
 }
 
 func validateAdminWorkflow(data []byte) error {
@@ -413,9 +457,6 @@ func validateActions(v *contractViolations, jobs map[string]workflowJob) {
 			switch {
 			case strings.HasPrefix(step.Uses, "actions/checkout@"):
 				checkoutCount++
-				if step.Uses != checkoutAction {
-					v.addf("%s checkout action must use the approved SHA", jobName)
-				}
 				persist, exists := step.With["persist-credentials"]
 				if !exists {
 					v.addf("%s checkout must set persist-credentials: false", jobName)
@@ -424,9 +465,6 @@ func validateActions(v *contractViolations, jobs map[string]workflowJob) {
 				}
 			case strings.HasPrefix(step.Uses, "actions/setup-go@"):
 				setupGoCount++
-				if step.Uses != setupGoAction {
-					v.addf("%s setup-go action must use the approved SHA", jobName)
-				}
 				if got := fmt.Sprint(step.With["go-version"]); got != "${{ env.GO_VERSION }}" {
 					v.addf("%s setup-go must use the root GO_VERSION", jobName)
 				}
@@ -436,9 +474,8 @@ func validateActions(v *contractViolations, jobs map[string]workflowJob) {
 				}
 			case strings.HasPrefix(step.Uses, "actions/upload-artifact@"):
 				uploadCount++
-				if step.Uses != uploadAction {
-					v.addf("%s upload-artifact action must use the approved SHA", jobName)
-				}
+			default:
+				v.addf("%s step %q uses an unsupported action", jobName, step.Name)
 			}
 		}
 		if checkoutCount != 1 {
@@ -459,7 +496,7 @@ func validateUnitJob(v *contractViolations, job workflowJob) {
 		"ADMIN_COVERAGE_FILE=admin-coverage.out ./scripts/admin_ci_test.sh")
 
 	upload := findStep(job, "Upload admin coverage")
-	requireAction(v, "unit coverage upload", upload, uploadAction)
+	requireAction(v, "unit coverage upload", upload, "actions/upload-artifact")
 	if upload.If != "always()" {
 		v.addf("unit coverage upload must run always")
 	}
@@ -602,7 +639,7 @@ func validateSmokeJob(v *contractViolations, job workflowJob) {
 }
 
 func requireFailureUpload(v *contractViolations, label string, step workflowStep) {
-	requireAction(v, label, step, uploadAction)
+	requireAction(v, label, step, "actions/upload-artifact")
 	if step.If != "failure()" {
 		v.addf("%s must run only on failure", label)
 	}
@@ -611,7 +648,7 @@ func requireFailureUpload(v *contractViolations, label string, step workflowStep
 }
 
 func requireAction(v *contractViolations, label string, step workflowStep, action string) {
-	if step.Uses != action {
+	if !strings.HasPrefix(step.Uses, action+"@") {
 		v.addf("%s must use %s", label, action)
 	}
 }

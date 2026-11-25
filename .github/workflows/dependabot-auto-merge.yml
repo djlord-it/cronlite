@@ -1,0 +1,64 @@
+name: Dependabot auto-merge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    if: >-
+      github.repository == 'djlord-it/cronlite' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      # This privileged workflow only reads metadata. Never check out or run PR code.
+      # fetch-metadata checks the first commit; bind that metadata to the whole PR.
+      - name: Verify a single signed Dependabot commit
+        id: verify
+        run: |
+          gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/commits" |
+            jq -e --arg head "$HEAD_SHA" '
+              add | length == 1 and
+              .[0].sha == $head and
+              .[0].author.login == "dependabot[bot]" and
+              .[0].commit.verification.verified == true
+            '
+
+      - name: Fetch verified Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # For grouped PRs, update-type is the highest semver change in the group.
+      - name: Queue patch update after required checks
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"
+
+      - name: Disable auto-merge for ineligible updates
+        if: >-
+          always() &&
+          (steps.verify.outcome != 'success' ||
+          steps.metadata.outcome != 'success' ||
+          steps.metadata.outputs.update-type != 'version-update:semver-patch')
+        run: gh pr merge --disable-auto "$PR_URL"
