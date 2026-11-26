@@ -3,22 +3,38 @@ stages:
 
 variables:
   GOPATH: ${CI_PROJECT_DIR}/.go
+  GOCACHE: ${CI_PROJECT_DIR}/.go-build
   GOFLAGS: -mod=readonly
+  # The race detector requires cgo; the Alpine image ships no C toolchain.
+  CGO_ENABLED: "1"
+  COVERAGE_THRESHOLD: "40"
 
 default:
   image: golang:1.27.4-alpine3.23@sha256:f70850ef6ce341e8b6427f677049145d63c0b7ce002d4d7e3d464828b1b96dcd
   cache:
-    key: go-mod-${CI_COMMIT_REF_SLUG}
+    key:
+      files:
+        - go.sum
     paths:
       - .go/pkg/mod/
+      - .go-build/
 
+# Mirrors the GitHub consistency and race/coverage jobs. Lint, Tailscale,
+# admin, PostgreSQL, HA, image and security gates run only in GitHub Actions.
 test:
   stage: test
   before_script:
+    - apk add --no-cache gcc musl-dev git
     - go mod download
   script:
+    - go mod tidy -diff
+    - go mod verify
     - go build ./...
     - go vet ./...
-    - go test -race -coverprofile=coverage.out ./...
-    - go tool cover -func=coverage.out | tail -1
+    - go test -race -count=1 -timeout=120s -covermode=atomic -coverprofile=coverage.out ./...
+    - |
+      coverage=$(go tool cover -func=coverage.out | awk '/^total:/ {print $3}' | tr -d '%')
+      echo "total: (statements) ${coverage}%"
+      awk -v c="$coverage" -v t="$COVERAGE_THRESHOLD" 'BEGIN { exit (c >= t) ? 0 : 1 }' ||
+        { echo "Coverage ${coverage}% is below ${COVERAGE_THRESHOLD}%"; exit 1; }
   coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
