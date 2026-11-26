@@ -2,93 +2,754 @@ name: CI
 
 on:
   push:
-    branches:
-      - "**"
+    branches: [main, develop]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GO_VERSION: "1.27.4"
+  GOFLAGS: -mod=readonly
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  build:
+  changes:
+    name: changes
     runs-on: ubuntu-latest
-    env:
-      COVERAGE_THRESHOLD: "40"
+    timeout-minutes: 5
+    outputs:
+      full: ${{ steps.classify.outputs.full }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@v7.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: "1.27.4"
-
-      - name: Check go.mod is tidy
+          persist-credentials: false
+          fetch-depth: 2
+      # Pull requests check out the test merge commit; its first parent is the
+      # base tip. Renames are split so a moved source file is never hidden.
+      # Only Markdown outside go:embed targets may skip; anything else runs all.
+      - name: Classify changed files
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum || (echo "go.mod/go.sum is not tidy. Run 'go mod tidy' and commit." && exit 1)
+          if [[ "$EVENT" == pull_request ]]; then
+            git diff --no-renames --name-only HEAD^1 HEAD > /tmp/changed.txt
+          else
+            : > /tmp/changed.txt
+          fi
+          python3 scripts/ci.py classify --event "$EVENT" < /tmp/changed.txt >> "$GITHUB_OUTPUT"
 
-      - name: Build
-        run: go build ./...
-
-      - name: Check generated code is up to date
+  consistency:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
+      - name: Verify modules, generation, build and vet
         run: |
+          go mod tidy -diff
+          go mod verify
           go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.0
           go generate ./internal/api/...
-          git diff --exit-code internal/api/server.gen.go || (echo "Generated code is out of date. Run 'go generate ./internal/api/...' and commit." && exit 1)
+          git diff --exit-code -- internal/api/server.gen.go
+          go build ./...
+          go vet ./...
+      - name: Verify nested receiver module
+        working-directory: tools/webhook-receiver
+        run: |
+          go mod tidy -diff
+          go test -race -count=1 ./...
+          go build ./...
 
+  lint:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
       - name: Lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@db9de0fc1a667e1a49d2291a1a042dff081d78f6 # v9
         with:
           version: v2.15.0
           install-mode: binary
 
-      - name: Test
-        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+  race:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    name: Race shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
+      - name: Run deterministic package shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python3 scripts/ci.py shard --index "$SHARD" --count 2 --output "shards/$SHARD" > /tmp/packages.txt
+          mapfile -t packages < /tmp/packages.txt
+          go test -json -race -count=1 -timeout=120s -covermode=atomic \
+            -coverprofile="shards/$SHARD/coverage.out" "${packages[@]}" |
+            tee "shards/$SHARD/tests.json"
+      - name: Upload shard evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: race-${{ matrix.shard }}
+          overwrite: true
+          path: shards/${{ matrix.shard }}/
+          if-no-files-found: error
+          retention-days: 7
 
+  coverage:
+    needs: [changes, race]
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
+      - name: Download race evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: race-*
+          path: shards
+      - name: Audit complete partition and enforce coverage
+        run: python3 scripts/ci.py merge --input shards --count 2 --output coverage.out
+      - name: Upload coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: coverage-report
+          overwrite: true
+          path: coverage*.out
+          if-no-files-found: error
+          retention-days: 14
+
+  tailscale:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
       - name: Build, vet and test with Tailscale support
         run: |
           go build -tags tailscale ./...
           go vet -tags tailscale ./...
-          go test -race -tags tailscale ./internal/tailnet/... ./internal/config/... ./internal/webhookurl/... ./internal/dispatcher/... ./cmd/...
+          go test -race -count=1 -timeout=120s -tags tailscale ./internal/tailnet/... ./internal/config/... ./internal/webhookurl/... ./internal/dispatcher/... ./cmd/...
 
-      - name: Coverage gate
-        run: |
-          COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
-          echo "Total coverage: ${COVERAGE}%"
-          echo "Coverage threshold: ${COVERAGE_THRESHOLD}%"
-          if [ "$(echo "$COVERAGE < $COVERAGE_THRESHOLD" | bc -l)" -eq 1 ]; then
-            echo "::error::Coverage ${COVERAGE}% is below ${COVERAGE_THRESHOLD}% threshold"
-            exit 1
-          fi
-
-      - name: Upload coverage artifact
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-report
-          path: coverage.out
-          retention-days: 14
-
-  quality:
+  cross-build:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@v7.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: "1.27.4"
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
+      - name: Cross-compile admin binaries
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /tmp/cronlite-linux-amd64 ./cmd/cronlite
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /tmp/cronlite-linux-arm64 ./cmd/cronlite
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/cronlite-darwin-amd64 ./cmd/cronlite
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/cronlite-darwin-arm64 ./cmd/cronlite
 
+  build:
+    name: build
+    if: always()
+    needs: [changes, consistency, lint, race, coverage, tailscale, cross-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check build verification results
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: >-
+          python3 scripts/ci.py gate --needs "$NEEDS"
+          --required changes,consistency,lint,race,coverage,tailscale,cross-build
+          --skippable consistency,lint,race,coverage,tailscale,cross-build
+
+  quality:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: '**/go.sum'
       - name: Install quality tools
         run: |
           go install github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0
           go install github.com/uudashr/gocognit/cmd/gocognit@v1.3.0
-
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@db9de0fc1a667e1a49d2291a1a042dff081d78f6 # v9
         with:
           version: v2.15.0
           install-mode: binary
           install-only: true
-
       - name: Run quality checks
-        run: chmod +x scripts/quality.sh && ./scripts/quality.sh
+        run: ./scripts/quality.sh --static
+
+  image:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Build production image once
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          pull: true
+          tags: cronlite:ci
+          outputs: type=docker,dest=/tmp/cronlite-image.tar
+          cache-from: type=gha,scope=production
+          cache-to: type=gha,scope=production,mode=max
+      - name: Upload production image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cronlite-image
+          path: /tmp/cronlite-image.tar
+          overwrite: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  admin-unit-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run admin unit and security suite
+        run: ADMIN_COVERAGE_FILE=admin-coverage.out ./scripts/admin_ci_test.sh
+
+      - name: Upload admin coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: admin-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: admin-coverage.out
+          if-no-files-found: error
+          retention-days: 7
+
+  admin-postgres-integration:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: cronlite_admin_ci
+      POSTGRES_PASSWORD: admin-ci-password
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:4e6e670bb069649261c9c18031f0aded7bb249a5b6664ddec29c013a89310d50
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: cronlite_admin_ci
+          POSTGRES_PASSWORD: admin-ci-password
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U cronlite_admin_ci -d postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Create fresh database and apply all schemas
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER" \
+            psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" \
+              --dbname "$POSTGRES_DB" \
+              --command 'CREATE DATABASE cronlite_admin_ci'
+          for migration in schema/*.sql; do
+            docker exec -i "$POSTGRES_CONTAINER" \
+              psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" \
+                --dbname cronlite_admin_ci < "$migration"
+          done
+
+      - name: Run PostgreSQL integration suite
+        env:
+          ADMIN_TEST_DATABASE_URL: postgresql://cronlite_admin_ci:admin-ci-password@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/cronlite_admin_ci?sslmode=disable
+        run: |
+          set -euo pipefail
+          : "${ADMIN_TEST_DATABASE_URL:?A dedicated integration database is required}"
+          go test -json -tags=integration -race ./internal/webadmin \
+            -run '^TestIntegration' -count=1 -v |
+            tee /tmp/admin-integration.json
+          # Go's exit status handles failures; JSON also prevents empty or skipped suites.
+          jq -e -s '
+            [.[] | select((.Test // "") | test("^TestIntegration[^/]*$"))] as $tests |
+            ([$tests[] | select(.Action == "run") | .Test] | unique) as $selected |
+            ([$tests[] | select(.Action == "pass") | .Test] | unique) as $passed |
+            ($selected | length) > 0 and $selected == $passed and
+            all(.[]; .Action != "skip")
+          ' /tmp/admin-integration.json > /dev/null || {
+            printf 'admin integration suite was empty, incomplete, or skipped tests\n' >&2
+            exit 1
+          }
+
+      - name: Run dispatch, leader election and migration integration suites
+        env:
+          CRONLITE_TEST_DATABASE_URL: postgresql://cronlite_admin_ci:admin-ci-password@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/cronlite_admin_ci?sslmode=disable
+          MIGRATE_TEST_DATABASE_URL: postgresql://cronlite_admin_ci:admin-ci-password@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/postgres?sslmode=disable
+        run: |
+          set -euo pipefail
+          : "${CRONLITE_TEST_DATABASE_URL:?A migrated integration database is required}"
+          : "${MIGRATE_TEST_DATABASE_URL:?A database-creating integration role is required}"
+          # Serialize test binaries sharing the migrated database. Concurrency
+          # exercised inside ownership, dispatch and election tests is preserved.
+          packages=(./internal/store/postgres ./internal/leaderelection ./internal/migrate ./cmd/cronlite)
+          go test -json -tags=integration -race -p 1 -count=1 -timeout=10m \
+            "${packages[@]}" | tee /tmp/core-integration.json
+          # Require every selected package and top-level test to finish, with
+          # no skipped tests (including subtests) or empty package suites.
+          jq -e -s --argjson expected '[
+            "github.com/djlord-it/cronlite/internal/store/postgres",
+            "github.com/djlord-it/cronlite/internal/leaderelection",
+            "github.com/djlord-it/cronlite/internal/migrate",
+            "github.com/djlord-it/cronlite/cmd/cronlite"]' '
+            . as $events |
+            ([$events[] | select(.Test == null and .Action == "pass") | .Package] | sort) == ($expected | sort) and
+            all($events[]; .Action != "skip" and .Action != "fail") and
+            all($expected[]; . as $package |
+              ([$events[] | select(.Package == $package and .Action == "run" and
+                ((.Test // "") | test("^Test[^/]*$"))) | .Test] | sort) as $selected |
+              ([$events[] | select(.Package == $package and .Action == "pass" and
+                ((.Test // "") | test("^Test[^/]*$"))) | .Test] | sort) as $passed |
+              ($selected | length) > 0 and $selected == $passed)
+          ' /tmp/core-integration.json > /dev/null || {
+            printf 'core integration suites were empty, incomplete, or skipped tests\n' >&2
+            exit 1
+          }
+
+      - name: Collect sanitized integration diagnostics
+        if: failure()
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          diagnostics=/tmp/admin-integration-diagnostics
+          mkdir -p "$diagnostics"
+          if [[ -f /tmp/admin-integration.json ]]; then
+            jq -r 'select(.Output != null) | .Output' \
+              /tmp/*integration.json |
+              sed -E \
+                -e 's/ec_[0-9a-fA-F]{64}/[REDACTED_API_KEY]/g' \
+                -e 's#postgres(ql)?://[^[:space:]]+#[REDACTED_DATABASE_URL]#g' \
+                -e 's/admin-ci-password/[REDACTED_PASSWORD]/g' \
+                > "$diagnostics/integration.log"
+          else
+            printf 'integration test log was not created\n' \
+              > "$diagnostics/integration.log"
+          fi
+          {
+            docker exec "$POSTGRES_CONTAINER" \
+              psql --username "$POSTGRES_USER" --dbname cronlite_admin_ci \
+                --command '\dt' || true
+            docker exec "$POSTGRES_CONTAINER" \
+              psql --username "$POSTGRES_USER" --dbname cronlite_admin_ci \
+                --tuples-only --command \
+                "SELECT schemaname, COUNT(*) FROM pg_tables GROUP BY schemaname ORDER BY schemaname" ||
+              true
+          } 2>&1 |
+            sed -E \
+              -e 's/ec_[0-9a-fA-F]{64}/[REDACTED_API_KEY]/g' \
+              -e 's#postgres(ql)?://[^[:space:]]+#[REDACTED_DATABASE_URL]#g' \
+              -e 's/admin-ci-password/[REDACTED_PASSWORD]/g' \
+              > "$diagnostics/database.txt"
+
+      - name: Upload integration diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: admin-integration-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/admin-integration-diagnostics
+          if-no-files-found: error
+          retention-days: 7
+
+  admin-assets-launcher:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check launcher and smoke shell syntax
+        run: |
+          bash -n \
+            scripts/dev.sh \
+            scripts/dev_test.sh \
+            scripts/admin_smoke_test.sh \
+            scripts/admin_smoke_test_test.sh \
+            scripts/container_contract_test.sh
+
+      - name: Run launcher contract
+        run: ./scripts/dev_test.sh --all
+
+      - name: Run smoke contract
+        run: ./scripts/admin_smoke_test_test.sh
+
+      - name: Lint GitHub Actions workflow
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+
+      - name: Verify CI orchestration helpers
+        run: python3 -m unittest discover -s scripts -p ci_test.py -v
+
+      - name: Run container contract
+        run: ./scripts/container_contract_test.sh
+
+  admin-smoke:
+    needs: [changes, image]
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_PROJECT_NAME: cronlite-admin-${{ github.run_id }}-${{ github.run_attempt }}
+      ADMIN_CI_COMPOSE_FILE: docker-compose.admin-ci.yml
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download production image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: cronlite-image
+          path: /tmp
+
+      - name: Build admin smoke image
+        run: |
+          docker load --input /tmp/cronlite-image.tar
+          docker tag cronlite:ci cronlite:admin-ci
+
+      - name: Generate masked bootstrap token
+        run: |
+          set -euo pipefail
+          bootstrap_token="$(openssl rand -hex 32)"
+          printf '::add-mask::%s\n' "$bootstrap_token"
+          printf 'ADMIN_BOOTSTRAP_TOKEN=%s\n' "$bootstrap_token" >> "$GITHUB_ENV"
+          unset bootstrap_token
+
+      - name: Start admin smoke stack
+        run: |
+          set -euo pipefail
+          docker compose \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            --file "$ADMIN_CI_COMPOSE_FILE" \
+            up --detach --wait --no-build
+
+      - name: Run admin smoke lifecycle
+        run: |
+          set -euo pipefail
+          published_address="$(
+            docker compose \
+              --project-name "$COMPOSE_PROJECT_NAME" \
+              --file "$ADMIN_CI_COMPOSE_FILE" \
+              port cronlite 8080
+          )"
+          published_port="${published_address##*:}"
+          [[ "$published_port" =~ ^[0-9]+$ ]]
+          ADMIN_BASE_URL="http://127.0.0.1:${published_port}" \
+            ./scripts/admin_smoke_test.sh
+
+      - name: Collect sanitized smoke diagnostics
+        if: failure()
+        run: |
+          set -euo pipefail
+          diagnostics=/tmp/admin-smoke-diagnostics
+          bootstrap_token="${ADMIN_BOOTSTRAP_TOKEN:-}"
+          export ADMIN_BOOTSTRAP_TOKEN="${bootstrap_token:-diagnostics-only}"
+          mkdir -p "$diagnostics"
+          if [[ -n "$bootstrap_token" ]]; then
+            {
+              docker compose \
+                --project-name "$COMPOSE_PROJECT_NAME" \
+                --file "$ADMIN_CI_COMPOSE_FILE" ps || true
+              docker compose \
+                --project-name "$COMPOSE_PROJECT_NAME" \
+                --file "$ADMIN_CI_COMPOSE_FILE" logs --no-color || true
+            } 2>&1 |
+              sed -E \
+                -e "s/${bootstrap_token}/[REDACTED_BOOTSTRAP_TOKEN]/g" \
+                -e 's/ec_[0-9a-fA-F]{64}/[REDACTED_API_KEY]/g' \
+                > "$diagnostics/compose.txt"
+          else
+            {
+              docker compose \
+                --project-name "$COMPOSE_PROJECT_NAME" \
+                --file "$ADMIN_CI_COMPOSE_FILE" ps || true
+              docker compose \
+                --project-name "$COMPOSE_PROJECT_NAME" \
+                --file "$ADMIN_CI_COMPOSE_FILE" logs --no-color || true
+            } 2>&1 |
+              sed -E \
+                -e 's/ec_[0-9a-fA-F]{64}/[REDACTED_API_KEY]/g' \
+                > "$diagnostics/compose.txt"
+          fi
+
+      - name: Upload smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: admin-smoke-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/admin-smoke-diagnostics
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Stop admin smoke stack
+        if: always()
+        run: |
+          export ADMIN_BOOTSTRAP_TOKEN="${ADMIN_BOOTSTRAP_TOKEN:-cleanup-only}"
+          docker compose \
+            --project-name "$COMPOSE_PROJECT_NAME" \
+            --file "$ADMIN_CI_COMPOSE_FILE" \
+            down -v --remove-orphans
+
+  ha-test:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        with:
+          driver: docker-container
+
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/ha_test.sh
+
+      - name: Run HA test harness
+        env:
+          HA_TEST_SKIP_CLEANUP: "true"
+          RACE_ENABLED: "1"
+        run: ./scripts/ha_test.sh
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          mkdir -p ha_artifacts
+
+          docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test ps \
+            > ha_artifacts/compose_ps.txt 2>&1 || true
+
+          docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test logs --no-color \
+            > ha_artifacts/compose.log 2>&1 || true
+
+          for svc in cronlite_1 cronlite_2 cronlite_3 postgres webhook-receiver; do
+            docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test logs --no-color "$svc" \
+              > "ha_artifacts/${svc}.log" 2>&1 || true
+          done
+
+          curl -sf http://localhost:9090/stats \
+            > ha_artifacts/receiver_stats.json 2>/dev/null || true
+
+      - name: Upload artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ha-artifacts
+          path: ha_artifacts/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f docker-compose.ha-test.yml -p cronlite-ha-test down -v --remove-orphans 2>/dev/null || true
+
+  govulncheck:
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
+    name: Go Vulnerability Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version: "1.27.4"
+
+      - name: Run govulncheck
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
+        with:
+          go-version-input: "1.27.4"
+          go-package: ./...
+
+  trivy:
+    name: Container Image Scan
+    needs: [changes, image]
+    if: needs.changes.outputs.full == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download production image
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: cronlite-image
+          path: /tmp
+      - name: Load production image
+        run: docker load --input /tmp/cronlite-image.tar
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: cronlite:ci
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [changes,consistency,lint,race,coverage,tailscale,cross-build,build,quality,image,admin-unit-security,admin-postgres-integration,admin-assets-launcher,admin-smoke,ha-test,govulncheck,trivy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require every verification to succeed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        # Docs-only pull requests may skip only these jobs; build succeeds by
+        # auditing its own skips. admin-unit-security and admin-assets-launcher
+        # always run because they verify README, OPERATORS and schema/README.
+        run: >-
+          python3 scripts/ci.py gate --needs "$NEEDS"
+          --required changes,consistency,lint,race,coverage,tailscale,cross-build,build,quality,image,admin-unit-security,admin-postgres-integration,admin-assets-launcher,admin-smoke,ha-test,govulncheck,trivy
+          --skippable consistency,lint,race,coverage,tailscale,cross-build,quality,image,admin-postgres-integration,admin-smoke,ha-test,govulncheck,trivy
