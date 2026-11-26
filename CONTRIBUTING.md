@@ -47,6 +47,32 @@ go build -o cronlite ./cmd/cronlite
 ./scripts/quality.sh
 ```
 
+### Reproducing CI locally
+
+CI (`.github/workflows/ci.yml`) splits verification into parallel jobs; `CI OK` is the aggregate result. The commands below reproduce the jobs that do not require Docker:
+
+```bash
+# consistency
+go mod tidy -diff && go mod verify
+go generate ./internal/api/... && git diff --exit-code -- internal/api/server.gen.go
+go build ./... && go vet ./...
+
+# race shards + coverage (one local run covers every shard)
+go test -race -count=1 -timeout=120s -covermode=atomic -coverprofile=coverage.out ./...
+
+# tailscale variant
+go build -tags tailscale ./... && go vet -tags tailscale ./...
+
+# admin gates, static quality checks, CI helper tests
+./scripts/admin_ci_test.sh
+./scripts/quality.sh --static
+python3 -m unittest discover -s scripts -p ci_test.py
+```
+
+CI's race tests run in two deterministic package shards (`scripts/ci.py shard`). The `coverage` job merges them only after verifying every package ran exactly once, and enforces the 40% total and 80% admin coverage minimums. When the test suite grows, refresh the package timings in `scripts/ci_timings.json` from a successful run.
+
+Pull requests that change only Markdown files (outside `go:embed` targets) skip the build, test, image, HA and scan jobs. The jobs that verify `README.md`, `OPERATORS.md` and `schema/README.md` still run, and `CI OK` accepts a skip only when the `changes` job classified the pull request as docs-only. Any other change, every push to `main`/`develop` and manual runs execute the full pipeline.
+
 ### Project Structure
 
 ```

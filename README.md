@@ -230,12 +230,12 @@ Observed browser and server memory under a 20,000-job stress workload is documen
 
 ## Admin CI
 
-The blocking admin workflow is [`.github/workflows/admin-ci.yml`](.github/workflows/admin-ci.yml). Its four jobs cover:
+The admin gates are jobs in the consolidated [`.github/workflows/ci.yml`](.github/workflows/ci.yml), aggregated with every other verification by the `CI OK` job:
 
 - `admin-unit-security`: race-enabled unit/security tests, fuzz smoke tests, and an 80% admin coverage gate.
-- `admin-postgres-integration`: tagged integration tests against a fresh dedicated PostgreSQL database with every migration applied.
-- `admin-assets-launcher`: launcher, smoke, and container shell contracts plus Actionlint.
-- `admin-smoke`: four CGO-disabled cross-builds and an isolated Docker image lifecycle smoke test.
+- `admin-postgres-integration`: tagged integration tests (admin, dispatch ownership, leader election, migrations) against a fresh dedicated PostgreSQL database with every migration applied.
+- `admin-assets-launcher`: launcher, smoke, and container shell contracts, Actionlint, and the CI helper tests.
+- `admin-smoke`: an isolated Docker lifecycle smoke test of the production image built once by the `image` job. The four CGO-disabled cross-builds run in the separate `cross-build` job.
 
 Run the primary gate locally:
 
