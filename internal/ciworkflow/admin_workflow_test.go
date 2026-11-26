@@ -548,7 +548,8 @@ func validateActions(v *contractViolations, jobs map[string]workflowJob) {
 		"admin-smoke":                1,
 		"admin-unit-security":        1,
 	}
-	for jobName, job := range jobs {
+	for jobName := range jobs {
+		job := jobs[jobName]
 		checkoutCount := 0
 		setupGoCount := 0
 		uploadCount := 0
@@ -832,7 +833,8 @@ func TestDocsOnlySkipsMatchGates(t *testing.T) {
 	}
 	var violations contractViolations
 	conditional := map[string]bool{}
-	for name, job := range root.Jobs {
+	for name := range root.Jobs {
+		job := root.Jobs[name]
 		switch job.If {
 		case fullPipelineOnly:
 			conditional[name] = true
