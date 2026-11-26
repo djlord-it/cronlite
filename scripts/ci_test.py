@@ -63,6 +63,26 @@ class ChangeClassificationTests(unittest.TestCase):
     def test_directory_embeds_cover_nested_markdown(self):
         self.assertTrue(ci.classify("pull_request", ["web/static/deep/a.md"], ["web/static"]))
 
+    def test_quoted_embed_patterns_stay_single_tokens(self):
+        self.assertEqual(["docs/user guide.md", "raw dir/*", "plain.txt"],
+                         ci.embed_arguments('"docs/user guide.md" `raw dir/*` plain.txt'))
+        for broken in ['"unterminated', '"bad \\q escape"', '`unterminated', '']:
+            with self.subTest(broken=broken):
+                self.assertIsNone(ci.embed_arguments(broken))
+
+    def test_embed_discovery_fails_closed(self):
+        with tempfile.TemporaryDirectory() as path:
+            root = Path(path)
+            (root / "pkg").mkdir()
+            (root / "pkg" / "a.go").write_text(
+                'package pkg\n//go:embed "docs/user guide.md" docs/[^x].md\n//go:embed "broken\n')
+            patterns = ci.embed_patterns(root)
+        self.assertIn("pkg/docs/user guide.md", patterns)
+        self.assertEqual(2, patterns.count(ci.MATCH_ALL))
+        self.assertTrue(ci.classify("pull_request", ["pkg/docs/user guide.md"], patterns[:1]))
+        self.assertTrue(ci.classify("pull_request", ["pkg/docs/a.md"], [ci.broad_pattern("pkg/docs/[^x].md")]))
+        self.assertTrue(ci.classify("pull_request", ["README.md"], [ci.MATCH_ALL]))
+
     def test_repository_embeds_are_discovered(self):
         root = Path(__file__).resolve().parent.parent
         patterns = ci.embed_patterns(root)
@@ -88,6 +108,13 @@ class SkippableGateTests(unittest.TestCase):
                       self.needs("false", "skipped", changes="failure")]:
             with self.subTest(needs=needs), self.assertRaises(ValueError):
                 ci.check_gate(needs, self.REQUIRED, ["race"])
+
+    def test_duplicate_job_ids_are_rejected(self):
+        needs = {"a": {"result": "success"}}
+        with self.assertRaises(ValueError):
+            ci.check_gate(needs, ["a", "a"])
+        with self.assertRaises(ValueError):
+            ci.check_gate(self.needs("false", "skipped"), self.REQUIRED, ["race", "race"])
 
     def test_skippable_set_must_be_valid(self):
         for skippable in [["changes"], ["unknown"]]:
@@ -120,6 +147,11 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(2, len(rows))
         self.assertEqual(3, sum(row[1] for row in rows))
 
+    def test_distinct_numeric_ranges_count_separately(self):
+        self.shard("0", ["m/a"], "mode: atomic\nm/a/a.go:1.1,2.2 2 1\nm/a/a.go:10.1,12.2 3 0\n")
+        self.shard("1", ["m/b"], "mode: atomic\nm/b/b.go:1.1,2.2 1 0\n")
+        self.assertEqual(3, len(ci.merge_profiles(self.root, 2, self.packages)))
+
     def test_missing_artifact_or_package_is_rejected(self):
         self.shard("0", ["m/a"], "mode: atomic\nm/a/a.go:1.1,2.2 2 1\n")
         with self.assertRaises(ValueError):
@@ -137,7 +169,8 @@ class CoverageTests(unittest.TestCase):
         for profile in ["", "mode: set\n", "mode: atomic\n", "mode: atomic\nbad\n",
                         "mode: atomic\nm/foreign/x.go:1.1,2.2 1 1\n",
                         "mode: atomic\nm/a/a.go:1.1,2.2 1 -1\n",
-                        "mode: atomic\nm/a/a.go:1.1,2.2 1 1\nm/a/a.go:1.1,2.2 1 1\n"]:
+                        "mode: atomic\nm/a/a.go:1.1,2.2 1 1\nm/a/a.go:1.1,2.2 1 1\n",
+                        "mode: atomic\nm/a/a.go:1.1,2.2 1 1\nm/a/a.go:01.1,2.02 1 1\n"]:
             with self.subTest(profile=profile), tempfile.TemporaryDirectory() as path:
                 file = Path(path) / "coverage.out"
                 file.write_text(profile)
@@ -151,6 +184,23 @@ class CoverageTests(unittest.TestCase):
                         {"Action": "fail", "Package": "m/a", "Test": "TestBroken"}]]:
             with self.subTest(events=events), self.assertRaises(ValueError):
                 ci.check_results(events, {"m/a": True})
+
+    def test_build_output_is_accepted_but_build_failures_are_not(self):
+        passing = [{"Action": "pass", "Package": "m/a"}]
+        ci.check_results([{"Action": "build-output", "ImportPath": "m/a [m/a.test]",
+                           "Output": "ld: warning\n"}] + passing, {"m/a": True})
+        for event in [{"Action": "build-fail", "ImportPath": "m/a [m/a.test]"},
+                      {"Action": "build-output"}, {"Action": "pass"}]:
+            with self.subTest(event=event), self.assertRaises(ValueError):
+                ci.check_results([event] + passing, {"m/a": True})
+
+    def test_missing_or_unknown_actions_are_rejected(self):
+        passing = [{"Action": "output", "Package": "m/a", "Output": "ok\n"},
+                   {"Action": "pass", "Package": "m/a"}]
+        ci.check_results(passing, {"m/a": True})
+        for event in [{"Package": "m/a"}, {"Package": "m/a", "Action": "explode"}]:
+            with self.subTest(event=event), self.assertRaises(ValueError):
+                ci.check_results([event] + passing, {"m/a": True})
 
     def test_no_test_package_skip_is_legitimate(self):
         ci.check_results([{"Action": "skip", "Package": "m/b"}], {"m/b": False})

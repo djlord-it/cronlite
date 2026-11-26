@@ -34,6 +34,36 @@ def partition(names, weights, count):
 
 
 EMBED = re.compile(r"^\s*//go:embed\s+(.+)$")
+EMBED_TOKEN = re.compile(r'\s*("(?:[^"\\]|\\.)*"|`[^`]*`|[^\s"`]+)')
+MATCH_ALL = "*"
+
+
+def embed_arguments(text):
+    """Split go:embed arguments like Go: bare, "interpreted" or `raw` tokens.
+    Returns None when the line cannot be parsed reliably."""
+    tokens, position, text = [], 0, text.rstrip()
+    while position < len(text):
+        match = EMBED_TOKEN.match(text, position)
+        if not match or match.end() == position:
+            return None
+        token = match.group(1)
+        if token.startswith('"'):
+            try:
+                token = json.loads(token)
+            except ValueError:
+                return None
+        elif token.startswith("`"):
+            token = token[1:-1]
+        tokens.append(token)
+        position = match.end()
+    return tokens or None
+
+
+def broad_pattern(pattern):
+    """Go and Python globs differ for classes and escapes ([^x] vs [!x]); any
+    pattern using them matches everything so classification stays fail-closed.
+    Python "*" also crosses "/", which is broader than Go's path.Match."""
+    return MATCH_ALL if "[" in pattern or "\\" in pattern else pattern
 
 
 def embed_patterns(root):
@@ -46,9 +76,14 @@ def embed_patterns(root):
         for line in source.read_text(errors="replace").splitlines():
             match = EMBED.match(line)
             if match:
-                for pattern in match.group(1).split():
-                    pattern = pattern.strip('"`').removeprefix("all:")
-                    patterns.append(str(relative.parent / pattern).removeprefix("./"))
+                arguments = embed_arguments(match.group(1))
+                if arguments is None:
+                    patterns.append(MATCH_ALL)
+                    continue
+                for pattern in arguments:
+                    pattern = broad_pattern(pattern.removeprefix("all:"))
+                    patterns.append(pattern if pattern == MATCH_ALL else
+                                    str(relative.parent / pattern).removeprefix("./"))
     return patterns
 
 
@@ -68,6 +103,9 @@ def classify(event, paths, patterns):
 
 
 def check_gate(needs, required, skippable=()):
+    for label, names in (("required", required), ("skippable", skippable)):
+        if len(names) != len(set(names)):
+            raise ValueError(f"duplicate {label} job IDs: {sorted(names)}")
     if set(needs) != set(required) or not required:
         raise ValueError(f"gate dependency mismatch: expected {sorted(required)}, got {sorted(needs)}")
     skippable = set(skippable)
@@ -88,10 +126,21 @@ def check_gate(needs, required, skippable=()):
         raise ValueError(f"required checks did not succeed: {failed}")
 
 
+TEST_ACTIONS = {"start", "run", "pause", "cont", "pass", "bench", "fail", "output", "skip"}
+
+
 def check_results(events, selected):
     terminals = {}
     for event in events:
         name, action = event.get("Package"), event.get("Action")
+        if "Package" not in event:
+            # Build events carry ImportPath; output is informational, while a
+            # build-fail (or anything else without a package) is rejected.
+            if action == "build-output" and isinstance(event.get("ImportPath"), str) and event["ImportPath"]:
+                continue
+            raise ValueError(f"unexpected non-test event: {event}")
+        if action not in TEST_ACTIONS:
+            raise ValueError(f"invalid test event action in {name}: {action!r}")
         if name not in selected:
             raise ValueError(f"unexpected package in test output: {name}")
         if action == "fail":
@@ -121,7 +170,7 @@ def read_profile(path, selected):
             raise ValueError(f"invalid coverage row in {path}: {line}")
         filename, start_line, start_col, end_line, end_col, statements, hits = match.groups()
         start, end = (int(start_line), int(start_col)), (int(end_line), int(end_col))
-        location = line.rsplit(" ", 2)[0]
+        location = f"{filename}:{start[0]}.{start[1]},{end[0]}.{end[1]}"  # canonical numbers
         if filename.rsplit("/", 1)[0] not in selected or start > end or start[0] < 1 or start[1] < 1:
             raise ValueError(f"invalid or foreign coverage location: {location}")
         if location in seen:
