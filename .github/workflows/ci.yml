@@ -141,7 +141,7 @@ jobs:
           overwrite: true
           path: shards/${{ matrix.shard }}/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30  # consumers can be re-run alone for 30 days
 
   coverage:
     needs: [changes, race]
@@ -297,7 +297,7 @@ jobs:
           overwrite: true
           if-no-files-found: error
           compression-level: 0
-          retention-days: 1
+          retention-days: 30  # consumers can be re-run alone for 30 days
 
   admin-unit-security:
     runs-on: ubuntu-latest
