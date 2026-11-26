@@ -7,7 +7,7 @@ require (
 	github.com/getkin/kin-openapi v0.153.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.12.3
-	github.com/mark3labs/mcp-go v1.5.0
+	github.com/mark3labs/mcp-go v1.6.0
 	github.com/oapi-codegen/runtime v1.9.1
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/client_model v0.6.3
