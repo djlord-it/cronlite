@@ -128,11 +128,11 @@ else
 fi
 
 check "Tests pass (interface contracts hold)"
-if go test ./... -count=1 -short -timeout 60s > ${QUALITY_TMP}/test.txt 2>&1; then
+if go test ./... -count=1 -short -timeout 60s > "${QUALITY_TMP}/test.txt" 2>&1; then
   pass
 else
   fail "some tests failing"
-  tail -20 ${QUALITY_TMP}/test.txt | sed 's/^/    /'
+  tail -20 "${QUALITY_TMP}/test.txt" | sed 's/^/    /'
 fi
 
 fi
@@ -178,11 +178,11 @@ printf "\n  ${B}Functional Suitability${R}\n"
 
 if [[ "$STATIC_ONLY" -eq 0 ]]; then
 check "Test coverage (excl. generated code)"
-cover_out=$(go test ./... -short -coverprofile=${QUALITY_TMP}/coverage.out -timeout 60s 2>&1 || true)
-if [ -f ${QUALITY_TMP}/coverage.out ]; then
-  grep -v '\.gen\.go:' ${QUALITY_TMP}/coverage.out > ${QUALITY_TMP}/coverage-filtered.out || true
-  total_cov=$(go tool cover -func=${QUALITY_TMP}/coverage-filtered.out 2>/dev/null | tail -1 | awk '{print $NF}')
-  raw_cov=$(go tool cover -func=${QUALITY_TMP}/coverage.out 2>/dev/null | tail -1 | awk '{print $NF}')
+cover_out=$(go test ./... -short -coverprofile="${QUALITY_TMP}/coverage.out" -timeout 60s 2>&1 || true)
+if [ -f "${QUALITY_TMP}/coverage.out" ]; then
+  grep -v '\.gen\.go:' "${QUALITY_TMP}/coverage.out" > "${QUALITY_TMP}/coverage-filtered.out" || true
+  total_cov=$(go tool cover -func="${QUALITY_TMP}/coverage-filtered.out" 2>/dev/null | tail -1 | awk '{print $NF}')
+  raw_cov=$(go tool cover -func="${QUALITY_TMP}/coverage.out" 2>/dev/null | tail -1 | awk '{print $NF}')
   pct=$(echo "$total_cov" | tr -d '%')
   if awk "BEGIN{exit ($pct >= 60) ? 0 : 1}"; then
     pass "$total_cov (raw incl. generated: $raw_cov)"
@@ -323,7 +323,7 @@ printf "\n  ${B}Portability${R}\n"
 
 if [[ "$STATIC_ONLY" -eq 0 ]]; then
 check "Go module tidiness"
-if go mod tidy -diff > ${QUALITY_TMP}/modtidy.txt 2>&1; then
+if go mod tidy -diff > "${QUALITY_TMP}/modtidy.txt" 2>&1; then
   pass "go.mod is tidy"
 else
   warn "go mod tidy would make changes"
