@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+STATIC_ONLY=0
+case "${1:-}" in
+  "") ;;
+  --static) STATIC_ONLY=1 ;;
+  *) echo "usage: $0 [--static]" >&2; exit 2 ;;
+esac
+QUALITY_TMP="$(mktemp -d "${TMPDIR:-/tmp}/cronlite-quality.XXXXXX")" || exit 1
+trap 'rm -rf -- "$QUALITY_TMP"' EXIT
+
 GOBIN="$(go env GOPATH 2>/dev/null)/bin"
 [[ -d "$GOBIN" ]] && export PATH="$GOBIN:$PATH"
 
@@ -30,7 +39,11 @@ info()    { printf "[${INFO}] %s\n" "${1:-}"; }
 
 need_tool() {
   if ! command -v "$1" &>/dev/null; then
-    printf "  ${YELLOW}⚠ %s not installed — skipping (%s)${R}\n" "$1" "$2"
+    if [[ "$STATIC_ONLY" -eq 1 ]]; then
+      fail "required CI tool $1 is missing"
+    else
+      printf "  ${YELLOW}⚠ %s not installed — skipping (%s)${R}\n" "$1" "$2"
+    fi
     return 1
   fi
 }
@@ -106,6 +119,7 @@ fi
 
 printf "\n  ${B}[L] Liskov Substitution${R}\n"
 
+if [[ "$STATIC_ONLY" -eq 0 ]]; then
 check "go vet (type-safety checks)"
 if go vet ./... 2>/dev/null; then
   pass
@@ -114,11 +128,13 @@ else
 fi
 
 check "Tests pass (interface contracts hold)"
-if go test ./... -count=1 -short -timeout 60s > /tmp/quality_test_out.txt 2>&1; then
+if go test ./... -count=1 -short -timeout 60s > ${QUALITY_TMP}/test.txt 2>&1; then
   pass
 else
   fail "some tests failing"
-  tail -20 /tmp/quality_test_out.txt | sed 's/^/    /'
+  tail -20 ${QUALITY_TMP}/test.txt | sed 's/^/    /'
+fi
+
 fi
 
 printf "\n  ${B}[I] Interface Segregation${R}\n"
@@ -160,12 +176,13 @@ section "ISO 25000 — Software Product Quality"
 
 printf "\n  ${B}Functional Suitability${R}\n"
 
+if [[ "$STATIC_ONLY" -eq 0 ]]; then
 check "Test coverage (excl. generated code)"
-cover_out=$(go test ./... -short -coverprofile=/tmp/quality_cover.out -timeout 60s 2>&1 || true)
-if [ -f /tmp/quality_cover.out ]; then
-  grep -v '\.gen\.go:' /tmp/quality_cover.out > /tmp/quality_cover_filtered.out || true
-  total_cov=$(go tool cover -func=/tmp/quality_cover_filtered.out 2>/dev/null | tail -1 | awk '{print $NF}')
-  raw_cov=$(go tool cover -func=/tmp/quality_cover.out 2>/dev/null | tail -1 | awk '{print $NF}')
+cover_out=$(go test ./... -short -coverprofile=${QUALITY_TMP}/coverage.out -timeout 60s 2>&1 || true)
+if [ -f ${QUALITY_TMP}/coverage.out ]; then
+  grep -v '\.gen\.go:' ${QUALITY_TMP}/coverage.out > ${QUALITY_TMP}/coverage-filtered.out || true
+  total_cov=$(go tool cover -func=${QUALITY_TMP}/coverage-filtered.out 2>/dev/null | tail -1 | awk '{print $NF}')
+  raw_cov=$(go tool cover -func=${QUALITY_TMP}/coverage.out 2>/dev/null | tail -1 | awk '{print $NF}')
   pct=$(echo "$total_cov" | tr -d '%')
   if awk "BEGIN{exit ($pct >= 60) ? 0 : 1}"; then
     pass "$total_cov (raw incl. generated: $raw_cov)"
@@ -176,6 +193,8 @@ if [ -f /tmp/quality_cover.out ]; then
   fi
 else
   warn "could not compute coverage"
+fi
+
 fi
 
 check "Test-to-code ratio"
@@ -279,11 +298,16 @@ fi
 
 printf "\n  ${B}Performance Efficiency${R}\n"
 
+if [[ "$STATIC_ONLY" -eq 0 ]]; then
 check "Race condition safety"
 if go build ./... 2>/dev/null; then
-  race_out=$(go test -race -short -count=1 -timeout 120s ./... 2>&1 || true)
+  race_out=$(go test -race -short -count=1 -timeout 120s ./... 2>&1)
+  race_status=$?
   races=$(echo "$race_out" | grep -c 'DATA RACE' 2>/dev/null) || races=0
-  if [ "$races" -eq 0 ]; then
+  if [ "$race_status" -ne 0 ]; then
+    fail "race tests failed (exit $race_status)"
+    echo "$race_out" | tail -20
+  elif [ "$races" -eq 0 ]; then
     pass "no races detected"
   else
     fail "$races data race(s)"
@@ -293,13 +317,18 @@ else
   warn "build failed — skipping race detection"
 fi
 
+fi
+
 printf "\n  ${B}Portability${R}\n"
 
+if [[ "$STATIC_ONLY" -eq 0 ]]; then
 check "Go module tidiness"
-if go mod tidy -diff > /tmp/quality_modtidy.txt 2>&1; then
+if go mod tidy -diff > ${QUALITY_TMP}/modtidy.txt 2>&1; then
   pass "go.mod is tidy"
 else
   warn "go mod tidy would make changes"
+fi
+
 fi
 
 check "Build constraints / OS-specific files"
