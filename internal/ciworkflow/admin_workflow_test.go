@@ -22,7 +22,7 @@ type adminWorkflow struct {
 	Permissions map[string]string `yaml:"permissions"`
 	Concurrency struct {
 		Group            string `yaml:"group"`
-		CancelInProgress bool   `yaml:"cancel-in-progress"`
+		CancelInProgress string `yaml:"cancel-in-progress"`
 	} `yaml:"concurrency"`
 	Env      map[string]string `yaml:"env"`
 	Defaults struct {
@@ -33,7 +33,15 @@ type adminWorkflow struct {
 	Jobs map[string]workflowJob `yaml:"jobs"`
 }
 
+// fullPipelineOnly is the only job condition allowed for jobs that docs-only
+// pull requests may skip; see TestDocsOnlySkipsMatchGates.
+const fullPipelineOnly = "needs.changes.outputs.full == 'true'"
+
 type workflowJob struct {
+	Name            string                     `yaml:"name"`
+	If              string                     `yaml:"if"`
+	Needs           any                        `yaml:"needs"`
+	Outputs         map[string]string          `yaml:"outputs"`
 	RunsOn          string                     `yaml:"runs-on"`
 	TimeoutMinutes  int                        `yaml:"timeout-minutes"`
 	Permissions     any                        `yaml:"permissions"`
@@ -126,6 +134,56 @@ func (v contractViolations) err() error {
 func TestAdminWorkflowContract(t *testing.T) {
 	data := readAdminWorkflow(t)
 	if err := validateAdminWorkflow(data); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCrossBuildPreservesAllAdminTargets(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root struct {
+		Jobs map[string]yaml.MapSlice `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	fields, ok := root.Jobs["cross-build"]
+	if !ok {
+		t.Fatal("cross-build job is required")
+	}
+	for _, field := range fields {
+		if field.Key == "if" && field.Value != fullPipelineOnly {
+			t.Fatalf("cross-build may only be skipped for docs-only changes, got %v", field.Value)
+		}
+	}
+	encoded, err := yaml.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var job workflowJob
+	if err := yaml.UnmarshalStrict(encoded, &job); err != nil {
+		t.Fatal(err)
+	}
+	var violations contractViolations
+	validateActions(&violations, map[string]workflowJob{"cross-build": job})
+	if job.hasContinueFail || job.TimeoutMinutes <= 0 || job.RunsOn != "ubuntu-latest" {
+		violations.addf("cross-build must fail closed on an Ubuntu runner with a timeout")
+	}
+	builds := findStep(job, "Cross-compile admin binaries")
+	if builds.If != "" || builds.hasContinueFail {
+		violations.addf("cross-build must execute every target and propagate errors")
+	}
+	for _, target := range []string{
+		"GOOS=linux GOARCH=amd64",
+		"GOOS=linux GOARCH=arm64",
+		"GOOS=darwin GOARCH=amd64",
+		"GOOS=darwin GOARCH=arm64",
+	} {
+		requireRunContains(&violations, "cross-compile", builds, "CGO_ENABLED=0", target, "./cmd/cronlite")
+	}
+	if err := violations.err(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -305,7 +363,7 @@ func TestAdminWorkflowContractRejectsMutations(t *testing.T) {
 		{
 			name: "missing checkout action",
 			mutate: func(input []byte) []byte {
-				pattern := regexp.MustCompile(`(?m)^      - name: Checkout\n        uses: actions/checkout@[^\n]+\n        with:\n          persist-credentials: false\n\n`)
+				pattern := regexp.MustCompile(`(?m)^\s*- name: Checkout\n\s*uses: actions/checkout@[^\n]+\n\s*with:\n\s*persist-credentials: false\n`)
 				output := pattern.ReplaceAll(input, nil)
 				if bytes.Equal(output, input) {
 					t.Fatal("checkout step to remove was not found")
@@ -331,12 +389,48 @@ func TestAdminWorkflowContractRejectsMutations(t *testing.T) {
 
 func readAdminWorkflow(t *testing.T) []byte {
 	t.Helper()
-	path := filepath.Join("..", "..", ".github", "workflows", "admin-ci.yml")
+	path := filepath.Join("..", "..", ".github", "workflows", "ci.yml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read admin workflow: %v", err)
 	}
-	return data
+	projected, err := projectAdminWorkflow(data)
+	if err != nil {
+		t.Fatalf("select admin jobs from CI: %v", err)
+	}
+	return projected
+}
+
+// Decode the complete execution graph generically, then apply the strict admin
+// schema to the preserved admin jobs. Other CI jobs have their own contracts.
+func projectAdminWorkflow(data []byte) ([]byte, error) {
+	var root yaml.MapSlice
+	if err := yaml.UnmarshalStrict(data, &root); err != nil {
+		return nil, err
+	}
+	for i := range root {
+		// yaml.v2 treats the Actions "on" key as YAML 1.1 boolean true
+		// when decoding generically; restore its Actions spelling on projection.
+		if root[i].Key == true {
+			root[i].Key = "on"
+		}
+		if root[i].Key != "jobs" {
+			continue
+		}
+		jobs, ok := root[i].Value.(yaml.MapSlice)
+		if !ok {
+			return nil, fmt.Errorf("jobs must be a mapping")
+		}
+		var adminJobs yaml.MapSlice
+		for _, job := range jobs {
+			switch job.Key {
+			case "admin-assets-launcher", "admin-postgres-integration", "admin-smoke", "admin-unit-security":
+				adminJobs = append(adminJobs, job)
+			}
+		}
+		root[i].Value = adminJobs
+	}
+	return yaml.Marshal(root)
 }
 
 func replaceOnce(t *testing.T, input []byte, old, replacement string) []byte {
@@ -372,24 +466,36 @@ func validateAdminWorkflow(data []byte) error {
 	validateIntegrationJob(&violations, workflow.Jobs["admin-postgres-integration"])
 	validateAssetsJob(&violations, workflow.Jobs["admin-assets-launcher"])
 	validateSmokeJob(&violations, workflow.Jobs["admin-smoke"])
+	// Unit/security and assets jobs read README, OPERATORS and schema/README,
+	// so they must run for docs-only changes. Image-backed jobs may skip them.
+	for name, condition := range map[string]string{
+		"admin-unit-security":        "",
+		"admin-assets-launcher":      "",
+		"admin-postgres-integration": fullPipelineOnly,
+		"admin-smoke":                fullPipelineOnly,
+	} {
+		if workflow.Jobs[name].If != condition {
+			violations.addf("%s condition must be %q", name, condition)
+		}
+	}
 	return violations.err()
 }
 
 func validateWorkflowRoot(v *contractViolations, workflow adminWorkflow) {
-	if workflow.Name != "Admin CI" {
-		v.addf("workflow name must be Admin CI")
+	if workflow.Name != "CI" {
+		v.addf("workflow name must be CI")
 	}
-	if got := sortedKeys(workflow.Triggers); !equalStrings(got, []string{"pull_request", "push"}) {
-		v.addf("workflow triggers must be exactly push and pull_request, got %v", got)
+	if got := sortedKeys(workflow.Triggers); !equalStrings(got, []string{"pull_request", "push", "workflow_dispatch"}) {
+		v.addf("workflow triggers must be exactly push, pull_request and workflow_dispatch, got %v", got)
 	}
 	if len(workflow.Permissions) != 1 || workflow.Permissions["contents"] != "read" {
 		v.addf("root permissions must be exactly contents: read")
 	}
-	if workflow.Concurrency.Group != "admin-ci-${{ github.workflow }}-${{ github.ref }}" {
+	if workflow.Concurrency.Group != "ci-${{ github.workflow }}-${{ github.ref }}" {
 		v.addf("concurrency group must be scoped to workflow and ref")
 	}
-	if !workflow.Concurrency.CancelInProgress {
-		v.addf("concurrency must cancel superseded runs")
+	if workflow.Concurrency.CancelInProgress != "${{ github.event_name == 'pull_request' }}" {
+		v.addf("concurrency must cancel superseded pull request runs only")
 	}
 	if workflow.Env["GO_VERSION"] != "1.27.4" {
 		v.addf("GO_VERSION must be 1.27.4")
@@ -442,7 +548,8 @@ func validateActions(v *contractViolations, jobs map[string]workflowJob) {
 		"admin-smoke":                1,
 		"admin-unit-security":        1,
 	}
-	for jobName, job := range jobs {
+	for jobName := range jobs {
+		job := jobs[jobName]
 		checkoutCount := 0
 		setupGoCount := 0
 		uploadCount := 0
@@ -474,6 +581,10 @@ func validateActions(v *contractViolations, jobs map[string]workflowJob) {
 				}
 			case strings.HasPrefix(step.Uses, "actions/upload-artifact@"):
 				uploadCount++
+			case strings.HasPrefix(step.Uses, "actions/download-artifact@"):
+				if jobName != "admin-smoke" {
+					v.addf("%s must not download the smoke image", jobName)
+				}
 			default:
 				v.addf("%s step %q uses an unsupported action", jobName, step.Name)
 			}
@@ -570,7 +681,6 @@ func validateAssetsJob(v *contractViolations, job workflowJob) {
 		"./scripts/admin_smoke_test_test.sh")
 	requireRunContains(v, "actionlint", findStep(job, "Lint GitHub Actions workflow"),
 		"github.com/rhysd/actionlint/cmd/actionlint@v1.7.7",
-		".github/workflows/admin-ci.yml",
 	)
 	requireRunContains(v, "container contract", findStep(job, "Run container contract"),
 		"./scripts/container_contract_test.sh")
@@ -581,17 +691,23 @@ func validateSmokeJob(v *contractViolations, job workflowJob) {
 		v.addf("smoke compose project must be unique to run_id and run_attempt")
 	}
 
-	builds := findStep(job, "Cross-compile admin binaries")
-	for _, target := range []string{
-		"GOOS=linux GOARCH=amd64",
-		"GOOS=linux GOARCH=arm64",
-		"GOOS=darwin GOARCH=amd64",
-		"GOOS=darwin GOARCH=arm64",
-	} {
-		requireRunContains(v, "smoke cross-compile", builds, "CGO_ENABLED=0", target)
+	requireRunContains(v, "smoke image load", findStep(job, "Build admin smoke image"),
+		"docker load --input /tmp/cronlite-image.tar",
+		"docker tag cronlite:ci cronlite:admin-ci")
+	if needs := fmt.Sprint(job.Needs); needs != "[changes image]" {
+		v.addf("smoke must require the image build")
 	}
-	requireRunContains(v, "smoke image build", findStep(job, "Build admin smoke image"),
-		"docker build --tag cronlite:admin-ci .")
+	downloads := 0
+	for _, step := range job.Steps {
+		if strings.HasPrefix(step.Uses, "actions/download-artifact@") {
+			downloads++
+			requireWith(v, "smoke image download", step, "name", "cronlite-image")
+			requireWith(v, "smoke image download", step, "path", "/tmp")
+		}
+	}
+	if downloads != 1 {
+		v.addf("smoke must download exactly one shared image artifact")
+	}
 
 	token := findStep(job, "Generate masked bootstrap token")
 	requireRunContains(v, "smoke bootstrap token", token,
@@ -699,4 +815,89 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+// Every job a docs-only pull request may skip must say so with the exact
+// classification condition, and both gates must list exactly those jobs as
+// skippable. Any drift could let a skipped verification look green.
+func TestDocsOnlySkipsMatchGates(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root struct {
+		Jobs map[string]workflowJob `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	var violations contractViolations
+	conditional := map[string]bool{}
+	for name := range root.Jobs {
+		job := root.Jobs[name]
+		switch job.If {
+		case fullPipelineOnly:
+			conditional[name] = true
+			if !strings.Contains(fmt.Sprint(job.Needs), "changes") {
+				violations.addf("%s must need changes to read its classification", name)
+			}
+		case "always()":
+			if name != "build" && name != "ci-ok" {
+				violations.addf("only aggregate gates may run unconditionally, got %s", name)
+			}
+		case "":
+		default:
+			violations.addf("%s has unsupported condition %q", name, job.If)
+		}
+	}
+	if output := root.Jobs["changes"].Outputs["full"]; output != "${{ steps.classify.outputs.full }}" {
+		violations.addf("changes must expose the classifier output, got %q", output)
+	}
+	if root.Jobs["changes"].If != "" {
+		violations.addf("changes must always run")
+	}
+	flag := regexp.MustCompile(`--(required|skippable) (\S+)`)
+	gate := func(job, step string) (required, skippable map[string]bool) {
+		required, skippable = map[string]bool{}, map[string]bool{}
+		for _, match := range flag.FindAllStringSubmatch(findStep(root.Jobs[job], step).Run, -1) {
+			target := required
+			if match[1] == "skippable" {
+				target = skippable
+			}
+			for _, name := range strings.Split(match[2], ",") {
+				target[name] = true
+			}
+		}
+		needs := map[string]bool{}
+		for _, name := range root.Jobs[job].Needs.([]any) {
+			needs[fmt.Sprint(name)] = true
+		}
+		if !equalStrings(sortedKeys(required), sortedKeys(needs)) {
+			violations.addf("%s --required must equal its needs", job)
+		}
+		return required, skippable
+	}
+	required, skippable := gate("ci-ok", "Require every verification to succeed")
+	for name := range root.Jobs {
+		if name != "ci-ok" && !required[name] {
+			violations.addf("CI OK must require %s", name)
+		}
+	}
+	if !equalStrings(sortedKeys(skippable), sortedKeys(conditional)) {
+		violations.addf("CI OK skippable %v must equal conditional jobs %v", sortedKeys(skippable), sortedKeys(conditional))
+	}
+	buildRequired, buildSkippable := gate("build", "Check build verification results")
+	for name := range buildRequired {
+		if name != "changes" && !buildSkippable[name] {
+			violations.addf("build must treat %s like CI OK does", name)
+		}
+	}
+	for name := range buildSkippable {
+		if !conditional[name] {
+			violations.addf("build may only skip conditional job %s", name)
+		}
+	}
+	if err := violations.err(); err != nil {
+		t.Fatal(err)
+	}
 }

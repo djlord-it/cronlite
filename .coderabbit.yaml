@@ -10,9 +10,11 @@ reviews:
   high_level_summary: true
   high_level_summary_in_walkthrough: true
   changed_files_summary: true
-  sequence_diagrams: true
+  sequence_diagrams: false
   estimate_code_review_effort: true
   assess_linked_issues: true
+  # Single-maintainer repository: reviewer suggestions add noise, not signal.
+  suggested_reviewers: false
 
   review_status: true
   review_details: false
@@ -31,6 +33,10 @@ reviews:
     ignore_title_keywords:
       - "WIP"
       - "DO NOT MERGE"
+    # Dependency bumps are verified by the full CI pipeline and auto-merged
+    # only for signed patch updates; a prose review adds cost, not coverage.
+    ignore_usernames:
+      - "dependabot[bot]"
 
   finishing_touches:
     docstrings:
@@ -46,8 +52,16 @@ reviews:
     resolve_merge_conflict:
       enabled: false
 
+  # Generated, recorded or binary files. Their sources (api/openapi.yaml,
+  # go.mod, benchmark code) are still reviewed.
   path_filters:
     - "!internal/api/server.gen.go"
+    - "!**/go.sum"
+    - "!scripts/ci_timings.json"
+    - "!benchmarks/**/*.csv"
+    - "!tools/benchmark/example-output/**"
+    - "!**/*.woff2"
+    - "!.idea/**"
 
   path_instructions:
     - path: "**/*.go"
@@ -86,7 +100,22 @@ reviews:
       instructions: |
         Check least-privilege permissions, supply-chain risks, action pinning,
         unsafe use of pull-request input, secret exposure, timeouts, and bounded
-        failure behavior. Avoid cosmetic YAML feedback.
+        failure behavior. Flag any job that can be skipped, cancelled or fail
+        without making the `CI OK` gate fail, and any new job missing from its
+        needs. actionlint already runs in CI; avoid cosmetic YAML feedback.
+
+    - path: "{scripts/ci.py,scripts/ci_test.py,internal/ciworkflow/**}"
+      instructions: |
+        These enforce CI completeness: shard partitioning, coverage merging,
+        docs-only change classification and the aggregate gate. Every change
+        must stay fail-closed: missing, duplicated, skipped or malformed input
+        must fail, never pass. Flag any relaxation not covered by a test.
+
+    - path: "**/*.md"
+      instructions: |
+        Docs-only pull requests skip most CI jobs, so verify accuracy instead:
+        commands, flags, environment variables, file paths, defaults and
+        migration numbers must match the code. Ignore prose style and wording.
 
     - path: "**/*_test.go"
       instructions: |
@@ -101,8 +130,9 @@ reviews:
       enabled: false
     github-checks:
       enabled: true
+    # CI runs pinned actionlint as a blocking check.
     actionlint:
-      enabled: true
+      enabled: false
     shellcheck:
       enabled: true
     gitleaks:

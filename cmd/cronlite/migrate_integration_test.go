@@ -12,7 +12,24 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/djlord-it/cronlite/internal/migrate"
+	"github.com/djlord-it/cronlite/schema"
 )
+
+// embeddedMigrationCount follows the migrations runMigrate applies, so adding
+// a migration cannot silently invalidate these expectations.
+func embeddedMigrationCount(t *testing.T) int {
+	t.Helper()
+	migrations, err := migrate.Load(schema.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(migrations) == 0 {
+		t.Fatal("no embedded migrations")
+	}
+	return len(migrations)
+}
 
 func newMigrateTestDB(t *testing.T) string {
 	t.Helper()
@@ -78,8 +95,8 @@ func TestRunMigrateAppliesAndStatus(t *testing.T) {
 		t.Fatalf("runMigrate(--status) = %d", code)
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if len(lines) != 11 {
-		t.Fatalf("got %d status lines, want 11:\n%s", len(lines), out)
+	if want := embeddedMigrationCount(t); len(lines) != want {
+		t.Fatalf("got %d status lines, want %d:\n%s", len(lines), want, out)
 	}
 	for _, l := range lines {
 		if !strings.Contains(l, "applied") {
@@ -108,7 +125,7 @@ func TestRunMigrateStatusNotesPreRunnerDatabase(t *testing.T) {
 	if !strings.HasPrefix(out, note+"\n") {
 		t.Fatalf("status output missing note:\n%s", out)
 	}
-	if strings.Count(out, "pending") != 11 {
-		t.Fatalf("want 11 pending lines:\n%s", out)
+	if want := embeddedMigrationCount(t); strings.Count(out, "pending") != want {
+		t.Fatalf("want %d pending lines:\n%s", want, out)
 	}
 }
