@@ -98,6 +98,27 @@ chore: update dependencies
 - Consistent style with the existing codebase
 - Clean separation between layers (domain, service, store, API)
 
+### Dependency Maintenance
+
+Dependabot checks weekly and groups minor and patch updates into one Go PR and
+one GitHub Actions PR. Major upgrades remain individual PRs. Security updates
+retain Dependabot's separate security update process.
+
+Verified Dependabot PRs containing only patch updates are queued for squash
+auto-merge into `main`. Groups containing a minor upgrade and all major upgrades
+require manual merging. Auto-merge waits for the required build, quality, admin,
+HA, and security checks and for the branch to be up to date with `main`.
+
+The auto-merge workflow reads verified metadata from the base branch and never
+checks out or executes PR code. It matches the PR head commit before enabling
+auto-merge. Keep required status checks enabled in the `protect-main` ruleset;
+if job names change, update those required check names too.
+
+Keep CI tools on explicit versions and use release binaries where available.
+Workflow contract tests enforce action identities, full SHA pins, and security
+settings without duplicating the action SHAs in Go tests. Updating a pinned
+action must not require editing a test constant.
+
 ## Reporting Issues
 
 Open a [GitHub issue](https://github.com/djlord-it/cronlite/issues) with:
