@@ -63,6 +63,11 @@ go test -race -count=1 -timeout=120s -covermode=atomic -coverprofile=coverage.ou
 # tailscale variant
 go build -tags tailscale ./... && go vet -tags tailscale ./...
 
+# tools required by the static quality checks (same versions as CI)
+go install github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0
+go install github.com/uudashr/gocognit/cmd/gocognit@v1.3.0
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+
 # admin gates, static quality checks, CI helper tests
 ./scripts/admin_ci_test.sh
 ./scripts/quality.sh --static
