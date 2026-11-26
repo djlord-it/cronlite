@@ -1,0 +1,28 @@
+{
+  "source": "https://github.com/djlord-it/cronlite/actions/runs/45726286500/job/139596866190",
+  "description": "Successful root-module race/atomic coverage package elapsed seconds. New packages default to 1 second; refresh from successful test JSON as the suite grows. Compilation and runner setup are not included.",
+  "seconds": {
+    "github.com/djlord-it/cronlite/cmd/cronlite": 1.077,
+    "github.com/djlord-it/cronlite/internal/analytics": 1.019,
+    "github.com/djlord-it/cronlite/internal/api": 1.382,
+    "github.com/djlord-it/cronlite/internal/circuitbreaker": 1.105,
+    "github.com/djlord-it/cronlite/internal/ciworkflow": 1.129,
+    "github.com/djlord-it/cronlite/internal/config": 1.039,
+    "github.com/djlord-it/cronlite/internal/cron": 1.043,
+    "github.com/djlord-it/cronlite/internal/dispatcher": 12.828,
+    "github.com/djlord-it/cronlite/internal/domain": 1.015,
+    "github.com/djlord-it/cronlite/internal/leaderelection": 1.204,
+    "github.com/djlord-it/cronlite/internal/mcp": 2.131,
+    "github.com/djlord-it/cronlite/internal/metrics": 1.035,
+    "github.com/djlord-it/cronlite/internal/migrate": 1.017,
+    "github.com/djlord-it/cronlite/internal/reconciler": 1.098,
+    "github.com/djlord-it/cronlite/internal/scheduler": 1.051,
+    "github.com/djlord-it/cronlite/internal/service": 1.031,
+    "github.com/djlord-it/cronlite/internal/store/postgres": 1.047,
+    "github.com/djlord-it/cronlite/internal/tailnet": 1.018,
+    "github.com/djlord-it/cronlite/internal/transport/channel": 1.121,
+    "github.com/djlord-it/cronlite/internal/webadmin": 2.771,
+    "github.com/djlord-it/cronlite/internal/webhookurl": 1.033,
+    "github.com/djlord-it/cronlite/tools/benchmark": 3.330
+  }
+}
